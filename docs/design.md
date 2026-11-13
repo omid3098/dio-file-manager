@@ -196,6 +196,14 @@ The release exe is at most 800 KB (CUI's own hello app is about 250 KB). The bui
   (menu, back, forward, path bar or search field, search, grid, list, view options, the job ring)
   is marked and never drags. The top 5 px and the corners resize; the other edges resize through
   Windows' own frame, which is only 8 px wide, drawn in the hairline colour (no Windows grey).
+- **Narrow windows.** The window buttons never leave the window (`plan_header` in `src/ui_chrome.c`
+  budgets the content header's width). The path bar shrinks first, from at most 480 px down to 144 px,
+  then the header's actions move into the main menu, lowest priority first: grid and list (Grid View,
+  List View), search (Search Current Folder), view options (Sort by, Reversed Order, Zoom In and Out),
+  and only when the window is nearly 360 px wide, or a file job's ring takes room, Forward and then
+  Back. The path bar never goes below 116 px. Below 640 px the sidebar is a sheet and the main menu
+  button sits in the content header, left of the window buttons. The menu scrolls when the window is
+  too short for it. About 32 px of empty header stay for dragging while the path bar is above 144 px.
 - **Window buttons** sit at the right end of the content header, 12 px after the view-options
   button: minimize, maximize or restore, close. Each is a 24 px circle with a 16 px glyph, as in
   libadwaita. The circle is always there: the foreground colour at 10% at rest, 15% on hover, 20%

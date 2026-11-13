@@ -205,7 +205,7 @@ still holds the clipboard) fail on the code before these changes.
 
 ## Header as title bar
 
-`tests/use/chrome_smoke.py` has 11 checks on the private desktop: hit testing (caption, sidebar,
+`tests/use/chrome_smoke.py` has 14 checks on the private desktop: hit testing (caption, sidebar,
 buttons, every header control, all eight resize edges, the top strip), the system Move loop
 (keyboard form `SC_MOVE 0xF010`; a mouse drag cannot start on a private desktop, so the caption is
 proved by the hit test), double click maximize and restore (maximized client equals the work area),
@@ -213,10 +213,13 @@ the three buttons (real click, the posted non-client hover, press and click of t
 close ends the app with code 0, the top three pixel rows in dark and light and active and inactive
 (ours, no Windows grey), the app's report that Windows accepted the border colour (DWM cannot read
 it back), dimming of all icons and buttons, the main menu opening from a click while inactive's
-veil is up, the window icons, and a maximized picture. `DFM_CHROME_PICTURES=<folder>` copies
-`dark-maximized.png` there. Test mode drops `WM_NCMOUSELEAVE`, like `WM_MOUSELEAVE`, because
+veil is up, the window icons, a maximized picture, and the width checks (client widths 360 to 1280, both sides of the 640 px
+breakpoint, dark and light: the three window buttons inside the window and clear of every other
+header control, hit testing agrees with them, the main menu opens where actions moved into it, and
+it scrolls in a 280 px high window). `DFM_CHROME_PICTURES=<folder>` copies `dark-maximized.png`,
+`<theme>-<width>.png` and the open-menu pictures there. Test mode drops `WM_NCMOUSELEAVE`, like `WM_MOUSELEAVE`, because
 the driver's posted hover is the only pointer. Other suites find the right-hand header icons with
 `App.header_icon(n)` (0 view options, 1 list, 2 grid, 3 search) from the snapshot, not fixed
-coordinates. `view_smoke.py`'s 50 ms latency cases fail when other work keeps the CPU at 100%;
+coordinates; they exist only in windows wide enough to keep those buttons (from about 750 px). `view_smoke.py`'s 50 ms latency cases fail when other work keeps the CPU at 100%;
 read the load, rerun, and compare with main.
 

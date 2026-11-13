@@ -36,6 +36,7 @@ U.MonitorFromWindow.restype = W.HANDLE
 U.GetMonitorInfoW.argtypes = [W.HANDLE, C.c_void_p]
 U.DestroyWindow.argtypes = [W.HWND]
 U.GetGUIThreadInfo.argtypes = [W.DWORD, C.c_void_p]
+U.SetWindowPos.argtypes = [W.HWND, W.HWND, C.c_int, C.c_int, C.c_int, C.c_int, W.UINT]
 
 
 DWM = C.WinDLL('dwmapi')
@@ -338,6 +339,99 @@ def inside():
         if os.environ.get('DFM_CHROME_PICTURES'):
             shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / 'dark-maximized.png')
 
+    def widths(theme):
+        """At every supported width the three window buttons stay inside the window, clear of every other header control,
+        and the header's hit-testing agrees with where they are. Both sides of the 640 px sidebar breakpoint."""
+        def run(a):
+            counts = {}
+            for cw in (360, 390, 480, 639, 640, 800, 1024, 1280):
+                s = None
+                for _ in range(40):
+                    U.SetWindowPos(a.hwnd, None, 40, 40, int(cw * (s['chrome']['scale'] if s else 1)) + 16, 608, 0x14)
+                    time.sleep(.1)
+                    s = a.snap()
+                    c = s['chrome']
+                    got = (c['client'][2] - c['client'][0]) / c['scale']
+                    if abs(got - cw) <= 1:
+                        break
+                    U.SetWindowPos(a.hwnd, None, 40, 40, int(cw * c['scale'] + (c['window'][2] - c['window'][0]) - (c['client'][2] - c['client'][0])), 608, 0x14)
+                assert abs(got - cw) <= 1, f'Could not size the client to {cw}: {got}'
+                g = Geo(a)
+                c = g.c
+                btn = c['buttons']
+                names = ['minimize', 'maximize', 'close']
+                for n, r in zip(names, btn):
+                    assert r[2] > 0 and r[0] >= 0 and r[0] + r[2] <= cw + 0.5, f'{theme} {cw} px: {n} button {r} is outside the {cw} px window'
+                    assert 0 <= r[1] and r[1] + r[3] <= 46, f'{theme} {cw} px: {n} button {r} is outside the header'
+                assert btn[0][0] + btn[0][2] <= btn[1][0] and btn[1][0] + btn[1][2] <= btn[2][0], f'{theme} {cw} px: window buttons overlap {btn}'
+                assert cw - (btn[2][0] + btn[2][2]) >= 4, f'{theme} {cw} px: close button touches the window edge {btn[2]}'
+                others = [r for r in c['nodrag'] if r[1] < 46 and r[2] > 0]
+                for r in others:
+                    assert r[0] >= 0 and r[0] + r[2] <= btn[0][0] + 0.5, f'{theme} {cw} px: header control {r} reaches the window buttons or leaves the window {btn[0]}'
+                others.sort()
+                for r, n in zip(others, others[1:]):
+                    assert r[0] + r[2] <= n[0] + 0.5, f'{theme} {cw} px: header controls overlap: {r} {n}'
+                for i, r in enumerate(btn):
+                    h = g.hit(a, *g.mid(r))
+                    want = HTMAXBUTTON if i == 1 else HTCLIENT
+                    assert h == want, f'{theme} {cw} px: the {names[i]} button answers hit-test {h}, not {want}'
+                counts[cw] = len(others)
+                a.msg(0x200, 0, a.point(cw / 2, 300))   # the pointer rests in the window's body, over no header control
+                time.sleep(.4)
+                a.snap(f'width-{theme}-{cw}')
+                if os.environ.get('DFM_CHROME_PICTURES') and cw in (360, 639, 640, 1280):
+                    shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'{theme}-{cw}.png')
+                if cw in (360, 640):   # the collapsed actions are reachable: the main menu opens and grows with what moved into it
+                    from PIL import Image, ImageChops
+                    mr = [r for r in others if r[0] < 240][0] if cw >= 640 else others[-1]
+                    box = tuple(int(v * g.scale) for v in (max(0, mr[0] - 230), 40, min(cw, mr[0] + 130), 400))
+                    a.snap()
+                    with Image.open(str(a.base) + '.png') as im:
+                        closed = im.convert('RGB').crop(box).copy()
+                    a.click(*g.mid(mr))
+                    time.sleep(.6)
+                    a.snap()
+                    with Image.open(str(a.base) + '.png') as im:
+                        opened = im.convert('RGB').crop(box).copy()
+                    changed = sum(1 for p in ImageChops.difference(closed, opened).convert('L').getdata() if p > 8)
+                    assert changed > 3000, f'{theme} {cw} px: the main menu did not open ({changed} pixels changed)'
+                    if os.environ.get('DFM_CHROME_PICTURES'):
+                        shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'menu-{theme}-{cw}.png')
+                    a.key(0x1B)
+                    a.msg(0x200, 0, a.point(cw / 2, 300))
+                    time.sleep(.3)
+            assert counts[360] <= counts[640] <= counts[1280] and counts[360] < counts[1280], f'Actions did not collapse in order: {counts}'
+            print(json.dumps({'visible_controls': counts}), flush=True)
+        return run
+
+    def short_menu(a):
+        """The collapsed main menu scrolls in the shortest window, so Theme and Show Hidden Files stay reachable."""
+        from PIL import Image, ImageChops
+        U.SetWindowPos(a.hwnd, None, 40, 40, 376, 288, 0x14)
+        time.sleep(.5)
+        g = Geo(a)
+        c = g.c
+        assert abs((c['client'][3] - c['client'][1]) / c['scale'] - 280) <= 2, f'Client height {c["client"]}'
+        mr = [r for r in c['nodrag'] if r[1] < 46 and r[2] > 0][-1]
+        a.click(*g.mid(mr))
+        time.sleep(.6)
+        box = tuple(int(v * g.scale) for v in (110, 60, 350, 270))
+        a.snap()
+        with Image.open(str(a.base) + '.png') as im:
+            top = im.convert('RGB').crop(box).copy()
+        for _ in range(15):
+            a.msg(0x200, 0, a.point(200, 150))
+            a.msg(0x20A, (0x10000 - 120) << 16)
+            time.sleep(.05)
+        time.sleep(.5)
+        a.snap()
+        with Image.open(str(a.base) + '.png') as im:
+            bottom = im.convert('RGB').crop(box).copy()
+        changed = sum(1 for p in ImageChops.difference(top, bottom).convert('L').getdata() if p > 8)
+        assert changed > 3000, f'The menu did not scroll in a 280 px window ({changed} pixels changed)'
+        if os.environ.get('DFM_CHROME_PICTURES'):
+            shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / 'menu-dark-360x280-scrolled.png')
+
     check('1-hit-testing', hit_testing)
     check('2-drag', drag)
     check('3-double-click', double_click)
@@ -349,6 +443,9 @@ def inside():
     check('8-menu-click-through', menu_click_through, 'dark')
     check('9-icon', icon)
     check('10-maximized-picture', maximized_picture)
+    check('11-widths-dark', widths('dark'), 'dark')
+    check('11-widths-light', widths('light'), 'light')
+    check('12-short-menu', short_menu, 'dark')
     (WORK / 'results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 

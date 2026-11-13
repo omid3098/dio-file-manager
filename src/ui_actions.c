@@ -524,6 +524,8 @@ static float job_progress(const ops_state *s) {
 }
 
 /* The header summarizes all active jobs; each row owns its cancel action. */
+bool act_jobs_active(void) { return G.jobs != NULL; }
+
 void act_job_button(void) {
     cui_ctx *ui = A.ui;
     if (!G.jobs) return;

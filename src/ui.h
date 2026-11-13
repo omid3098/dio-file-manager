@@ -106,6 +106,7 @@ void ui_sidebar_snapshot(FILE *f);
 void ui_sidebar_shutdown(void);
 void act_pre_frame(void);
 void act_keys(void);                        /* F2, Ctrl+Shift+N, Ctrl+C/X/V, Delete, Shift+Delete, Alt+Enter */
+bool act_jobs_active(void);                 /* a file job is running: the header shows its ring */
 void act_job_button(void);                  /* header: running-job ring and its popover */
 void act_frame(void);                       /* inside the content stack: popovers, dialogs, job polling */
 void act_list_ready(void);
