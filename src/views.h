@@ -11,6 +11,7 @@ enum { TK_RESTORE = 1, TK_EMPTY, TK_DELETE };
 bool views_task_start(int kind, char *const *ids, size_t n);   /* copies the ids; false when busy */
 bool views_task_busy(void);
 bool views_task_take(int *kind, long *hr);                      /* true once, when a task has finished */
-long long views_trash_count(void);                              /* cached count; refreshes on a worker */
-bool views_trash_count_poll(int *count);                        /* true while the count is being refreshed */
+#define VIEWS_TRASH_CHANGED (WM_APP + 1)
+bool views_trash_refresh(HWND window);                         /* immediate query; worker also checks every 2.5 s */
+long long views_trash_count(void);                             /* cached count only; never starts a query */
 #endif

@@ -182,12 +182,11 @@ void views_frame(void) {
         if (A.loc == LOC_TRASH) app_reload();
     }
     if (views_task_busy()) cui_request_wakeup(ui, 0.05f);
-    if (cui_time(ui) - A.trash_check_t > 2.0) {
-        A.trash_n = (int)views_trash_count();
-        A.trash_check_t = cui_time(ui);
-        cui_request_wakeup(ui, 2.5f);
+    if (A.trash_check_t < 0) {
+        if (views_trash_refresh((HWND)A.hwnd)) A.trash_check_t = 0;
+        else cui_request_wakeup(ui, 2.5f);
     }
-    if (views_trash_count_poll(&A.trash_n)) cui_request_wakeup(ui, 0.05f);
+    A.trash_n = (int)views_trash_count();
     if (V.delete_open) {
         bool open = true;
         if (cui_dialog_begin(ui, V.title, &open, &(cui_dialog_opts){ .description = "If you delete an item, it will be permanently lost.", .width = 440 })) {

@@ -1,6 +1,25 @@
-# View slider validation ó incomplete
+# Current timer repair ‚Äî acceptance pending
 
-## Acceptance worker v2 ó NOT READY TO LAND
+The e4cccb7 build passed view 11/11, input 20/20, actions 7/7, search 8/8 and
+jobs 5/5. Alternating CPU scroll: main 1.665781, 5.101433, 4.580122, 6.041233,
+2.810808; branch 5.934114, 2.342356, 3.695558, 2.342143, 4.164184. Idle main
+.026033, .052070, .052068, .078104, .078097; branch .052068, .052065, .052066,
+.078099, .026036. Fixed ceilings remain 5.0/.5 without exclusions.
+
+A separate 30-second scroll probe counted 15 queries / 826 frames on main and
+15 queries / 829 frames on the branch. Both refreshed via a two-second throttle
+in drawing code. Worker completion polling could add frames. The repair moves
+the 2.5-second interval into the event-waiting worker, preserves immediate refresh
+after file operations, and posts a UI notification only when the count changes.
+Drawing reads cached state only. No pacing, input rate or budget change.
+Runtime assertions cover scroll/idle query counts and no idle drawing for an
+unchanged badge. Acceptance reruns pending.
+
+---
+
+# View slider validation ‚Äî incomplete
+
+## Acceptance worker v2 ‚Äî NOT READY TO LAND
 
 Rebased onto main `7f805a855d66e6599cf248e1e53e90fe081da931`, preserving
 concurrent jobs, Recent removal and removable-drive eject. Only tests/README.md
@@ -50,9 +69,9 @@ The comparison does not establish extra UI work per frame as the CPU cause.
 The branch starts a fresh COM-initialized thread for each Trash badge query;
 main queries on its already-initialized UI thread. A direct hidden-desktop probe
 (trash_profile.py and trash-profile.log) isolated that lifetime cost. After the
-first cold call, fresh-thread queries took 13.7385ñ14.8795 ms; subsequent queries
-on one initialized thread took 3.9237ñ4.8005 ms. Query CPU cycles dropped from
-30.13ñ33.36 million to 10.53ñ10.80 million. Returned counts matched (57) in all
+first cold call, fresh-thread queries took 13.7385‚Äì14.8795 ms; subsequent queries
+on one initialized thread took 3.9237‚Äì4.8005 ms. Query CPU cycles dropped from
+30.13‚Äì33.36 million to 10.53‚Äì10.80 million. Returned counts matched (57) in all
 10 calls. The new app code keeps one read-only worker and auto-reset event for
 the process lifetime, retaining the shell's per-thread cache. Creation/signal
 failures release/reset state so later refreshes can retry. No pacing was changed.
@@ -83,7 +102,7 @@ are prepared and syntax-checked, not executed. Ensure main is still the base fir
 
 # Historical validation before v2 (superseded budget and status)
 
-# View slider validation ‚Äî incomplete
+# View slider validation √¢‚Ç¨‚Äù incomplete
 
 The branch was rebased onto `4b197cb` (safe field keys and no-launch test mode).
 No merge, push, install, or default file handler launch was performed.
