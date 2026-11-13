@@ -373,8 +373,6 @@ static void menu_items(void) {
     }
 }
 
-static void paint_none(cui_ctx *ui, cui_rect r, void *user) { (void)ui; (void)r; (void)user; }
-
 /* Any right click in the content pane opens the menu at the pointer: on an item the item menu, anywhere else
  * the background menu (also in the empty space below the grid rows). Its width is its own (ui_ctxmenu.c). */
 static void context_menu(void) {

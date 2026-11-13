@@ -65,6 +65,7 @@ def band_case(a, stop, picture=None):
             keep = 0 if stop == 0 else 2
             a.click(*cell_xy(a, keep))
             time.sleep(.5)
+            assert a.snap()['selection'] == [f'item-{keep:03}.txt'], ('seed', stop, a.snap()['selection'])
         press(a, *start, mods)
         move(a, *end)
         s = a.snap()

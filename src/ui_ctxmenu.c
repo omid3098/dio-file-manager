@@ -6,7 +6,6 @@
 #include <platform/cui_platform.h>
 #include <stdlib.h>
 #include <math.h>
-#include <stdlib.h>
 #include <string.h>
 #include "ui.h"
 
