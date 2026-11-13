@@ -34,7 +34,8 @@ typedef struct fs_list {
     int sort_key;
     bool sort_desc;
     volatile long state; /* fs_state */
-    volatile long owner; /* 0 running, 1 finished, 2 abandoned by the window */
+    volatile long owner; /* references held by the window and listing worker */
+    volatile long abandoned;
 } fs_list;
 
 fs_list *fs_list_start(const char *path, int sort_key, bool sort_desc);  /* returns at once */

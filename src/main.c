@@ -12,6 +12,14 @@
 
 app_t A;
 static cui_app *g_app;
+static WNDPROC test_window_proc;
+
+/* An inactive desktop has no physical pointer. Its automatic leave messages
+ * would overwrite the driver's real mouse messages before the frame runs. */
+static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_MOUSELEAVE) return 0;
+    return CallWindowProcW(test_window_proc, h, m, w, l);
+}
 
 /* ---- small helpers ---- */
 
@@ -242,7 +250,6 @@ static void global_keys(void) {
         if (A.search_open) app_set_search_open(false); else app_clear_selection();
     }
     if (cui_key_pressed(ui, CUI_KEY_ENTER) && A.cursor >= 0) app_open_vis(A.cursor);
-    if (cui_key_pressed(ui, CUI_KEY_BACKSPACE) && !A.search_open) app_up();
     if (A.view == VIEW_GRID) ui_grid_keys();
 }
 
@@ -307,6 +314,7 @@ static void frame(void) {
     A.dark = cui_get_theme_mode(ui) == CUI_THEME_DARK;
     theme_apply(ui, A.dark);
     poll_list();
+    if (A.list && fs_list_state(A.list) == FS_LOADING) cui_request_wakeup(ui, 0.02f);
     global_keys();
     cui_vec2 vp = cui_viewport_size(ui);
     bool narrow = vp.x < 640.0f;
@@ -341,6 +349,7 @@ static void frame(void) {
 
 typedef struct options {
     char shot[FS_PATH_MAX], path[FS_PATH_MAX], select[260];
+    char test_state[FS_PATH_MAX];
     int view, theme, w, h;
 } options;
 
@@ -355,6 +364,7 @@ static void parse_args(options *o) {
         const wchar_t *a = argv[i];
         bool more = i + 1 < argc;
         if (!wcscmp(a, L"--shot") && more) arg_u8(argv[++i], o->shot, sizeof o->shot);
+        else if (!wcscmp(a, L"--test-state") && more) arg_u8(argv[++i], o->test_state, sizeof o->test_state);
         else if (!wcscmp(a, L"--path") && more) arg_u8(argv[++i], o->path, sizeof o->path);
         else if (!wcscmp(a, L"--select") && more) arg_u8(argv[++i], o->select, sizeof o->select);
         else if (!wcscmp(a, L"--view") && more) o->view = !wcscmp(argv[++i], L"list") ? VIEW_LIST : VIEW_GRID;
@@ -373,6 +383,45 @@ static bool write_shot(cui_app *app, const char *path) {
     return ok;
 }
 
+static void json_text(FILE *f, const char *s) {
+    fputc('"', f);
+    for (; *s; s++) {
+        unsigned char c = (unsigned char)*s;
+        if (c == '"' || c == '\\') fputc('\\', f);
+        if (c < 32) fprintf(f, "\\u%04x", c); else fputc(c, f);
+    }
+    fputc('"', f);
+}
+
+/* Test actions arrive through the real Win32 window; this only captures state. */
+static void test_snapshot(const char *base) {
+    char request[FS_PATH_MAX + 16], output[FS_PATH_MAX + 16];
+    snprintf(request, sizeof request, "%s.request", base);
+    if (GetFileAttributesA(request) == INVALID_FILE_ATTRIBUTES) return;
+    snprintf(output, sizeof output, "%s.json", base);
+    FILE *f = fopen(output, "w");
+    if (!f) return;
+    fprintf(f, "{\"path\":"); json_text(f, A.path);
+    fprintf(f, ",\"view\":%d,\"state\":%d,\"count\":%d,\"selected\":%d,\"cursor\":%d,"
+               "\"first\":%d,\"last\":%d,\"cols\":%d,\"hidden\":%d,\"narrow\":%d,\"overlay\":%d,"
+               "\"typing\":%d,\"row\":[%.2f,%.2f,%.2f,%.2f],\"selection\":[",
+            A.view, A.list ? fs_list_state(A.list) : -1, A.vis_n, A.sel_n, A.cursor,
+            A.first_row, A.last_row, A.cols, A.show_hidden, app_is_narrow(), A.sidebar_open,
+            cui_wants_keyboard(A.ui), A.first_rect.x, A.first_rect.y, A.first_rect.w, A.first_rect.h);
+    bool comma = false;
+    for (int i = 0; i < A.vis_n; i++) if (A.sel[i]) {
+        if (comma) fputc(',', f);
+        json_text(f, app_item_name(i)); comma = true;
+    }
+    fprintf(f, "],\"documents\":"); json_text(f, A.places[2]);
+    fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));
+    json_text(f, A.drive_n ? A.drives[0].root : "");
+    fprintf(f, "}"); fclose(f);
+    snprintf(output, sizeof output, "%s.png", base);
+    write_shot(g_app, output);
+    DeleteFileA(request);
+}
+
 int main(void) {
     options o;
     memset(&o, 0, sizeof o);
@@ -382,6 +431,8 @@ int main(void) {
     g_app = cui_app_create(&(cui_app_desc){ .title = "Dio File Manager", .width = o.w, .height = o.h, .min_width = 360, .min_height = 280,
                                             .hidden = shot, .continuous = shot });
     if (!g_app) return 1;
+    if (o.test_state[0])
+        test_window_proc = (WNDPROC)SetWindowLongPtrW((HWND)cui_app_native_window(g_app), GWLP_WNDPROC, (LONG_PTR)test_input_proc);
     memset(&A, 0, sizeof A);
     A.ui = cui_app_ui(g_app);
     A.view = o.view; A.zoom = 1; A.cursor = A.anchor = -1; A.hover = -1; A.last_click_idx = -1;
@@ -398,6 +449,7 @@ int main(void) {
     while (cui_app_frame(g_app)) {
         frame();
         frames++;
+        if (o.test_state[0] && frames > 3) test_snapshot(o.test_state);
         if (shot && frames > 45 && A.list && fs_list_state(A.list) != FS_LOADING && A.list_seen) {
             if (o.select[0] && A.sel_n == 0)
                 for (int i = 0; i < A.vis_n; i++)

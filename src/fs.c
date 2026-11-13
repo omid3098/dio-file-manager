@@ -149,14 +149,14 @@ void fs_list_sort(fs_list *l, int key, bool desc) {
 /* ---- listing on a worker thread ---- */
 
 const char *fs_name(const fs_list *l, int i) { return l->names + l->items[i].name_off; }
-int fs_list_state(const fs_list *l) { return (int)l->state; }
+int fs_list_state(const fs_list *l) { return (int)InterlockedCompareExchange((volatile LONG *)&l->state, 0, 0); }
 
 static void list_free(fs_list *l) { free(l->items); free(l->names); free(l); }
 
 void fs_list_release(fs_list *l) {
     if (!l) return;
-    /* running -> abandoned: the worker frees it; finished -> free now */
-    if (InterlockedCompareExchange(&l->owner, 2, 0) != 0) list_free(l);
+    InterlockedExchange(&l->abandoned, 1);
+    if (InterlockedDecrement(&l->owner) == 0) list_free(l);
 }
 
 static bool add_entry(fs_list *l, const WIN32_FIND_DATAW *f) {
@@ -205,15 +205,16 @@ static unsigned __stdcall list_thread(void *arg) {
         result = FS_FAILED;
     } else {
         do {
-            if (l->owner == 2) break;   /* the window moved on */
+            if (l->abandoned) break;   /* the window moved on */
             if (f.cFileName[0] == L'.' && (!f.cFileName[1] || (f.cFileName[1] == L'.' && !f.cFileName[2]))) continue;
             add_entry(l, &f);
         } while (FindNextFileW(h, &f));
         FindClose(h);
-        if (l->owner != 2) fs_list_sort(l, l->sort_key, l->sort_desc);
+        if (!l->abandoned) fs_list_sort(l, l->sort_key, l->sort_desc);
     }
-    l->state = result;
-    if (InterlockedCompareExchange(&l->owner, 1, 0) == 2) list_free(l);
+    /* Publishing DONE must not let navigation free the worker's last writes. */
+    InterlockedExchange(&l->state, result);
+    if (InterlockedDecrement(&l->owner) == 0) list_free(l);
     return 0;
 }
 
@@ -222,6 +223,7 @@ fs_list *fs_list_start(const char *path, int sort_key, bool desc) {
     if (!l) return NULL;
     snprintf(l->path, sizeof l->path, "%s", path);
     l->sort_key = sort_key; l->sort_desc = desc;
+    l->owner = 2;
     uintptr_t t = _beginthreadex(NULL, 0, list_thread, l, 0, NULL);
     if (!t) { l->state = FS_FAILED; l->error = -1; l->owner = 1; return l; }
     CloseHandle((HANDLE)t);

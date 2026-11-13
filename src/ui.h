@@ -50,6 +50,7 @@ typedef struct app_t {
     int last_click_idx;
     bool sidebar_open;               /* overlay in narrow windows */
     bool reset_scroll;
+    cui_rect first_rect;             /* first built grid row, for the input smoke test */
 } app_t;
 
 extern app_t A;

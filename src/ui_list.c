@@ -15,6 +15,7 @@ void ui_list_view(void) {
     if (A.reset_scroll) { cui_scroll_to(ui, "list", 0); A.reset_scroll = false; }
     if (cui_data_grid_begin(ui, "list", cols, 4, A.vis_n, &first, &last, .row_height = 36, .selected = A.sel,
                             .hide_checkboxes = true, .sort = &sort, .cursor = &A.cursor, .anchor = &A.anchor)) {
+        A.first_row = first; A.last_row = last;
         for (int r = first; r < last; r++) {
             const fs_entry *e = app_item(r);
             if (cui_data_grid_row(ui, r)) {

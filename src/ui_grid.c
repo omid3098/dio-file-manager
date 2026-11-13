@@ -137,6 +137,7 @@ void ui_grid_view(void) {
         row_data d = { r };
         cui_canvas_result c = cui_canvas(ui, "row", CUI_FILL, CUI_PX(A.cell_h), paint_row, &d, sizeof d);
         cui_pop_id(ui);
+        if (r == first) A.first_rect = c.rect;
         if (r == first && c.rect.w > 100) A.content_w = c.rect.w;
         float cw = (c.rect.w - 2 * GPAD) / (float)cols;
         int col = (int)floorf((c.mouse.x - GPAD) / cw);
