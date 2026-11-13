@@ -1,153 +1,106 @@
-# Current timer repair — acceptance pending
+# View slider acceptance — NOT READY TO LAND
 
-The e4cccb7 build passed view 11/11, input 20/20, actions 7/7, search 8/8 and
-jobs 5/5. Alternating CPU scroll: main 1.665781, 5.101433, 4.580122, 6.041233,
-2.810808; branch 5.934114, 2.342356, 3.695558, 2.342143, 4.164184. Idle main
-.026033, .052070, .052068, .078104, .078097; branch .052068, .052065, .052066,
-.078099, .026036. Fixed ceilings remain 5.0/.5 without exclusions.
+Base main remains 7f805a855d66e6599cf248e1e53e90fe081da931.
+Runtime change: e6fb51c1643c3db0d9368c2471a152b528c958e9. A later documentation-only
+commit records these results. No merge, push, install or pacing/budget changes.
 
-A separate 30-second scroll probe counted 15 queries / 826 frames on main and
-15 queries / 829 frames on the branch. Both refreshed via a two-second throttle
-in drawing code. Worker completion polling could add frames. The repair moves
-the 2.5-second interval into the event-waiting worker, preserves immediate refresh
-after file operations, and posts a UI notification only when the count changes.
-Drawing reads cached state only. No pacing, input rate or budget change.
-Runtime assertions cover scroll/idle query counts and no idle drawing for an
-unchanged badge. Acceptance reruns pending.
+The persistent worker alone failed scroll window 1 beside passing main. The timer
+repair removes periodic queries and completion-poll wakeups from drawing. The
+worker now waits 2.5 seconds between read-only queries; file-operation invalidations
+signal its event immediately. It posts VIEWS_TRASH_CHANGED only on a count change,
+handled on the UI thread. Queries are independent of drawing, but acceptance fails.
 
----
+## Current timer repair
 
-# View slider validation — incomplete
-
-## Acceptance worker v2 — NOT READY TO LAND
-
-Rebased onto main `7f805a855d66e6599cf248e1e53e90fe081da931`, preserving
-concurrent jobs, Recent removal and removable-drive eject. Only tests/README.md
-conflicted; both acceptance sections were retained. No merge, push or install.
-
-The fixed budgets are scrolling **5.0%** and idle **0.5%** of one core, in every
-one of five windows. These supersede the older largest-main-sample rule below.
-
-### Before the worker reuse repair
-
-Measurements alternate main then branch for each window, same 20,000 files,
-1080 x 720 logical window, 64 px grid icons, 7 columns, 128 px rows, light theme,
-private desktop, 601 wheel messages per 30 s scrolling window (20 Hz).
-Idle windows last 60 s. The controller imports the unmodified shared
-cpu_budget.py ProcessTree and measure functions and checks all five windows.
-No screenshot occurs inside a window. Its source is cpu_alternating.py in the task
-folder. Main is an instrumented archive of a181303 (per-frame diagnostic file
-writes); branch is the inherited 6a25ecc executable. Therefore these are diagnosis
-samples, not final acceptance of the rebased repair. One main sample also exceeds
-the fixed budget; the budget has not been raised.
-
-| Build | Scenario | All five samples (% of one core) |
+| Scenario | Build | Windows 1–5 (% one core) |
 |---|---|---|
-| main | scroll | 2.602421, 4.060275, 4.008167, 5.986616, 1.926060 |
-| main | idle | 0.104130, 0.078099, 0.026033, 0.026034, 0.156185 |
-| branch | scroll | 5.361122, 5.153258, 5.204778, 5.777777, 4.892551 |
-| branch | idle | 0.052069, 0.026035, 0.026034, 0.078098, 0.026033 |
+| scroll | main | 7.234520, 5.882183, 2.654764, 7.130557, 3.331526 |
+| scroll | branch | 1.093018, 6.403350, 1.457474, 5.205175, 2.967153 |
+| idle | main | 0.026035, 0.052069, 0.078105, 0.052069, 0.000000 |
+| idle | branch | 0.494665, 0.416560, 0.234312, 0.312418, 0.598800 |
 
-### Per-frame comparison and cause
+Scroll windows 2 and 4 failed on both builds: main/branch 5.882183/6.403350 and
+7.130557/5.205175. The parent decides these adjacent baseline failures. Idle window
+5 is an independent failure: branch .598800 exceeds .5 beside main zero. No sample
+was excluded and no budget or test assertion was loosened.
 
-The first frame probe wrote each frame to disk and could disturb timing. Its
-raw files are retained but its frame rates are not acceptance evidence. The second
-probe buffers counters in memory and writes only on exit; it compares current
-main 7f805a8 with the rebased branch before the worker reuse repair. Same folder,
-view, geometry and 20 Hz wheel rate, alternating main/branch twice; 400 wheel
-messages each, after a 3 s settle, with startup/settle frames included in totals.
+## Worker reuse, before timer repair
 
-- counter-branch-1794563972307716700.profile: 591 frames; 3134465 UI-thread cycles/frame; 184.30 nodes/frame; 79.48 hits/frame; 88.23 grid text measures/frame
-- counter-branch-1794564020308870600.profile: 570 frames; 3110365 UI-thread cycles/frame; 184.35 nodes/frame; 79.53 hits/frame; 88.33 grid text measures/frame
-- counter-main-1794563948240998100.profile: 574 frames; 3670385 UI-thread cycles/frame; 184.41 nodes/frame; 80.55 hits/frame; 88.38 grid text measures/frame
-- counter-main-1794563996352509100.profile: 572 frames; 3610702 UI-thread cycles/frame; 184.33 nodes/frame; 80.50 hits/frame; 88.27 grid text measures/frame
-
-The List view creates only visible columns, using fixed 240 px width; no scan of
-all row text exists. The closed popover returns before building its contents.
-The comparison does not establish extra UI work per frame as the CPU cause.
-
-The branch starts a fresh COM-initialized thread for each Trash badge query;
-main queries on its already-initialized UI thread. A direct hidden-desktop probe
-(trash_profile.py and trash-profile.log) isolated that lifetime cost. After the
-first cold call, fresh-thread queries took 13.7385–14.8795 ms; subsequent queries
-on one initialized thread took 3.9237–4.8005 ms. Query CPU cycles dropped from
-30.13–33.36 million to 10.53–10.80 million. Returned counts matched (57) in all
-10 calls. The new app code keeps one read-only worker and auto-reset event for
-the process lifetime, retaining the shell's per-thread cache. Creation/signal
-failures release/reset state so later refreshes can retry. No pacing was changed.
-This identifies avoidable work; its effect on the full app budget is UNCONFIRMED.
-
-### Checks and continuation
-
-Before rebase/worker reuse: focused view_smoke.py 1-stops-open **1/1 passed**,
-including selection, real folder double-click and Back at all six stops. The
-inherited rename anchor repair already addresses the Details failure; neither the
-check nor its timing was loosened. Full view suite has not run in this worker.
-
-After rebase/worker reuse: MinSizeRel build **passed**, executable **448000 bytes**
-at build/accept/MinSizeRel/dio-file-manager.exe. New clean main baseline built at
-.agent-work/viewzoom-v2/clean-main/build/MinSizeRel/dio-file-manager.exe. No complete
-use suite or post-repair CPU budget has run; fresh final dark/light capture and
-inspection are pending. The worker reached its approximately 40-step cap and is
-handing off rather than claiming readiness.
-
-Task artifacts and continuation scripts: main checkout .agent-work/viewzoom-v2/.
-Set DFM_EXE to the accept executable and DFM_USE_WORK to this task folder. Run
-suites.py once (all five *_smoke.py, each with isolated artifacts), cpu_final.py
---final (alternating clean main and repaired branch, fixed ceilings), capture.py
-and popover.py, then inspect every requested picture. These continuation scripts
-are prepared and syntax-checked, not executed. Ensure main is still the base first.
-
----
-
-# Historical validation before v2 (superseded budget and status)
-
-# View slider validation â€” incomplete
-
-The branch was rebased onto `4b197cb` (safe field keys and no-launch test mode).
-No merge, push, install, or default file handler launch was performed.
-
-## CPU
-
-Percentages are of one core from the shared `cpu_budget.py` process-tree meter.
-Same 64 px grid, 20,000 sandbox text files, private desktop; idle is five 60 s
-windows, scrolling is five 30 s windows at 20 wheel messages/s. Every sample
-must pass. Idle ceiling 0.5%; branch scrolling ceiling is main's largest sample,
-4.736321%. The baseline's scroll meter had a 100% collection ceiling; that is
-not the branch acceptance limit.
-
-| Build/pacing | Idle, five samples (%) | Scrolling, five samples (%) |
+| Scenario | Build | Windows 1–5 (% one core) |
 |---|---|---|
-| main 4b197cb | .052044, 0, 0, 0, .156079 | 3.018995, 3.695544, 3.586709, 4.736321, 3.591298 |
-| branch, original no-vsync | 0, 0, .052051, .052054, 0 | 16.757388, 14.625813, 16.080924, 16.082548, 15.872737 |
-| branch, restored normal display pacing | .104108, 0, .052051, 0, .104094 | 6.610891, 3.695945, 4.164496, 4.790560, 6.767006 |
-| branch, experimental 30 fps cap | .052053, 0, 0, 0, .156190 | 4.997016, 5.049393, 4.632715, 4.840683, 4.736985 |
+| scroll | main | 1.665781, 5.101433, 4.580122, 6.041233, 2.810808 |
+| scroll | branch | 5.934114, 2.342356, 3.695558, 2.342143, 4.164184 |
+| idle | main | 0.026033, 0.052070, 0.052068, 0.078104, 0.078097 |
+| idle | branch | 0.052068, 0.052065, 0.052066, 0.078099, 0.026036 |
 
-All idle windows passed. Scrolling failed on all three branch attempts. Repairs
-stopped at the requested three-failure limit. A fixed frame cap alone has not
-proved equivalent to main's event/render workload. The 30 fps experiment also
-missed slider endpoints, and has been reverted to normal display pacing.
+Branch scroll window 1 failed 5.934114 beside main 1.665781. Initial raw evidence
+is in before-timer/. Older workers' samples are in the original handover history;
+the diagnosis-only measurements do not qualify as clean acceptance.
 
-## Real input
+## Query/frame counts
 
-All checks used `--test-state`; file opens write `.opened` logs and actions use
-explicit stand-ins for Open With/Terminal. Clipboard preservation uses the
-machine-shared named mutex through `clipboard_guard.py`.
+Disposable git-archive builds add only Interlocked counters to window_frame and
+SHQueryRecycleBinW. After settling, the driver resets them, sends 600 wheel events
+at 20 Hz over 30 seconds, then reads counters. No file output or capture occurs in
+the window. Counter reads extend wall time by 30–76 ms. Clean, uninstrumented
+executables were used for CPU acceptance.
 
-- Normal display pacing: view 10/11, input 20/20, search 8/8, actions 7/7.
-  The Details folder double-click failed; all six 50 ms performance checks passed.
-- Last measured 30 fps experiment: view 9/11, input 20/20, search 8/8, actions 7/7.
-  Two view checks failed dragging to Details (stopped at List). All six 50 ms
-  performance checks passed with maximum messages under 1.3 ms.
-- Startup Trash badge was present in .534 s on the last input run; Extra-large
-  overscan wheel assertion, field-key ownership and no-launch checks passed.
+| Build | Before timer: queries / frames | After timer: queries / frames |
+|---|---|---|
+| main | 15 / 826 | 15 / 816 |
+| branch | 15 / 829 | 12 / 823 |
 
-The geometry-only rename anchor no longer registers as an interactive hit target:
-it covered the selected Details row. That change passed input/actions in the
-30 fps run, but the failing Details double-click has not been proved again: that
-run failed at the slider before reaching it. The attempted driver timing change
-was reverted. The final rollback build/captures are checked; use checks and CPU
-were not rerun after rollback, respecting the repair stop. Do not merge yet.
+Branch then made 12 queries / 12 frames in 30 seconds idle. Queries really run
+without scrolling. The runtime guard failed: an unchanged idle badge was expected
+to draw at most four frames. Why the 12 frames occurred is UNCONFIRMED; count-value
+and message traces have not been captured. Do not claim this fixed frame or CPU
+regressions. Periodic shell queries also add idle CPU that main does not incur.
+Actual Trash change notifications are a possible next repair; notification
+coverage and retry behavior need checking before choosing that implementation.
 
-Artifacts remain in `.agent-work/viewzoom-v1` of the main checkout: CPU JSON/logs,
-view/input/search/actions JSON, failure captures, and `final/` light/dark captures.
+## Checks and pictures
+
+Both before and after the timer repair, all five real-input suites passed:
+view 11/11, input 20/20, actions 7/7, search 8/8, jobs 5/5 (51/51).
+All six 50 ms message checks passed. Clipboard checks use the shared named mutex.
+Every app ran on the private desktop or hidden --shot mode with --test-state.
+No stock default handler, real terminal or real Open With chooser was launched.
+
+MinSizeRel build passed, 448000 bytes below 819200, at
+build/accept/MinSizeRel/dio-file-manager.exe. The normal build/MinSizeRel exe is OLD.
+Console suites were not run in this worker; full landing checks belong to the
+parent's merge lane.
+
+Capture and popover scripts passed after the repair. I opened and inspected all
+17 PNGs below. No additional slider visual fault was observed. Stops/search/photo
+are 1440x900; popovers are 1080x720. This is worker inspection, not the independent
+Claude visual review required from the parent.
+
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\light-details.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\light-list.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\light-small.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\light-medium.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\light-large.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\light-extra-large.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\dark-details.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\dark-list.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\dark-small.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\dark-medium.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\dark-large.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\dark-extra-large.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\light-popover.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\dark-popover.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\photo-extra-large.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\dark-search-details.png`
+- `E:\w\dio-file-manager\.agent-work\viewzoom-v2\final\dark-search-large.png`
+
+## Continuation
+
+All scripts, logs, JSON and diagnostic builds are retained under the task folder
+E:/w/dio-file-manager/.agent-work/viewzoom-v2/ for the parent or successor.
+Latest CPU: cpu-final.json / cpu-final.log. Counters: counts.json / counts.err.
+Suites: suite-exits.json, view-results.json and each *_smoke folder.
+The idle-frame assertion fails before the script's branch <= main scroll-frame
+assertion. Raw counts already show seven extra branch scroll frames.
+No pending user question. No test/worker remains after the bounded runs returned.
+The previous validation file used cp1252 punctuation; it was converted to UTF-8.
