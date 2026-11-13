@@ -9,6 +9,8 @@ FetchContent. All text is UTF-8 inside the app; convert to UTF-16 only at Win32 
 |---|---|
 | `CMakeLists.txt` | Build. Compiles every `src/*.c` (a glob), links CUI and `shell32 ole32 oleaut32 uuid shlwapi propsys comctl32 dwmapi setupapi cfgmgr32`, adds `tests/` when it exists, and fails a Release or MinSizeRel build whose exe is over the size budget (`docs/design.md`). |
 | `src/main.c`, `src/ui_*.c`, `src/theme.c` | The window: header rows, sidebar, grid and list views, menus, popovers, toasts. |
+| `src/chrome_win.c` | The header as the title bar: subclass messages (`WM_NCCALCSIZE`, `WM_NCHITTEST`, min/max size, activation, the maximize button's non-client hover and click), the three window buttons, inactive dimming, DWM border colour, window icons, and the `"chrome"` part of the test snapshot (window and client rectangles, buttons, header controls, border colour, hover). Header code calls `chrome_nodrag_last()` after each control. |
+| `src/dio-file-manager.rc`, `src/dio-file-manager.ico`, `design/icon/` | The embedded icon, its source and the script that builds the frames. |
 | `src/fs.c`, `src/fs.h` | Reading folders, the places (known folders) and the drives. |
 | `src/ops.c`, `src/ops.h` | File work on worker threads: copy, move, trash, delete, rename, new folder, conflicts. |
 | `src/clip.c`, `src/clip.h` | The Windows clipboard for files (CF_HDROP and "Preferred DropEffect"). |
@@ -84,7 +86,7 @@ not running; never close the user's window. For automated install checks, run th
 installed executable on `correct/hidden.py`'s private desktop with isolated `APPDATA` and
 `--test-state BASE`; the resulting PNG proves that copy created a working window.
 
-The native caption follows the app's Light/Dark/System choice. System mode handles
+The window has no native caption; the border colour and the system menu follow the app's Light/Dark/System choice. System mode handles
 `WM_SETTINGCHANGE` immediately, including while the app is idle. Sidebar highlights
 belong only to the current or hovered row; unselected navigation groups never inherit
 CUI 1.4.0's retained selection. List rename anchors use the actual visible row rectangle,

@@ -25,6 +25,8 @@ static struct {
     bool nc_hover, nc_pressed;      /* the maximize button while Windows owns the pointer (HTMAXBUTTON) */
     bool tracking;
     bool maximized;
+    unsigned border_rgb;            /* the border colour last handed to Windows, and the result of that call */
+    long border_hr;
 } C = { .active = true };
 
 static UINT (WINAPI *p_dpi)(HWND);
@@ -91,7 +93,8 @@ void chrome_set_theme(bool dark) {
     if (!A.hwnd) return;
     unsigned rgb = theme_hairline(dark);
     COLORREF border = RGB((rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff);
-    DwmSetWindowAttribute((HWND)A.hwnd, 34 /* DWMWA_BORDER_COLOR */, &border, sizeof border);
+    C.border_rgb = rgb & 0xffffff;
+    C.border_hr = DwmSetWindowAttribute((HWND)A.hwnd, 34 /* DWMWA_BORDER_COLOR */, &border, sizeof border);
     BOOL immersive = dark;   /* the system menu follows the theme */
     if (FAILED(DwmSetWindowAttribute((HWND)A.hwnd, 20, &immersive, sizeof immersive)))
         DwmSetWindowAttribute((HWND)A.hwnd, 19, &immersive, sizeof immersive);
@@ -241,8 +244,10 @@ static void paint_wb(cui_ctx *ui, cui_rect r, void *user) {
     const wb_paint *p = user;
     float cx = r.x + r.w / 2, cy = r.y + r.h / 2;
     cui_color fg = cui_color_of(ui, CUI_COLOR_FOREGROUND);
-    if (p->pressed) cui_draw_rect(ui, r, CUI_CORNERS(r.w / 2), cui_alpha(fg, 0.16f));
-    else if (p->hover) cui_draw_rect(ui, r, CUI_CORNERS(r.w / 2), cui_alpha(fg, 0.10f));
+    /* libadwaita: a faint round plate that is always there: 10% at rest, 15% on hover, 20% pressed; fainter when inactive. */
+    float plate = p->pressed ? 0.20f : p->hover ? 0.15f : 0.10f;
+    if (!p->active && !p->hover && !p->pressed) plate *= 0.6f;
+    cui_draw_rect(ui, r, CUI_CORNERS(r.w / 2), cui_alpha(fg, plate));
     cui_color ink = cui_color_of(ui, (p->hover || p->pressed) ? CUI_COLOR_FOREGROUND : p->active ? CUI_COLOR_TEXT_SECONDARY : CUI_COLOR_TEXT_MUTED);
     const float t = 1.5f;
     if (p->kind == BTN_MIN) {
@@ -254,8 +259,10 @@ static void paint_wb(cui_ctx *ui, cui_rect r, void *user) {
         cui_vec2 back[5] = { { cx - 2.5f, cy - 2.5f }, { cx - 2.5f, cy - 5.0f }, { cx + 5.0f, cy - 5.0f }, { cx + 5.0f, cy + 2.5f }, { cx + 2.5f, cy + 2.5f } };
         cui_draw_polyline(ui, back, 5, t, ink, false);
     } else {
-        cui_draw_line(ui, (cui_vec2){ cx - 4.0f, cy - 4.0f }, (cui_vec2){ cx + 4.0f, cy + 4.0f }, t, ink);
-        cui_draw_line(ui, (cui_vec2){ cx + 4.0f, cy - 4.0f }, (cui_vec2){ cx - 4.0f, cy + 4.0f }, t, ink);
+        /* The same ink as the other two, but a diagonal of equal width covers more pixels, so it is drawn thinner to look equal. */
+        const float td = t * 0.8f;
+        cui_draw_line(ui, (cui_vec2){ cx - 4.0f, cy - 4.0f }, (cui_vec2){ cx + 4.0f, cy + 4.0f }, td, ink);
+        cui_draw_line(ui, (cui_vec2){ cx + 4.0f, cy - 4.0f }, (cui_vec2){ cx - 4.0f, cy + 4.0f }, td, ink);
     }
 }
 
@@ -308,5 +315,5 @@ void chrome_snapshot(FILE *f) {
     fprintf(f, "],\"nodrag\":[");
     for (int i = 0; i < C.nodrag_n; i++)
         fprintf(f, "%s[%.2f,%.2f,%.2f,%.2f]", i ? "," : "", C.nodrag[i].x, C.nodrag[i].y, C.nodrag[i].w, C.nodrag[i].h);
-    fprintf(f, "]}");
+    fprintf(f, "],\"border\":[%u,%u,%u],\"border_hr\":%ld,\"nc\":[%d,%d]}", (C.border_rgb >> 16) & 255, (C.border_rgb >> 8) & 255, C.border_rgb & 255, C.border_hr, C.nc_hover, C.nc_pressed);
 }

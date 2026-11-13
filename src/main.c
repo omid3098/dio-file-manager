@@ -31,6 +31,7 @@ float app_zoom_wheel(void) { float dy = zoom_wheel; zoom_wheel = 0; return dy; }
 
 static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     LRESULT chrome_result;
+    if (m == WM_NCMOUSELEAVE && test_mode) return 0;   /* same reason: the maximize button's hover comes from the driver */
     if (chrome_message(h, m, w, l, (intptr_t *)&chrome_result)) return chrome_result;
     if (m == WM_MOUSELEAVE && test_mode) return 0;
     if (m == WM_SETTINGCHANGE && A.ui && A.theme_pref == 0) {

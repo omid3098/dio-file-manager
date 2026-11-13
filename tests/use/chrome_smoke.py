@@ -90,9 +90,13 @@ def near(c, e, tol=2):
     return all(abs(p - q) <= tol for p, q in zip(c, e))
 
 
+helpers = []
+
+
 def activate_other(a):
     other = U.CreateWindowExW(0, 'STATIC', 'other', 0x90000000, 0, 0, 200, 100, None, None, None, None)
     assert other, C.get_last_error()
+    helpers.append(other)
     U.SetActiveWindow(other)
     a.until('Window did not become inactive', lambda: a.snap()['chrome']['active'] == 0)
     return other
@@ -101,14 +105,15 @@ def activate_other(a):
 def inside():
     results = []
 
-    def check(name, fn, theme='dark', path=None):
+    def check(name, fn, theme='dark', path=None, ends=False):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
         app = None
         try:
             app = App(name, path or WORK / 'fixture', 'grid', theme)
             fn(app)
-            app.snap(name + '-passed')
+            if not ends:   # a case that ends the app has no state left to dump
+                app.snap(name + '-passed')
             results.append({'check': name, 'result': 'passed'})
         except Exception as e:
             if app:
@@ -120,6 +125,8 @@ def inside():
         finally:
             if app:
                 app.close()
+            while helpers:
+                U.DestroyWindow(helpers.pop())
         print(json.dumps(results[-1]), flush=True)
 
     def hit_testing(a):
@@ -143,6 +150,8 @@ def inside():
             got = g.hit(a, *g.mid(r))
             assert got == HTCLIENT, f'Header control {r}: {got}'
         assert len([r for r in c['nodrag'] if r[0] < 240]) >= 1, 'Main menu not marked'
+        right = [r for r in c['nodrag'] if r[0] > 240 and 30 <= r[2] <= 40]
+        assert len(right) >= 4, f'Search, grid, list and view-options icons must all be marked: {right}'
         assert g.hit(a, 400, 120) == HTCLIENT, 'Client below the header'
         w = c['window']
         mx, my = (w[0] + w[2]) // 2, (w[1] + w[3]) // 2
@@ -169,7 +178,7 @@ def inside():
         assert send(a, WM_NCHITTEST, 0, lp(sx, sy)) == HTCAPTION, 'Empty header space is not the caption'
         # The keyboard Move loop is the same system loop: it must move the window.
         r0 = W.RECT(); U.GetWindowRect(a.hwnd, C.byref(r0))
-        assert U.PostMessageW(a.hwnd, 0x112, 0xF012, 0)   # SC_MOVE
+        assert U.PostMessageW(a.hwnd, 0x112, 0xF010, 0)   # SC_MOVE, the keyboard form (0xF012 is the mouse form and waits for pointer travel)
         a.until('SC_MOVE did not start', moving, 3)
         for _ in range(6):
             U.PostMessageW(a.hwnd, 0x100, 0x27, 1)   # right arrow
@@ -218,9 +227,10 @@ def inside():
         g = Geo(a)
         cx, cy = g.mid(g.c['buttons'][1])
         sx, sy = g.px(cx, cy)
+        # Test mode ignores the automatic leave messages, so the posted move stays until the driver moves it.
         send(a, WM_NCMOUSEMOVE, HTMAXBUTTON, lp(sx, sy))
-        time.sleep(.3)
-        a.snap()
+        sh = a.snap()
+        assert sh['chrome']['nc'][0] == 1, f"The app did not take the pointer over the maximize button: {sh['chrome']['nc']}"
         hover = pixel(a, *[v * g.scale for v in (cx + 8, cy)])
         assert hover != before, f'Hovering maximize changed nothing: {before} {hover}'
         send(a, WM_NCLBUTTONDOWN, HTMAXBUTTON, lp(sx, sy))
@@ -259,12 +269,14 @@ def inside():
                 if state == 'inactive':
                     dimmed = a.snap()
                     # DWM border colour: no Windows grey.
-                    border = C.c_uint()
-                    DWM.DwmGetWindowAttribute(a.hwnd, 34, C.byref(border), 4)
-                    r, g_, b = border.value & 255, (border.value >> 8) & 255, (border.value >> 16) & 255
-                    assert near((r, g_, b), (37, 40, 48) if theme == 'dark' else (226, 228, 233), 2), f'Border colour {(r, g_, b)}'
+                    # DWM cannot read the border colour back (E_INVALIDARG), so the app reports what it handed to Windows
+                    # and whether Windows accepted it: no Windows grey.
+                    ch = dimmed['chrome']
+                    assert ch['border_hr'] == 0, f"Windows refused the border colour: {ch['border_hr'] & 0xFFFFFFFF:08x}"
+                    want_b = (33, 36, 45) if theme == 'dark' else (223, 225, 231)
+                    assert near(tuple(ch['border']), want_b, 1), f"Border colour {ch['border']}, want {want_b}"
                     U.SetActiveWindow(a.hwnd)
-                    U.DestroyWindow(other)
+                    (U.DestroyWindow(other), helpers.remove(other))
         return run
 
     def dimming(a):
@@ -277,7 +289,7 @@ def inside():
                 return max(sum(p[:3]) for p in im.convert('RGB').crop(box).getdata())
         g = Geo(a)
         icons = [r for r in g.c['nodrag'] if r[1] < 46 and r[2] <= 40 and r[3] <= 40]
-        assert len(icons) >= 6, f'Expected the header icon buttons: {icons}'
+        assert len(icons) >= 7, f'Expected the header icon buttons: {icons}'
         active = [brightest(r) for r in icons] + [brightest(g.c['buttons'][i]) for i in (0, 1, 2)]
         other = activate_other(a)
         time.sleep(.3)
@@ -292,17 +304,23 @@ def inside():
         s0 = pixel(a, 120 * g.scale, 110 * g.scale)
         a.key(27)
         U.SetActiveWindow(a.hwnd)
-        U.DestroyWindow(other)
+        (U.DestroyWindow(other), helpers.remove(other))
 
     def menu_click_through(a):
+        from PIL import Image, ImageChops
         g = Geo(a)
         mr = [r for r in g.c['nodrag'] if r[0] < 240][0]
-        closed = pixel(a, 100 * g.scale, 90 * g.scale)
+        a.snap()
+        box = tuple(int(v * g.scale) for v in (200, 50, 400, 220))
+        with Image.open(str(a.base) + '.png') as im:
+            closed = im.convert('RGB').crop(box).copy()
         a.click(*g.mid(mr))
         time.sleep(.6)
         a.snap()
-        opened = pixel(a, 100 * g.scale, 90 * g.scale)
-        assert opened != closed, 'The main menu did not open from a click on its icon'
+        with Image.open(str(a.base) + '.png') as im:
+            opened = im.convert('RGB').crop(box).copy()
+        changed = sum(1 for p in ImageChops.difference(closed, opened).convert('L').getdata() if p > 8)
+        assert changed > 2000, f'The main menu did not open from a click on its icon ({changed} pixels changed under it)'
 
     def icon(a):
         big, small = send(a, WM_GETICON, 1, 0), send(a, WM_GETICON, 0, 0)
@@ -322,7 +340,7 @@ def inside():
     check('2-drag', drag)
     check('3-double-click', double_click)
     check('4-buttons', buttons)
-    check('5-close-button', close_button)
+    check('5-close-button', close_button, ends=True)
     check('6-colours-dark', colours('dark'), 'dark')
     check('6-colours-light', colours('light'), 'light')
     check('7-dimming', dimming, 'dark')

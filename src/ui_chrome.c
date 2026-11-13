@@ -227,7 +227,8 @@ static void view_options_menu(void) {
     cui_ctx *ui = A.ui;
     static const char *const KEYS[4] = { "Name", "Size", "Modified", "Type" };
     static const char *const names[Z_COUNT] = { "Details", "List", "Small icons", "Medium icons", "Large icons", "Extra large icons" };
-    if (cui_icon_button(ui, CUI_ICON_SLIDERS_HORIZONTAL, .tooltip = "View options", .selected = ui_view_options_open())) cui_popover_toggle(ui, "view-options");
+    if (cui_icon_button(ui, CUI_ICON_SLIDERS_HORIZONTAL, .tooltip = "View options", .selected = ui_view_options_open(), .color = chrome_icon_color())) cui_popover_toggle(ui, "view-options");
+    chrome_nodrag_last();
     if (!cui_popover_begin(ui, "view-options", &(cui_popover_opts){ .placement = CUI_PLACE_BOTTOM_END, .width = 300, .pad = 12, .gap = 4 })) return;
     ui_view_options_surface();
     float stop = (float)A.zoom;

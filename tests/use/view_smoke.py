@@ -28,7 +28,7 @@ def wheel(a, delta, ctrl=False):
 
 
 def set_stop(a, stop):
-    a.click(1048, 23)
+    a.click(*a.header_icon(0))
     s = a.snap()
     x, y, w, h = s['slider']
     assert w > 100 and h > 0, f'No slider track: {s["slider"]}'
@@ -130,12 +130,12 @@ def inside():
             a.until(f'Open in {name}', lambda: a.snap()['path'] == str(WORK/'views'/'A'))
             a.key(37, (18,))
             assert a.wait_ready()['path'] == str(WORK/'views')
-        a.click(1048, 23)
+        a.click(*a.header_icon(0))
         picture(a, 'popover')
         a.key(27)
 
     def popup_tooltips(a):
-        for name, x in (('view-options', 1048), ('main-menu', 212)):
+        for name, x in (('view-options', a.header_icon(0)[0]), ('main-menu', 212)):
             a.msg(0x200, 0, a.point(x, 23))
             a.until(name + ': hover tooltip never appeared', lambda: a.snap()['tooltip'])
             a.click(x, 23)
@@ -197,8 +197,8 @@ def inside():
         a.key(107,(17,)); assert a.snap()['zoom'] == 4, 'Keypad plus'
         a.key(109,(17,)); assert a.snap()['zoom'] == 3, 'Keypad minus'
         set_stop(a, 4)
-        a.click(1012,23); assert a.snap()['zoom'] == 0, 'Header Details'
-        a.click(976,23); assert a.snap()['zoom'] == 4, 'Header last icon'
+        a.click(*a.header_icon(1)); assert a.snap()['zoom'] == 0, 'Header Details'
+        a.click(*a.header_icon(2)); assert a.snap()['zoom'] == 4, 'Header last icon'
         a.key(50,(17,)); a.key(49,(17,))
         assert a.snap()['zoom'] == 4, 'Keyboard last icon'
 

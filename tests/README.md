@@ -202,3 +202,21 @@ clipboard only if its sequence number is still the one the cut had, checked afte
 that held it meanwhile may have written new data). `actions_smoke.py` checks 8 (a move ends while another program
 holds the clipboard and then writes text: the text stays; the order is a handshake, not timing: in test mode the app's first refused `OpenClipboard` sets the named event `<DFM_TEST_CLIP_HANDSHAKE>-blocked` and waits up to 5 s for `-released`, which the other program sets after it wrote and closed the clipboard, and only then do the 300 ms count; if `-released` does not come in 5 s the app sets `-timedout` and the check fails; the first two events must exist, so a release build and other checks are unaffected) and 9 (Ctrl+V in the path field while another program
 still holds the clipboard) fail on the code before these changes.
+
+## Header as title bar
+
+`tests/use/chrome_smoke.py` has 11 checks on the private desktop: hit testing (caption, sidebar,
+buttons, every header control, all eight resize edges, the top strip), the system Move loop
+(keyboard form `SC_MOVE 0xF010`; a mouse drag cannot start on a private desktop, so the caption is
+proved by the hit test), double click maximize and restore (maximized client equals the work area),
+the three buttons (real click, the posted non-client hover, press and click of the maximize button),
+close ends the app with code 0, the top three pixel rows in dark and light and active and inactive
+(ours, no Windows grey), the app's report that Windows accepted the border colour (DWM cannot read
+it back), dimming of all icons and buttons, the main menu opening from a click while inactive's
+veil is up, the window icons, and a maximized picture. `DFM_CHROME_PICTURES=<folder>` copies
+`dark-maximized.png` there. Test mode drops `WM_NCMOUSELEAVE`, like `WM_MOUSELEAVE`, because
+the driver's posted hover is the only pointer. Other suites find the right-hand header icons with
+`App.header_icon(n)` (0 view options, 1 list, 2 grid, 3 search) from the snapshot, not fixed
+coordinates. `view_smoke.py`'s 50 ms latency cases fail when other work keeps the CPU at 100%;
+read the load, rerun, and compare with main.
+

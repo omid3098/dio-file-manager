@@ -32,8 +32,8 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 ```
 
 - **Two panes.** The sidebar (240 px) and the content pane. Each has its own header row of 46 px,
-  as in libadwaita's split view. The Windows title bar stays above them unless CUI can extend the
-  client area into it; the header rows are ours either way.
+  as in libadwaita's split view. There is no Windows title bar: the client area starts at the
+  window's top edge and the header rows are the title bar, in our colours (`src/chrome_win.c`).
 - **Sidebar header:** the main menu button (`menu` icon) at its right end.
 - **Content header:** back and forward on the left; the path bar in the middle (CUI `cui_path_bar`,
   a home icon on the first segment when inside Home, a menu on each chevron; Ctrl+L or a click on
@@ -188,3 +188,32 @@ Vazirmatn when it is installed (Dio's Persian font), else Segoe UI. Body text 14
 ## Size budget
 
 The release exe is at most 800 KB (CUI's own hello app is about 250 KB). The build fails over it.
+
+## Window: the header is the title bar
+
+- **Drag and resize.** Empty header space is the caption: drag moves the window, double click
+  maximizes or restores, right click opens the system menu, Alt+Space too. Every header control
+  (menu, back, forward, path bar or search field, search, grid, list, view options, the job ring)
+  is marked and never drags. The top 5 px and the corners resize; the other edges resize through
+  Windows' own frame, which is only 8 px wide, drawn in the hairline colour (no Windows grey).
+- **Window buttons** sit at the right end of the content header, 12 px after the view-options
+  button: minimize, maximize or restore, close. Each is a 24 px circle with a 16 px glyph, as in
+  libadwaita. The circle is always there: the foreground colour at 10% at rest, 15% on hover, 20%
+  pressed, in both themes. All three glyphs have the same stroke width (the diagonals of the close
+  glyph are drawn a little thinner so it does not look heavier). The maximize button answers
+  Windows' hit test (`HTMAXBUTTON`), so Windows 11's snap layouts open from it.
+- **Inactive window.** The header icons, the glyphs and the circles dim; the content does not.
+  The main menu icon is dimmed by a click-through veil because CUI gives that icon no colour option.
+- **Maximized.** The client area is the monitor's work area; the frame Windows overhangs is cut off,
+  so our header sits at the screen's top edge.
+- **Border.** `DWMWA_BORDER_COLOR` is the hairline colour for the theme; the immersive dark mode
+  flag follows the theme so the system menu matches.
+
+## Icon
+
+A folder tile in the accent colour, drawn by `design/icon/build_icon.py` from `design/icon/*.svg`
+into `src/dio-file-manager.ico` (16, 20, 24, 32, 48, 64, 128 and 256 px). The small frames have a
+1.5 px margin around the tile and a folder that fills 80% of its width so they stay readable.
+The .ico is embedded through `src/dio-file-manager.rc`; `chrome_win.c` also sends it as the
+window's big and small icon (again after a DPI change). It is a temporary icon until Omid supplies one.
+
