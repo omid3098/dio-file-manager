@@ -630,6 +630,7 @@ void act_frame(void) {
     float top = ah > 1 && below >= ah ? below - ah : below;
     cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad_top = top, .pad_left = left) {
         cui_canvas(ui, "popanchor", CUI_PX(aw), CUI_PX(ah), paint_none, NULL, 0);
+        ui_anchor_passthrough(ui);
     }
     name_popover();
     context_menu();

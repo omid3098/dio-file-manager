@@ -8,6 +8,11 @@
 #include <math.h>
 #include "ui.h"
 
+/* A geometry-only popover anchor must not cover the selected row's hit target. */
+void ui_anchor_passthrough(cui_ctx *ui) {
+    ui->nodes[ui->node_count - 1].flags &= ~(CUI_NF_INTERACTIVE | CUI_NF_HIT_OPAQUE);
+}
+
 /* CUI 1.4.0 exposes callbacks only through create-and-run. Keep our screenshot
  * loop, but give its native modal resize loop the same frame callback. */
 void ui_window_callback(cui_app *app, void (*frame)(cui_ctx *, void *), void *user) {

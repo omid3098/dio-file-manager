@@ -131,6 +131,7 @@ void ui_other_locations(void);
 void act_reselect(const char *name);
 
 /* ui_ctxmenu.c */
+void ui_anchor_passthrough(cui_ctx *ui);
 void ui_window_callback(cui_app *app, void (*frame)(cui_ctx *, void *), void *user);
 bool ui_window_screenshot(cui_app *app, const char *path);
 cui_rect ctxmenu_row_rect(cui_ctx *ui);

@@ -535,7 +535,7 @@ int main(void) {
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     bool shot = o.shot[0] != 0;
     g_app = cui_app_create(&(cui_app_desc){ .title = "Dio File Manager", .width = o.w, .height = o.h, .min_width = 360, .min_height = 280,
-                                            .hidden = shot, .continuous = shot, .no_vsync = true });
+                                            .hidden = shot, .continuous = shot });
     if (!g_app) return 1;
     test_mode = o.test_state[0] != 0;
     if (test_mode) {   /* checks never start another app on the owner's desktop; they read what would open */

@@ -141,3 +141,20 @@ All clipboard checks acquire the Windows named mutex
 `Local\DioFileManagerClipboardTest` before saving clipboard formats and release it
 only after restoration. `clipboard_guard.clipboard_test_lock` waits up to 15 minutes;
 `clipboard_guard.preserved_clipboard` always takes it, including nested checks.
+## View slider acceptance
+
+`view_smoke.py` covers all six stops, folder opening, saved size, keyboard/wheel
+shortcuts, List scrolling, special places and search, plus a strict 50 ms message
+limit for each stop over 20,000 files. The selected Details row remains clickable beneath the geometry-only rename
+anchor. The input driver keeps `--test-state` enabled,
+so accidental file opens only write the `.opened` log unless a stand-in is selected.
+
+CPU acceptance compares identical 64 px grids on the hidden desktop. Use the shared
+`cpu_budget.py` process-tree meter for five 60-second idle windows and five 30-second
+scroll windows (20 wheel messages per second) on both main and the branch. The idle
+ceiling is 0.5% of one core; every branch scroll window must stay at or below the
+largest main scroll reading. Do not run builds or use checks during these samples.
+The final branch restores normal display pacing. Neither the 120 fps no-vsync
+mode, normal display pacing, nor an experimental 30 fps clock cap passed every
+scrolling CPU sample. The 30 fps experiment also lost slider drag endpoints and
+was reverted. See `docs/view-slider-validation.md` for the incomplete acceptance.

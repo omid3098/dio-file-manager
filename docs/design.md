@@ -68,8 +68,8 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   The grid button (Ctrl+1) returns to the last icon stop; the list button (Ctrl+2) opens Details.
   The current and last icon stops survive restarts in `%APPDATA%\dio-file-manager\view.txt`.
   Search, Recent, Starred and Trash share this scale.
-  Presentation uses CUI's clock pacing without a blocking vertical-sync swap, so input is not
-  held behind the display driver. Recycle Bin badge queries run on a worker and return the last count.
+  Presentation keeps CUI's normal event-driven display pacing. Idle windows wake only for
+  input, timers or worker progress. Recycle Bin badge queries run on a worker.
 - **Selection:** the icon gets a rounded `selected` fill; the name gets an accent pill with
   `accent-fg` text. Click selects, Ctrl+click toggles, Shift+click selects a range, dragging on
   the empty background draws a rubber band.
