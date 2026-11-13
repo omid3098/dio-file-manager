@@ -391,6 +391,25 @@ def inside():
         a.rclick(700,420)
         a.snap('menu-bg')
 
+    def field_keys(a):
+        # Keys typed into a field stay there. The app records what it would open (test mode starts no app).
+        opened = Path(str(a.base)+'.opened')
+        opened.unlink(missing_ok=True)
+        a.cell(0); assert a.snap()['selection'] == ['a.txt'], 'Select a.txt'
+        a.path(SAND)
+        time.sleep(.3)
+        assert not opened.exists(), 'Enter in the path field opened the selected file: ' + opened.read_text(encoding='utf-8')
+        a.cell(0); assert a.snap()['selection'] == ['a.txt'], 'Select a.txt again'
+        a.key(ord('L'), (17,))
+        a.until('Path field did not take the keyboard', lambda: a.snap()['typing'])
+        a.key(46)
+        time.sleep(.3)
+        assert (SAND/'a.txt').exists(), 'Delete in the path field trashed the selected file'
+        a.key(27)
+        a.cell(0)
+        a.key(13)
+        a.until('Enter in the view did not open the file', lambda: opened.exists() and str(SAND/'a.txt') in opened.read_text(encoding='utf-8'))
+
     def starred(a):
         saved = WORK/'appdata/dio-file-manager/starred.txt'
         assert not saved.exists(), 'Star test requires an empty sandbox starred list'
@@ -468,6 +487,7 @@ def inside():
     check('9-clipboard-restore', SAND, clipboard_restore, prep=lambda: fresh('a.txt'))
     check('9-trash-undo', SAND, trash_undo, prep=lambda: fresh('a.txt','b.txt'))
     check('9-context', SAND, context, prep=lambda: fresh('a.txt','b.txt','c.pdf'))
+    check('9-field-keys', SAND, field_keys, prep=lambda: fresh('a.txt'))
     check('1-grid-wheel', WORK/'big', wheel)
     check('2-list-wheel', WORK/'big', wheel, 'list')
     check('3-navigation', WORK/'fixture', navigation)

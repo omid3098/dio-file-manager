@@ -271,6 +271,7 @@ void app_set_view(int v) {
 /* ---- keys ---- */
 
 static bool path_key;           /* Ctrl+L was pressed this frame: the path field takes the keyboard in it */
+static bool field_keys;         /* a text field held the keyboard at the end of the last frame */
 
 /* A letter typed in the file view starts the search, as in GNOME Files. It is decided at the end of the frame,
  * when every field has shown whether it holds the keyboard: a path field that Ctrl+L just opened, a rename or
@@ -291,7 +292,10 @@ static void global_keys(void) {
     path_key = false;
     cui_ctx *ui = A.ui;
     int mods = cui_key_mods(ui);
-    bool typing = cui_wants_keyboard(ui);
+    /* CUI forgets the field that holds the keyboard when a frame begins and learns it again as the fields are
+     * drawn, so before the fields only the last frame knows. Asking CUI here always said no: Enter in the path
+     * field or a popover also opened the selected file, and Delete or Ctrl+V in a field acted on files. */
+    bool typing = field_keys;
     if (cui_shortcut(ui, CUI_MOD_ALT, CUI_KEY_LEFT)) app_back();
     else if (cui_shortcut(ui, CUI_MOD_ALT, CUI_KEY_RIGHT)) app_forward();
     else if (cui_shortcut(ui, CUI_MOD_ALT, CUI_KEY_UP)) app_up();
@@ -396,6 +400,7 @@ static void frame(void) {
         }
     }
     typed_letters();
+    field_keys = cui_wants_keyboard(ui) || path_key;
 }
 
 /* ---- start ---- */
@@ -517,6 +522,11 @@ int main(void) {
                                             .hidden = shot, .continuous = shot });
     if (!g_app) return 1;
     test_mode = o.test_state[0] != 0;
+    if (test_mode) {   /* checks never start another app on the owner's desktop; they read what would open */
+        static char opened[FS_PATH_MAX + 16];
+        snprintf(opened, sizeof opened, "%s.opened", o.test_state);
+        shell_test_log(opened);
+    }
     if (!shot)
         test_window_proc = (WNDPROC)SetWindowLongPtrW((HWND)cui_app_native_window(g_app), GWLP_WNDPROC, (LONG_PTR)test_input_proc);
     memset(&A, 0, sizeof A);

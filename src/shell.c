@@ -21,6 +21,17 @@ static HRESULT test_launch(const wchar_t *setting, const wchar_t *args, const wc
     CloseHandle(pi.hThread); CloseHandle(pi.hProcess); return S_OK;
 }
 
+/* Test mode without a stand-in: opening a file only writes this log. Checks never start an app on the owner's
+ * desktop, where "Pick an app" and Notepad windows from every run piled up. */
+static const char *test_log;
+void shell_test_log(const char *path) { test_log = path; }
+static BOOL logged(const char *verb, const char *path) {
+    FILE *f;
+    if (!test_log) return FALSE;
+    if (!fopen_s(&f, test_log, "a") && f) { fprintf(f, "%s\t%s\n", verb, path); fclose(f); }
+    return TRUE;
+}
+
 static HRESULT execute(HWND owner, const char *path, const wchar_t *verb, ULONG mask) {
     wchar_t *w = dfm_wide(path);
     SHELLEXECUTEINFOW info = { sizeof(info) };
@@ -31,6 +42,7 @@ static HRESULT execute(HWND owner, const char *path, const wchar_t *verb, ULONG 
         _snwprintf_s(args, 32768, _TRUNCATE, L"\"%s\"", w);
         HRESULT test = test_launch(L"DFM_TEST_OPEN", args, NULL);
         if (test != S_FALSE) { free(w); return test; }
+        if (logged("open", path)) { free(w); return S_OK; }
     }
     info.hwnd = owner; info.lpFile = w; info.lpVerb = verb;
     info.nShow = SW_SHOWNORMAL; info.fMask = mask | SEE_MASK_FLAG_NO_UI;
@@ -47,6 +59,7 @@ HRESULT shell_open_with(HWND owner, const char *path) {
     _snwprintf_s(args, 32768, _TRUNCATE, L"\"%s\"", w);
     hr = test_launch(L"DFM_TEST_OPEN_WITH", args, NULL);
     if (hr != S_FALSE) { free(w); return hr; }
+    if (logged("open-with", path)) { free(w); return S_OK; }
     info.pcszFile = w; info.oaifInFlags = OAIF_ALLOW_REGISTRATION | OAIF_EXEC;
     hr = SHOpenWithDialog(owner, &info); free(w); return hr;
 }
