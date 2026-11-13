@@ -262,7 +262,15 @@ bool defaultfm_enable(const wchar_t *extra_args) {
 
 bool defaultfm_disable(void) {
     HKEY state, saved;
+    wchar_t launcher[MAX_PATH] = L"";
     paths();
+    if (get_string(HKEY_CURRENT_USER, state_base, L"Launcher", launcher, MAX_PATH)) {   /* the copy goes too; a running one stays */
+        const wchar_t *base = wcsrchr(launcher, L'\\');
+        if (base && !_wcsicmp(base + 1, LAUNCHER_NAME) && !defaultfm_is_launcher() && DeleteFileW(launcher)) {
+            launcher[base - launcher] = 0;
+            RemoveDirectoryW(launcher);                  /* only when nothing else is in it */
+        }
+    }
     if (!RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_READ, &state)) {
         if (!RegOpenKeyExW(state, L"Saved", 0, KEY_READ, &saved)) {
             for (int i = TARGETS - 1; i >= 0; i--) restore_target(saved, i);
@@ -328,9 +336,13 @@ static bool full_path(const wchar_t *in, wchar_t *out) {
 
 static bool known_place_path(const wchar_t *s, wchar_t *out) {
     PIDLIST_ABSOLUTE pidl = NULL;
-    if (FAILED(SHParseDisplayName(s, NULL, &pidl, 0, NULL)) || !pidl) return false;
-    bool ok = SHGetPathFromIDListEx(pidl, out, DFM_REQ_PATH, GPFIDL_DEFAULT) && dir_exists(out);
-    CoTaskMemFree(pidl);
+    HRESULT co = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);   /* this runs before the window's own COM start */
+    bool ok = false;
+    if (SUCCEEDED(SHParseDisplayName(s, NULL, &pidl, 0, NULL)) && pidl) {
+        ok = SHGetPathFromIDListEx(pidl, out, DFM_REQ_PATH, GPFIDL_DEFAULT) && dir_exists(out);
+        CoTaskMemFree(pidl);
+    }
+    if (SUCCEEDED(co)) CoUninitialize();
     return ok;
 }
 
@@ -341,7 +353,7 @@ void defaultfm_request(wchar_t **args, int n, dfm_request *out) {
     out->kind = REQ_FALLBACK;
     for (int i = 0; i < n; i++) {
         const wchar_t *a = args[i];
-        if (a[0] == L'/' || a[0] == L'-') {
+        while (a && (a[0] == L'/' || a[0] == L'-')) {   /* a comma may carry another switch: /e,/select,C:\file */
             const wchar_t *comma = wcschr(a, L',');
             size_t len = comma ? (size_t)(comma - a) : wcslen(a);
             const wchar_t *rest = comma ? comma + 1 : L"";
@@ -350,16 +362,22 @@ void defaultfm_request(wchar_t **args, int n, dfm_request *out) {
             bool e = len == 2 && (a[1] == L'e' || a[1] == L'E');
             if (sel || root || e) {
                 if (!rest[0] && sel && i + 1 < n) rest = args[++i];      /* "/select, C:\file" in two arguments */
+                if (e && (rest[0] == L'/' || rest[0] == L'-')) { a = rest; continue; }
                 if (rest[0]) { wcsncpy_s(sel ? select : target, DFM_REQ_PATH, rest, _TRUNCATE); if (sel) select_wanted = true; else have_target = true; }
+                a = NULL;
                 continue;
             }
-            if (len == 2 && (a[1] == L'n' || a[1] == L'N')) continue;
-            if (!_wcsicmp(a, L"/separate") || !_wcsicmp(a, L"-Embedding")) continue;
+            if (len == 2 && (a[1] == L'n' || a[1] == L'N')) { a = NULL; continue; }
+            if (!_wcsicmp(a, L"/separate") || !_wcsicmp(a, L"-Embedding")) { a = NULL; continue; }
             return;                                                    /* a switch we do not know */
         }
+        if (!a) continue;
         if (!have_target) { wcsncpy_s(target, DFM_REQ_PATH, a, _TRUNCATE); have_target = true; }
         else return;
     }
+    /* The registered "%1" for C:\ is "C:\": the backslash escapes the closing quote and the argument is C:" */
+    { size_t l = wcslen(target); while (l && target[l - 1] == L'"') target[--l] = 0; }
+    { size_t l = wcslen(select); while (l && select[l - 1] == L'"') select[--l] = 0; }
     if (select_wanted) {
         if (!full_path(select, full) || GetFileAttributesW(full) == INVALID_FILE_ATTRIBUTES) return;
         size_t l = wcslen(full);

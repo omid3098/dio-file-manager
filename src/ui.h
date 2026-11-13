@@ -187,7 +187,6 @@ cui_color ui_dimmed(cui_ctx *ui, cui_color c);
 /* ui_chrome.c */
 void ui_sidebar_header(void);
 void ui_sidebar_places(void);
-void ui_default_fm_button(float *x, float *y);
 void ui_default_fm_snapshot(FILE *f);       /* the main menu button and its switch, for real-input checks */
 void app_toggle_default_fm(void);           /* main.c: the "Use as Default File Manager" switch */
 bool app_default_fm(void);

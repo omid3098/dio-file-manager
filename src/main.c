@@ -502,7 +502,7 @@ static void parse_args(options *o) {
         else if (!wcscmp(a, L"--loc") && more) { ++i; o->loc = !wcscmp(argv[i], L"recent") ? LOC_RECENT : !wcscmp(argv[i], L"starred") ? LOC_STARRED : !wcscmp(argv[i], L"trash") ? LOC_TRASH : !wcscmp(argv[i], L"other") ? LOC_OTHER : 0; }
         else if (!wcscmp(a, L"--select") && more) arg_u8(argv[++i], o->select, sizeof o->select);
         else if (!wcscmp(a, L"--search") && more) arg_u8(argv[++i], o->search, sizeof o->search);
-        else if (!wcscmp(a, L"--act") && more) { ++i; o->act = !wcscmp(argv[i], L"menu") ? 1 : !wcscmp(argv[i], L"bgmenu") ? 2 : !wcscmp(argv[i], L"rename") ? 3 : !wcscmp(argv[i], L"newdir") ? 4 : !wcscmp(argv[i], L"listmenu") ? 5 : !wcscmp(argv[i], L"listbg") ? 6 : !wcscmp(argv[i], L"mainmenu") ? 7 : 0; }
+        else if (!wcscmp(a, L"--act") && more) { ++i; o->act = !wcscmp(argv[i], L"menu") ? 1 : !wcscmp(argv[i], L"bgmenu") ? 2 : !wcscmp(argv[i], L"rename") ? 3 : !wcscmp(argv[i], L"newdir") ? 4 : !wcscmp(argv[i], L"listmenu") ? 5 : !wcscmp(argv[i], L"listbg") ? 6 : 0; }
         else if (!wcscmp(a, L"--view") && more) { ++i; o->view = !wcscmp(argv[i], L"list") ? VIEW_LIST : !wcscmp(argv[i], L"grid") ? VIEW_GRID : -1; }
         else if (!wcscmp(a, L"--theme") && more) { ++i; o->theme = !wcscmp(argv[i], L"dark") ? 2 : !wcscmp(argv[i], L"light") ? 1 : 0; }
         else if (!wcscmp(a, L"--size") && more) { ++i; int w, h; if (swscanf_s(argv[i], L"%dx%d", &w, &h) == 2) { o->w = w; o->h = h; } }
@@ -612,14 +612,6 @@ static void shot_action(const options *o, int k) {
     if ((o->act == 1 || o->act == 2) && k == 3) SendMessageW(w, WM_MOUSEMOVE, 0, at);
     if ((o->act == 1 || o->act == 2) && k == 6) SendMessageW(w, WM_RBUTTONDOWN, MK_RBUTTON, at);
     if ((o->act == 1 || o->act == 2) && k == 7) SendMessageW(w, WM_RBUTTONUP, 0, at);
-    if (o->act == 7) {   /* the main menu: the real click on its button */
-        float bx, by;
-        ui_default_fm_button(&bx, &by);
-        at = (LPARAM)((int)(bx * scale) | ((int)(by * scale) << 16));
-        if (k == 3) SendMessageW(w, WM_MOUSEMOVE, 0, at);
-        if (k == 6) SendMessageW(w, WM_LBUTTONDOWN, MK_LBUTTON, at);
-        if (k == 7) SendMessageW(w, WM_LBUTTONUP, 0, at);
-    }
     if (o->act == 3 && k == 3) act_rename();
     if (o->act == 4 && k == 3) act_new_folder();
 }
