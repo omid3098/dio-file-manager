@@ -293,6 +293,9 @@ def main():
         for stop in (0, 1, 3):
             folder = WORK/f'{place}-{stop}'
             folder.mkdir(exist_ok=True)
+            if place == 'recent':
+                for shortcut in (folder/'shortcuts').glob('dio-band-*.txt.lnk'):
+                    shortcut.unlink()
             for fixture in folder.glob('dio-band-*.txt'):
                 fixture.unlink()
             for i in range(8):
@@ -308,7 +311,8 @@ def main():
     with (WORK/'select.log').open('wb') as out, (WORK/'select.err').open('wb') as err:
         run = popen([sys.executable, str(Path(__file__).resolve()), '--inside'], ROOT, dict(os.environ), b'', out, err)
         try:
-            return run.wait(timeout=360)
+            # The 24 real-input cases take about six minutes before scheduling overhead.
+            return run.wait(timeout=600)
         finally:
             run.close()
 
