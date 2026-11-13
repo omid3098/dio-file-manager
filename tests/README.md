@@ -3,9 +3,13 @@
 ## Merge queue
 
 `queue_check.py typecheck` builds the candidate in MinSizeRel, including the
-800 KB post-build limit. `changed` builds and runs every `tests/use/*_smoke.py`;
+800 KB post-build limit. `changed` builds and runs `actions_smoke.py`;
 `full` also runs all CTest console checks on the hidden desktop with clipboard
 preservation and the shared `Local\DioFileManagerClipboardTest` mutex.
+Input and search smoke checks are temporarily excluded: default-file handlers
+can escape the hidden desktop through Windows brokers. The action checks use
+explicit stand-ins for file opens, Open With and Terminal; their hidden desktop
+job closes the complete process tree after the run, including on failure.
 The read-only CUI v1.4.0 tree in the main checkout's `.agent-work/cui-src` is
 required; the queue never downloads it. Build products and use-check artifacts
 stay in the main checkout's `.agent-work/queue-v1/candidates`.

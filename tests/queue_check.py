@@ -7,6 +7,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 HIDDEN = Path(r'C:\Users\Omid\.agents\source\correct')
+# Input/search can launch brokered default apps outside the hidden desktop.
+SAFE_USE_CHECKS = ('actions_smoke.py',)
 
 
 def run(argv, **kwargs):
@@ -62,8 +64,10 @@ def main():
     if args.mode == 'typecheck':
         return
     os.environ['DFM_EXE'] = str(build / 'MinSizeRel/dio-file-manager.exe')
-    # shortcut: run all use checks until changes have a reliable test mapping.
     for smoke in sorted((ROOT / 'tests/use').glob('*_smoke.py')):
+        if smoke.name not in SAFE_USE_CHECKS:
+            print(f'SKIPPED {smoke.name}: default-app launch isolation not proved', flush=True)
+            continue
         os.environ['DFM_USE_WORK'] = str(work / args.mode / smoke.stem)
         run([sys.executable, smoke])
     if args.mode == 'full':

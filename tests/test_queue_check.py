@@ -8,6 +8,9 @@ import queue_check
 
 
 class QueueBuildTest(unittest.TestCase):
+    def test_brokered_file_open_checks_are_excluded(self):
+        self.assertEqual(queue_check.SAFE_USE_CHECKS, ('actions_smoke.py',))
+
     def test_build_uses_local_cui_and_release_size_guard(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
