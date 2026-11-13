@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORK = Path(os.environ.get('DFM_USE_WORK', ROOT / '.agent-work/use-v1'))
 EXE = Path(os.environ.get('DFM_EXE', ROOT / 'build/MinSizeRel/dio-file-manager.exe'))
 sys.pycache_prefix = str(WORK/'tmp/pycache')
+from clipboard_guard import clipboard_test_lock  # shared by every clipboard check
 U = C.WinDLL('user32', use_last_error=True)
 K = C.WinDLL('kernel32', use_last_error=True)
 ENUM = C.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
@@ -30,6 +31,10 @@ U.GetWindowTextW.argtypes = [W.HWND, W.LPWSTR, C.c_int]
 U.GetDpiForWindow.argtypes = [W.HWND]
 U.IsWindow.argtypes = [W.HWND]
 U.SendMessageTimeoutW.restype = C.c_ssize_t
+U.PostMessageW.argtypes = [W.HWND, W.UINT, W.WPARAM, W.LPARAM]
+U.GetWindowRect.argtypes = [W.HWND, C.POINTER(W.RECT)]
+U.GetClientRect.argtypes = [W.HWND, C.POINTER(W.RECT)]
+U.InvalidateRect.argtypes = [W.HWND, C.c_void_p, W.BOOL]
 
 
 class App:
@@ -139,9 +144,10 @@ class App:
     def snap(self, label=None):
         request = Path(str(self.base)+'.request')
         request.touch()
+        U.InvalidateRect(self.hwnd, None, False)
         deadline = time.monotonic() + 5
         while request.exists() and time.monotonic() < deadline:
-            self.msg(0)
+            U.PostMessageW(self.hwnd, 0, 0, 0)
             time.sleep(.03)
         assert not request.exists(), 'No state dump'
         s = json.loads(Path(str(self.base)+'.json').read_text(encoding='utf-8'))
@@ -242,7 +248,8 @@ def inside():
         assert a.wait_ready()['count'] == 20000
 
     def navigation(a):
-        a.cell(0); a.cell(0)
+        x, y = a.cell_xy(0)
+        a.click(x,y); a.click(x,y)
         assert a.wait_ready()['path'] == str(WORK/'fixture'/'A'), 'Double click did not open folder'
         a.key(37,(18,)); assert a.wait_ready()['path'] == str(WORK/'fixture'), 'Back'
         a.key(39,(18,)); assert a.wait_ready()['path'].endswith('\\A'), 'Forward'
@@ -293,6 +300,41 @@ def inside():
         assert a.snap()['count']==0 and a.snap()['state']==1, 'Empty folder state'
     def denied(a):
         assert a.snap()['state']==2, 'Unreadable folder state'
+
+    def live_resize(a):
+        # Enter the native edge-sizing loop with mouse input. An inactive
+        # desktop cannot move the physical cursor, so apply its positions with
+        # SetWindowPos while the button is held and the modal loop stays open.
+        r = W.RECT()
+        U.GetWindowRect(a.hwnd, C.byref(r))
+        x, y = r.right-2, r.bottom-2
+        assert U.PostMessageW(a.hwnd, 0xA1, 17, x | (y << 16))  # HTBOTTOMRIGHT
+        time.sleep(.15)
+        class GUI(C.Structure):
+            _fields_ = [('size',W.DWORD),('flags',W.DWORD),('active',W.HWND),('focus',W.HWND),('capture',W.HWND),('menu',W.HWND),('move',W.HWND),('caret',W.HWND),('rect',W.RECT)]
+        info = GUI(); info.size = C.sizeof(info)
+        U.GetGUIThreadInfo(a.tid,C.byref(info))
+        assert info.flags & 2 and info.move == a.hwnd, 'Native sizing loop did not start'
+        frames = []
+        try:
+            for i, (dx, dy) in enumerate(((70,40),(140,80),(-120,-80))):
+                assert U.PostMessageW(a.hwnd, 0x200, 1, (x+dx) | ((y+dy) << 16))
+                assert U.SetWindowPos(a.hwnd,None,0,0,r.right-r.left+dx,r.bottom-r.top+dy,0x16)
+                time.sleep(.12)
+                client = W.RECT()
+                U.GetClientRect(a.hwnd, C.byref(client))
+                s = a.snap(f'live-resize-held-{i}')
+                from PIL import Image
+                with Image.open(str(a.base)+'.png') as im:
+                    assert im.size == (client.right,client.bottom), f'Stale frame {im.size}, client {(client.right,client.bottom)}'
+                    assert im.getpixel((im.width-12, im.height//2))[:3] != (0,0,0), 'Black resize area'
+                frames.append((client.right,client.bottom))
+            assert len(set(frames)) == 3, f'Live sizing did not change sizes: {frames}'
+        finally:
+            U.PostMessageW(a.hwnd, 0x202, 0, 0)
+            U.PostMessageW(a.hwnd, 0x100, 27, 1)
+            time.sleep(.15)
+        print(json.dumps({'held_resize_frames':frames}),flush=True)
 
     def popup(a, key, mods, text):
         a.key(key, mods)
@@ -435,6 +477,7 @@ def inside():
     check('7-narrow', WORK/'fixture', narrow)
     check('8-empty', WORK/'empty-pristine', empty)
     check('8-unreadable', 'C:\\System Volume Information', denied)
+    check('13-live-resize', WORK/'fixture', live_resize)
     (WORK/'results.json').write_text(json.dumps(results,indent=2),encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 
@@ -466,7 +509,7 @@ def main():
     with (WORK/'input.log').open('wb') as out, (WORK/'input.err').open('wb') as err:
         run=popen([sys.executable,str(Path(__file__).resolve()),'--inside'],ROOT,dict(os.environ),b'',out,err)
         try:
-            return run.wait(timeout=120)
+            return run.wait(timeout=1950)  # two clipboard lock waits of up to 15 minutes
         finally:
             run.close()
 

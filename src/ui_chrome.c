@@ -41,7 +41,8 @@ void ui_sidebar_header(void) {
 }
 
 static bool place_row(const char *label, const char *icon, bool selected) {
-    return cui_nav_item(A.ui, label, .icon = icon, .selected = selected, .group = "places");
+    /* CUI 1.4.0 keeps a group's last selection even when none is selected. */
+    return cui_nav_item(A.ui, label, .icon = icon, .selected = selected, .group = selected ? label : "places");
 }
 
 void ui_sidebar_places(void) {
@@ -55,7 +56,7 @@ void ui_sidebar_places(void) {
         }
         char tb[16];
         snprintf(tb, sizeof tb, "%d", A.trash_n);
-        if (cui_nav_item(ui, "Trash", .icon = CUI_ICON_TRASH_2, .selected = A.loc == LOC_TRASH, .group = "places", .badge = A.trash_n > 0 ? tb : NULL)) app_navigate("@3");
+        if (cui_nav_item(ui, "Trash", .icon = CUI_ICON_TRASH_2, .selected = A.loc == LOC_TRASH, .group = A.loc == LOC_TRASH ? "Trash" : "places", .badge = A.trash_n > 0 ? tb : NULL)) app_navigate("@3");
         cui_gap(ui, 6);
         cui_separator(ui);
         cui_gap(ui, 6);

@@ -24,6 +24,9 @@ its state each frame (`cui_request_wakeup` while it runs).
 
 `ui_ctxmenu.c` isolates the CUI 1.4.0 internal popup and list-row hit calls. CUI's
 data-grid row does not update `last_id`, so `cui_last_rect` cannot identify that row.
+The same adapter registers the window's frame callback for CUI's native modal
+resize loop. It finishes pending layout before allocating screenshot buffers,
+so both growing and shrinking use the current pixel dimensions.
 Search results keep their own listing. Trash completion drops missing results and refreshes
 the saved folder; reload and Undo rerun the query without closing it.
 
@@ -53,6 +56,22 @@ $shortcut.Save()
 ```
 
 Open **Dio File Manager** from Start. It opens Home in grid view and follows the Windows theme.
-Updating uses the same copy step after closing the app. For automated install checks, run the
+Updating preserves an open instance: rename its exe to `dio-file-manager.old.exe`
+and copy the new exe to the normal path. Remove an older backup only when it is
+not running; never close the user's window. For automated install checks, run the
 installed executable on `correct/hidden.py`'s private desktop with isolated `APPDATA` and
 `--test-state BASE`; the resulting PNG proves that copy created a working window.
+
+The native caption follows the app's Light/Dark/System choice. System mode handles
+`WM_SETTINGCHANGE` immediately, including while the app is idle. Sidebar highlights
+belong only to the current or hovered row; unselected navigation groups never inherit
+CUI 1.4.0's retained selection. List rename anchors use the actual visible row rectangle,
+including the header and scroll offset, to open below their row.
+
+`tests/use/input_smoke.py` checks three pixel sizes during Windows' modal sizing
+loop before mouse-up. On the inactive desktop Windows reads the physical cursor,
+so the driver applies mouse positions with `SetWindowPos`; physical edge dragging
+is not covered by this automated check. It captures each held-size frame and checks
+its dimensions and right-edge fill. Clipboard checks use the shared Windows mutex
+`Local\DioFileManagerClipboardTest`, with a 15-minute wait, from saving all formats
+until restoration finishes (including nested checks and exception paths).

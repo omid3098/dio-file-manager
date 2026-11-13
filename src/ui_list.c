@@ -78,6 +78,7 @@ void ui_list_view(void) {
                 A.last_click_t = now;
             }
             bool row_hot = ctxmenu_row_hovered(ui);
+            if (r == first) A.first_rect = ctxmenu_row_rect(ui);
             if (row_hot && cui_mouse_clicked(ui, CUI_MOUSE_RIGHT)) { if (!A.sel[r]) app_select_only(r); A.cursor = r; A.ctx_item = true; }
             for (int c = 0; c < cs.n; c++) {
                 char buf[FS_PATH_MAX];

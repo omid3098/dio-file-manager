@@ -25,6 +25,38 @@ K.GlobalLock.argtypes = [W.HGLOBAL]
 K.GlobalLock.restype = C.c_void_p
 K.GlobalUnlock.argtypes = [W.HGLOBAL]
 K.GlobalFree.argtypes = [W.HGLOBAL]
+K.CreateMutexW.argtypes = [C.c_void_p, W.BOOL, W.LPCWSTR]
+K.CreateMutexW.restype = W.HANDLE
+K.WaitForSingleObject.argtypes = [W.HANDLE, W.DWORD]
+K.ReleaseMutex.argtypes = [W.HANDLE]
+K.CloseHandle.argtypes = [W.HANDLE]
+
+
+@contextmanager
+def clipboard_test_lock():
+    mutex = K.CreateMutexW(None, False, r'Local\DioFileManagerClipboardTest')
+    if not mutex:
+        raise C.WinError(C.get_last_error())
+    owned = False
+    try:
+        result = K.WaitForSingleObject(mutex, 15 * 60 * 1000)
+        owned = result in (0, 0x80)  # acquired, or abandoned by an exited worker
+        if not owned:
+            if result == 0x102:
+                raise TimeoutError('Clipboard test lock was busy for 15 minutes')
+            raise C.WinError(C.get_last_error())
+        yield
+    finally:
+        if owned:
+            K.ReleaseMutex(mutex)
+        K.CloseHandle(mutex)
+
+
+@contextmanager
+def preserved_clipboard(hwnd):
+    with clipboard_test_lock():
+        with _preserved_clipboard(hwnd):
+            yield
 
 
 def open_clipboard(hwnd):
@@ -52,7 +84,7 @@ def free_copy(fmt, handle):
 
 
 @contextmanager
-def preserved_clipboard(hwnd):
+def _preserved_clipboard(hwnd):
     copies = {}
     try:
         open_clipboard(hwnd)

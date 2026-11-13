@@ -117,6 +117,9 @@ void ui_other_locations(void);
 void act_reselect(const char *name);
 
 /* ui_ctxmenu.c */
+void ui_window_callback(cui_app *app, void (*frame)(cui_ctx *, void *), void *user);
+bool ui_window_screenshot(cui_app *app, const char *path);
+cui_rect ctxmenu_row_rect(cui_ctx *ui);
 bool ctxmenu_row_hovered(cui_ctx *ui);       /* call immediately after cui_data_grid_row */
 bool ctxmenu_begin(cui_ctx *ui, const char *id, bool open_here);
 void ctxmenu_end(cui_ctx *ui);

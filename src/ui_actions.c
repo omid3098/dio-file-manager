@@ -506,8 +506,9 @@ void act_frame(void) {
         int row = A.view == VIEW_GRID && A.cols > 0 ? A.cursor / A.cols : A.cursor + 1;
         float rh = A.view == VIEW_GRID ? A.cell_h : 36.0f;
         below = (float)(row - A.first_row + (A.view == VIEW_GRID ? 1 : 0)) * rh;
+        if (A.view == VIEW_LIST) below += A.first_rect.y - 46.0f;
         if (below < 0) below = 0;
-        if (below > A.content_h - 150) below = A.content_h - 150;
+        if (A.view == VIEW_GRID && below > A.content_h - 150) below = A.content_h - 150;
     }
     /* under the item itself: its cell in the grid, the name column in the list */
     float left = 8, aw = 360;
@@ -515,8 +516,11 @@ void act_frame(void) {
         aw = (A.first_rect.w - 32) / (float)A.cols;
         left = 16 + (float)(A.cursor >= 0 ? A.cursor % A.cols : 0) * aw;
     }
-    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad_top = below, .pad_left = left) {
-        cui_canvas(ui, "popanchor", CUI_PX(aw), CUI_PX(1), paint_none, NULL, 0);
+    /* Anchor to the whole list row so the popup can flip above it near the bottom. */
+    float ah = A.view == VIEW_LIST && A.cursor >= 0 ? 36.0f : 1.0f;
+    float top = ah > 1 && below >= ah ? below - ah : below;
+    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad_top = top, .pad_left = left) {
+        cui_canvas(ui, "popanchor", CUI_PX(aw), CUI_PX(ah), paint_none, NULL, 0);
     }
     name_popover();
     context_menu();

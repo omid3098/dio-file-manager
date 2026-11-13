@@ -12,6 +12,9 @@
 #include "shell.h"
 #include "starred.h"
 
+/* dwmapi.h imports visual-style macros that collide with our LOC_* enum. */
+__declspec(dllimport) HRESULT WINAPI DwmSetWindowAttribute(HWND, DWORD, LPCVOID, DWORD);
+
 app_t A;
 static cui_app *g_app;
 static WNDPROC test_window_proc;
@@ -24,6 +27,10 @@ static int typed_n;
 
 static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_MOUSELEAVE && test_mode) return 0;
+    if (m == WM_SETTINGCHANGE && A.ui && A.theme_pref == 0) {
+        app_set_theme(0);
+        cui_request_redraw(A.ui);
+    }
     if (m == WM_CHAR && w > 0x20 && w != 0x7F && typed_n < 15 &&
         !(GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000)) typed[typed_n++] = (wchar_t)w;
     return CallWindowProcW(test_window_proc, h, m, w, l);
@@ -54,6 +61,9 @@ void app_set_theme(int pref) {
     A.theme_pref = pref;
     bool dark = pref == 0 ? system_is_dark() : pref == 2;
     if ((cui_get_theme_mode(A.ui) == CUI_THEME_DARK) != dark) cui_set_theme(A.ui, dark ? CUI_THEME_DARK : CUI_THEME_LIGHT);
+    BOOL caption_dark = dark;
+    if (FAILED(DwmSetWindowAttribute((HWND)A.hwnd, 20, &caption_dark, sizeof caption_dark)))
+        DwmSetWindowAttribute((HWND)A.hwnd, 19, &caption_dark, sizeof caption_dark);
 }
 
 void app_copy_text(const char *utf8) {
@@ -350,8 +360,6 @@ static void content_body(void) {
 
 static void frame(void) {
     cui_ctx *ui = A.ui;
-    static int tick;
-    if (A.theme_pref == 0 && ++tick % 30 == 0) app_set_theme(0);
     A.dark = cui_get_theme_mode(ui) == CUI_THEME_DARK;
     theme_apply(ui, A.dark);
     act_pre_frame();
@@ -424,15 +432,6 @@ static void parse_args(options *o) {
     }
 }
 
-static bool write_shot(cui_app *app, const char *path) {
-    const cui_draw_data *dd = cui_get_draw_data(cui_app_ui(app));
-    int w = dd->width_px, h = dd->height_px;
-    unsigned char *px = malloc((size_t)w * (size_t)h * 4);
-    bool ok = px && cui_app_screenshot(app, px, w, h) && cui_write_png(path, px, w, h, w * 4);
-    free(px);
-    return ok;
-}
-
 static void json_text(FILE *f, const char *s) {
     fputc('"', f);
     for (; *s; s++) {
@@ -469,8 +468,15 @@ static void test_snapshot(const char *base) {
     json_text(f, A.drive_n ? A.drives[0].root : "");
     fprintf(f, "}"); fclose(f);
     snprintf(output, sizeof output, "%s.png", base);
-    write_shot(g_app, output);
+    ui_window_screenshot(g_app, output);
     DeleteFileA(request);
+}
+
+static void window_frame(cui_ctx *ui, void *user) {
+    (void)ui;
+    static int frames;
+    frame();
+    if (test_mode && ++frames > 3) test_snapshot(user);
 }
 
 /* Screenshot of an action: the same real events a person would cause, at set frames. */
@@ -527,13 +533,13 @@ int main(void) {
     if (!start[0] || !fs_is_dir(start)) start = A.drive_n ? A.drives[0].root : "C:\\";
     app_navigate(start);
     if (o.loc) { char e[3] = { '@', (char)('0' + o.loc), 0 }; app_navigate(e); }
+    ui_window_callback(g_app, window_frame, o.test_state);
 
     int frames = 0, rc = 0, ready = 0, ready_search = 0;
     bool searched = false;
     while (cui_app_frame(g_app)) {
-        frame();
+        window_frame(A.ui, o.test_state);
         frames++;
-        if (o.test_state[0] && frames > 3) test_snapshot(o.test_state);
         if (shot && frames > 45 && ((A.list && fs_list_state(A.list) != FS_LOADING && A.list_seen) || A.loc == LOC_OTHER)) {
             if (o.select[0] && A.sel_n == 0)
                 for (int i = 0; i < A.vis_n; i++)
@@ -550,7 +556,7 @@ int main(void) {
                 if (!ready) ready = frames;
                 int k = frames - ready;
                 shot_action(&o, k);
-                if (k >= (o.act ? 40 : 3)) { rc = write_shot(g_app, o.shot) ? 0 : 2; break; }
+                if (k >= (o.act ? 40 : 3)) { rc = ui_window_screenshot(g_app, o.shot) ? 0 : 2; break; }
             }
         }
         if (shot && frames > 600) { rc = 3; break; }
