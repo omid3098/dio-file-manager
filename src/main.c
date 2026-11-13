@@ -13,7 +13,6 @@
 #include "starred.h"
 #include "recent.h"
 #include "ops.h"
-#include "views.h"
 
 /* dwmapi.h imports visual-style macros that collide with our LOC_* enum. */
 __declspec(dllimport) HRESULT WINAPI DwmSetWindowAttribute(HWND, DWORD, LPCVOID, DWORD);
@@ -32,10 +31,6 @@ static float zoom_wheel;
 float app_zoom_wheel(void) { float dy = zoom_wheel; zoom_wheel = 0; return dy; }
 
 static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
-    if (m == VIEWS_TRASH_CHANGED && A.ui) {
-        cui_request_redraw(A.ui);
-        return 0;
-    }
     if (m == WM_MOUSELEAVE && test_mode) return 0;
     if (m == WM_SETTINGCHANGE && A.ui && A.theme_pref == 0) {
         app_set_theme(0);

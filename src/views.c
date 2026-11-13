@@ -72,29 +72,26 @@ long views_fill(fs_list *l) {
     return FS_FAILED;
 }
 
+static volatile LONG count_busy;
 static volatile LONG64 trash_count;
 static HANDLE count_event;
-static HWND count_window;
 
 static unsigned __stdcall count_trash(void *unused) {
     (void)unused;
     HRESULT init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     /* Keep the shell's per-thread cache: rebuilding it on every poll costs CPU. */
-    DWORD wait;
-    while ((wait = WaitForSingleObject(count_event, 2500)) == WAIT_OBJECT_0 || wait == WAIT_TIMEOUT) {
+    while (WaitForSingleObject(count_event, INFINITE) == WAIT_OBJECT_0) {
         SHQUERYRBINFO q = { sizeof q };
-        if (SUCCEEDED(SHQueryRecycleBinW(NULL, &q)) &&
-            InterlockedExchange64(&trash_count, q.i64NumItems) != q.i64NumItems)
-            PostMessageW(count_window, VIEWS_TRASH_CHANGED, 0, 0);
+        if (SUCCEEDED(SHQueryRecycleBinW(NULL, &q))) InterlockedExchange64(&trash_count, q.i64NumItems);
+        InterlockedExchange(&count_busy, 0);
     }
     if (SUCCEEDED(init)) CoUninitialize();
     return 0;
 }
 
-bool views_trash_refresh(HWND window) {
+long long views_trash_count(void) {
     /* This read-only worker and its event live until the process exits. */
     if (!count_event) {
-        count_window = window;
         count_event = CreateEventW(NULL, FALSE, FALSE, NULL);
         if (count_event) {
             HANDLE th = (HANDLE)_beginthreadex(NULL, 0, count_trash, NULL, 0, NULL);
@@ -102,11 +99,14 @@ bool views_trash_refresh(HWND window) {
             else { CloseHandle(count_event); count_event = NULL; }
         }
     }
-    return count_event && SetEvent(count_event);
+    if (count_event && InterlockedCompareExchange(&count_busy, 1, 0) == 0)
+        if (!SetEvent(count_event)) InterlockedExchange(&count_busy, 0);
+    return InterlockedCompareExchange64(&trash_count, 0, 0);
 }
 
-long long views_trash_count(void) {
-    return InterlockedCompareExchange64(&trash_count, 0, 0);
+bool views_trash_count_poll(int *count) {
+    *count = (int)InterlockedCompareExchange64(&trash_count, 0, 0);
+    return InterlockedCompareExchange(&count_busy, 0, 0) != 0;
 }
 
 /* ---- Recycle Bin tasks: one at a time on a worker ---- */
