@@ -74,7 +74,7 @@ Neither console test reuses its leaf sandbox; both remove their files on exit.
 
 Run `tests/use/input_smoke.py` and `tests/use/search_smoke.py` once against the release
 executable, with `DFM_EXE` pointing at it and separate `DFM_USE_WORK` folders below the task.
-Both check gaming and use the private desktop. The input suite has 18 checks; the search
+Both check gaming and use the private desktop. The input suite has 20 checks; the search
 suite has 8, including list-row menus and search Trash/Undo. Clipboard checks preserve all
 formats in memory; when wrapping console tests, preserve the clipboard around the whole
 process as well so a failed assertion cannot leave test data behind.
@@ -117,6 +117,10 @@ cannot acquire the mutex during preservation, including nested guards.
 The queue uses the safe mode names so baseline probes refuse old helpers
 that could run brokered file-opening checks.
 
+State capture invalidates the window and posts a wakeup, rather than synchronously
+waiting on a UI thread that may be encoding a PNG. Double-click navigation uses one
+coordinate lookup and two clicks, with no screenshot between the clicks.
+
 ## Concurrent jobs, Recent and eject
 
 `tests/use/jobs_smoke.py` imports the real-input driver from `input_smoke.py` and
@@ -135,5 +139,5 @@ must also pass `input_smoke.py` and `search_smoke.py`, each using its own work f
 
 All clipboard checks acquire the Windows named mutex
 `Local\DioFileManagerClipboardTest` before saving clipboard formats and release it
-only after restoration. `input_smoke.clipboard_test_lock` waits up to 15 minutes;
+only after restoration. `clipboard_guard.clipboard_test_lock` waits up to 15 minutes;
 `clipboard_guard.preserved_clipboard` always takes it, including nested checks.
