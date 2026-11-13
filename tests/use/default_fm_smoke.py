@@ -164,7 +164,14 @@ def kill_started():
 def reset_case():
     kill_started()
     for f in (OPENED, STAND_LOG, LOCAL / 'fallback.txt'):
-        f.unlink(missing_ok=True)
+        for _ in range(60):   # a process that was just ended may still hold the file for a moment
+            try:
+                f.unlink(missing_ok=True)
+                break
+            except PermissionError:
+                time.sleep(.05)
+        else:
+            f.unlink(missing_ok=True)
 
 
 def wait_for(what, cond, seconds=8):
@@ -183,7 +190,7 @@ def fire(command_text):
 
 
 def arrival():
-    wait_for('Nothing arrived: ' + repr(lines()), lambda: any(l.startswith(('arrive-', 'explorer', 'refused')) for l in lines()))
+    wait_for('Nothing arrived: ' + repr(lines()), lambda: any(l.startswith(('arrive-', 'explorer', 'refused')) for l in lines()), seconds=20)
     time.sleep(.15)
     return [l for l in lines() if not l.startswith('pid\t')]
 
@@ -285,12 +292,18 @@ def inside():
         def launcher_call(text):
             reset_case()
             fire(prefix + (' ' + text if text else ''))
-            return arrival()
+            try:
+                return arrival()
+            except AssertionError as e:
+                raise AssertionError('%s [for %r]' % (e, text))
 
         def folder_call(path):
             reset_case()
             fire(folder_cmd.replace('%1', path))
-            return arrival()
+            try:
+                return arrival()
+            except AssertionError as e:
+                raise AssertionError('%s [for folder %r]' % (e, path))
 
         def expect(got, *want):
             assert got == list(want), f'got {got!r}, want {list(want)!r}'

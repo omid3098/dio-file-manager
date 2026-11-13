@@ -16,6 +16,7 @@ FetchContent. All text is UTF-8 inside the app; convert to UTF-16 only at Win32 
 | `src/search.c`, `src/search.h` | Recursive search below a folder on a worker thread. |
 | `src/recent.c`, `src/recent.h` | Recent files from the Windows Recent folder. |
 | `src/shell.c`, `src/shell.h` | Open, Open With, Open in Terminal, Properties, Copy Path. |
+| `src/defaultfm.c`, `src/defaultfm.h` | Use as Default File Manager: HKCU registration with exact restore, the launcher, Explorer-style requests, the Explorer fallback. |
 | `tests/` | Console tests of the non-window parts, on a sandbox under `.agent-work/`. |
 
 The window code calls the other modules; they never call CUI. Work that can take long (copy,
@@ -96,6 +97,29 @@ is not covered by this automated check. It captures each held-size frame and che
 its dimensions and right-edge fill. Clipboard checks use the shared Windows mutex
 `Local\DioFileManagerClipboardTest`, with a 15-minute wait, from saving all formats
 until restoration finishes (including nested checks and exception paths).
+
+## Default file manager
+
+`src/defaultfm.c` registers the app as Windows' folder handler for the current user (HKCU only).
+
+- Keys written under `HKCU\Software\Classes`: `Folder\shell\open\command`, `Folder\shell\explore\command` and
+  `CLSID\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\shell\opennewwindow\command` (Win+E). Each gets the default value
+  `"<launcher>" "%1"` (Win+E: `"<launcher>"`) and `DelegateExecute` = empty string.
+- Saved state: `HKCU\Software\Dio File Manager\DefaultFileManager` with `App`, `Launcher`, `Args` and
+  `Saved\<i>` for each key: `Path`, `Existed`, `Top` (the first key the registration created) and `Values`
+  (a copy of every value with its type). Turning off restores the values or removes the keys it created,
+  then deletes this key; it also deletes the launcher copy and its folder when empty.
+- The launcher is a copy of the exe named `dio-file-manager-launcher.exe` in `%LOCALAPPDATA%\dio-file-manager`.
+  `main()` checks its own file name first: with the app present it starts it with the same arguments and exits
+  (no window); with the app gone it restores the keys, hands the request to Explorer and deletes itself.
+  A normal start refreshes the launcher copy by size and follows an exe that moved.
+- Requests: `defaultfm_request` turns the arguments into a folder (with an optional name to select), a place
+  (Recent, Trash, This PC), Home or a fallback. The shell sends `C:\` as `"C:\"`, which arrives as `C:"`; trailing quotes are removed.
+- Loop guard: the same Explorer request twice within 2 s is refused (`fallback.txt` in the launcher folder, exit 4).
+- Test hooks, only with `--test-state BASE`: `DFM_TEST_REGROOT` (registry root under HKCU with `\Classes` and `\State`),
+  `DFM_TEST_LOCAL` (launcher folder), `DFM_TEST_EXPLORER` (command that stands in for Explorer; the real one is
+  never started). `BASE.opened` lines: `pid`, `arrive-folder	<path>	<select>`, `arrive-home`, `arrive-place	<loc>`,
+  `explorer	<cmd>`, `refused`, `restored`. `--default-fm on|off|status` (status exits 10 when off).
 
 ## Jobs, Recent and removable drives
 

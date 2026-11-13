@@ -170,3 +170,17 @@ The final branch restores normal display pacing. Neither the 120 fps no-vsync
 mode, normal display pacing, nor an experimental 30 fps clock cap passed every
 scrolling CPU sample. The 30 fps experiment also lost slider drag endpoints and
 was reverted. See `docs/view-slider-validation.md` for the incomplete acceptance.
+
+## Default file manager checks
+
+`use/default_fm_smoke.py` runs with the registry root redirected to `HKCU\Software\DioFmTest\<id>`
+(`DFM_TEST_REGROOT`, set for every child) on the hidden desktop and fails if the real keys change.
+It checks on/off with exact restore of values of several types, clean keys, every command-line form,
+the loop guard, the app exe gone, the exe moved and the real click in the main menu.
+
+`use/default_fm_real.py` is not a `*_smoke.py`: run it by hand. It runs `gaming.py check`, backs up the three real
+key trees, turns the switch on with `--test-state` (so opened places are only logged), calls `ShellExecuteEx`
+`open` on a folder and on `C:\` and `opennewwindow` on Win+E's target from the hidden desktop, and in a `finally`
+block turns the switch off and compares the keys byte for byte (it imports the backup and retries on a
+difference). The keys stay registered for about 5 seconds, at most 10. It never starts the real Explorer:
+before each call it reads the class's command and does not call when it is not the launcher.

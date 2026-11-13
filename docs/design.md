@@ -138,6 +138,17 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   and when the job ends. The selection, cursor and anchor are read when the new listing replaces the old one
   and kept by name (sorted, binary search); scroll stays. A file name longer than 200 UTF-16 units is copied
   under a temp name without it, so such a file is not shown while it copies (a deliberate limit).
+- Main menu, **Use as Default File Manager** (check mark when on, like Show Hidden Files): makes this app the file
+  manager Windows opens for folders, for the current user only, with no administrator rights. Folders opened
+  by other programs and Win+E open here at the right place: a folder, a drive, This PC, Trash, Recent, Home (Win+E),
+  a `shell:` place that is a real folder (for example `shell:Downloads`) and `explorer /select,<file>`
+  (the folder opens with the file selected). Anything it cannot show (Control Panel, `ms-settings:`, a missing
+  folder, an unknown `shell:` or `::{CLSID}` place) goes to Windows Explorer, once per 2 seconds at most so a
+  place can never loop. Turning it off puts back every value that was there before, exactly. If the app's file is
+  deleted, the next folder open restores Explorer's keys and hands the request to Explorer.
+  Limit: "Show in folder" from other programs (`SHOpenFolderAndSelectItems`) opens the folder here but does not
+  select the file, and `explorer.exe /select,...` started directly by a program cannot be redirected without
+  administrator rights.
 - Paste onto a name that exists asks: Replace, Skip or Keep Both, with "Apply to all".
 
 ## Colours (Halo, from `tokens.json`)
