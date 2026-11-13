@@ -246,7 +246,7 @@ def inside():
         a.rclick(*cell_xy(a, items.index(selected[0])))
         assert sorted(a.snap()['selection']) == selected, 'Context click replaced band selection'
         # Recent: Star. Starred: Unstar. Trash: Restore.
-        for _ in range(5 if place == 'recent' else 6 if place == 'starred' else 1):
+        for _ in range(1 if place == 'trash' else 6):
             a.key(40)
         a.key(13)
         if place == 'trash':
@@ -267,6 +267,8 @@ def inside():
             expected = selected if place == 'recent' else sorted(p.name for p in files if p.name not in selected)
             a.until('Star action did not match band', lambda: sorted(Path(p).name for p in saved.read_text(encoding='utf-8').splitlines()) == expected)
             assert all(p.exists() for p in files), 'Star action modified a file'
+            if place == 'recent':
+                assert len(list(shortcuts.glob('*.lnk'))) == 8, 'Star removed a Recent shortcut'
         assert all(p.read_text(encoding='utf-8') == 'band fixture' for p in files), 'Fixture content changed'
         os.environ.pop('DFM_TEST_RECENT', None)
 
