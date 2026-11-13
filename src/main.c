@@ -596,6 +596,7 @@ int main(void) {
     }
     act_shutdown();
     ui_sidebar_shutdown();
+    app_flush_view();
     cui_app_destroy(g_app);
     return rc;
 }

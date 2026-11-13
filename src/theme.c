@@ -29,7 +29,7 @@ void theme_apply(cui_ctx *ui, bool dark) {
     t->colors[CUI_TOKEN_BORDER_SUBTLE] = cui_alpha(line, 0.09f);
     t->colors[CUI_TOKEN_BORDER_STRONG] = cui_alpha(line, 0.16f);
     t->colors[CUI_TOKEN_HOVER] = cui_alpha(fg, 0.06f);
-    t->colors[CUI_TOKEN_ACTIVE] = cui_mix(CUI_RGB(p->surface), accent, 0.16f);
+    t->colors[CUI_TOKEN_ACTIVE] = cui_mix(CUI_RGB(p->surface), accent, dark ? 0.26f : 0.16f);
     t->colors[CUI_TOKEN_ACCENT] = accent;
     t->colors[CUI_TOKEN_ACCENT_STRONG] = cui_mix(accent, fg, 0.14f);
     t->colors[CUI_TOKEN_ACCENT_SUBTLE] = cui_alpha(accent, 0.16f);

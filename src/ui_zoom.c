@@ -1,5 +1,7 @@
 /* One scale shared by every place. Settings use APPDATA, including in sandbox checks. */
 #include <windows.h>
+#include <process.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include "ui.h"
 
@@ -13,15 +15,56 @@ static bool settings_path(wchar_t *path, size_t cap, const wchar_t *name) {
     return true;
 }
 
-static void save_view(void) {
+static struct { HANDLE thread, wake; volatile LONG pending, failed, stop; } writer;
+
+static bool save_view(int value) {
+    char delay[16];
+    if (GetEnvironmentVariableA("DFM_TEST_VIEW_SAVE_DELAY_MS", delay, sizeof delay)) Sleep((DWORD)atoi(delay));
     wchar_t path[FS_PATH_MAX], tmp[FS_PATH_MAX];
-    if (!settings_path(path, FS_PATH_MAX, L"view.txt") || !settings_path(tmp, FS_PATH_MAX, L"view.tmp")) return;
+    if (!settings_path(path, FS_PATH_MAX, L"view.txt") || !settings_path(tmp, FS_PATH_MAX, L"view.tmp")) return false;
     FILE *f = _wfopen(tmp, L"w");
-    if (!f) return;
-    bool ok = fprintf(f, "view-v1 %d %d\n", A.zoom, A.last_icon) > 0;
+    if (!f) return false;
+    bool ok = fprintf(f, "view-v1 %d %d\n", value % 8, value / 8) > 0;
     if (fclose(f)) ok = false;
     if (ok) ok = MoveFileExW(tmp, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
-    if (!ok) { DeleteFileW(tmp); cui_toast(A.ui, "Could not save the view", .tone = CUI_TONE_WARNING); }
+    if (!ok) DeleteFileW(tmp);
+    return ok;
+}
+
+static unsigned __stdcall write_views(void *unused) {
+    (void)unused;
+    for (;;) {
+        WaitForSingleObject(writer.wake, INFINITE);
+        LONG value;
+        while ((value = InterlockedExchange(&writer.pending, 0)) != 0)
+            if (!save_view(value - 1)) InterlockedExchange(&writer.failed, 1);
+        if (InterlockedCompareExchange(&writer.stop, 0, 0) && !InterlockedCompareExchange(&writer.pending, 0, 0)) return 0;
+    }
+}
+
+/* Slider crossings can reach slow disk flushes; coalesce them on one writer. */
+static void queue_view(void) {
+    if (!writer.thread) {
+        writer.wake = CreateEventW(NULL, FALSE, FALSE, NULL);
+        if (writer.wake) writer.thread = (HANDLE)_beginthreadex(NULL, 0, write_views, NULL, 0, NULL);
+        if (!writer.thread) {
+            if (writer.wake) CloseHandle(writer.wake);
+            writer.wake = NULL;
+            InterlockedExchange(&writer.failed, 1);
+            return;
+        }
+    }
+    InterlockedExchange(&writer.pending, 1 + A.zoom + 8 * A.last_icon);
+    SetEvent(writer.wake);
+}
+
+void app_flush_view(void) {
+    if (!writer.thread) return;
+    InterlockedExchange(&writer.stop, 1);
+    SetEvent(writer.wake);
+    WaitForSingleObject(writer.thread, INFINITE);
+    CloseHandle(writer.thread);
+    CloseHandle(writer.wake);
 }
 
 void app_load_view(void) {
@@ -50,13 +93,14 @@ void app_set_zoom(int stop) {
     if (stop >= Z_SMALL) A.last_icon = stop;
     A.reset_scroll = true;
     A.last_click_idx = -1;
-    save_view();
+    queue_view();
 }
 
 void app_set_view(int view) { app_set_zoom(view == VIEW_LIST ? Z_DETAILS : A.last_icon); }
 
 void ui_zoom_keys(void) {
     cui_ctx *ui = A.ui;
+    if (InterlockedExchange(&writer.failed, 0)) cui_toast(ui, "Could not save the view", .tone = CUI_TONE_WARNING);
     static float wheel;
     float dy = app_zoom_wheel();
     if (cui_wants_keyboard(ui) || act_modal_open() || ctxmenu_is_open(ui) || ui_view_options_open()) { wheel = 0; return; }

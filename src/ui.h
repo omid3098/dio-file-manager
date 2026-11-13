@@ -84,6 +84,7 @@ void app_count_selection(void);
 void app_set_view(int view);
 void app_set_zoom(int stop);
 void app_load_view(void);
+void app_flush_view(void);
 void ui_zoom_keys(void);
 float app_zoom_wheel(void);
 bool ui_view_options_open(void);

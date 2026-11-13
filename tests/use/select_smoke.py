@@ -137,6 +137,7 @@ def inside():
                 a.snap(name+'-failed')
             results.append(dict(check=name, result='FAILED', reason=str(e)))
         finally:
+            os.environ.pop('DFM_TEST_VIEW_SAVE_DELAY_MS', None)
             if a:
                 a.close()
         print(json.dumps(results[-1]), flush=True)
@@ -166,7 +167,7 @@ def inside():
         px, py = (x+180, y+12) if stop <= 1 else (x+16+(w-32)/s['cols']/2, y+5)
         surface = (16, 19, 28) if theme == 'dark' else (247, 248, 252)
         # CUI mixes in OKLab, rather than interpolating sRGB channels.
-        expected = (33, 41, 58) if theme == 'dark' else (219, 225, 251)
+        expected = (44, 55, 79) if theme == 'dark' else (219, 225, 251)
 
         def color(expected):
             a.snap()
@@ -210,6 +211,8 @@ def inside():
             subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
                            env=dict(os.environ, DFM_RECENT_FILES=str(a.folder)), check=True,
                            creationflags=subprocess.CREATE_NO_WINDOW)
+        if place == 'starred' and stop == 1:
+            os.environ['DFM_TEST_VIEW_SAVE_DELAY_MS'] = '650'
         a.restart()
         if place == 'starred':
             a.key(65, (17,))

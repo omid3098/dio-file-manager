@@ -67,6 +67,8 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   Wheel events retain their modifier state even when Ctrl is released before the next frame.
   The grid button (Ctrl+1) returns to the last icon stop; the list button (Ctrl+2) opens Details.
   The current and last icon stops survive restarts in `%APPDATA%\dio-file-manager\view.txt`.
+  One background writer saves the latest stop and finishes pending writes on exit, so
+  dragging the slider never waits for a settings-file flush.
   Search, Recent, Starred and Trash share this scale.
   Presentation keeps CUI's normal event-driven display pacing. Idle windows wake only for
   input, timers or worker progress. Recycle Bin badge queries run on a worker.
@@ -142,7 +144,7 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 | Hairline `line` | #0F172A at 9% | #FFFFFF at 9% | BORDER_SUBTLE, BORDER |
 | Control edge `line-strong` | #0F172A at 16% | #FFFFFF at 16% | BORDER_STRONG |
 | Hover | fg at 6% | fg at 6% | HOVER |
-| Selected | Accent at 16% over content | Accent at 16% over content | ACTIVE |
+| Selected | Accent at 16% over content | Accent at 26% over content | ACTIVE |
 | Accent | #5B63E6 | #8AB4FF | ACCENT |
 | Text on accent | #FFFFFF | #0A0D1A | ACCENT_FOREGROUND |
 | Success, warn, danger, live | #0D9488, #D97706, #E11D48, #0284C7 | #5EEAD4, #FBBF24, #FC909E, #7DD3FC | SUCCESS, WARNING, DANGER, INFO |
