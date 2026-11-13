@@ -10,6 +10,7 @@ enum { LOC_FOLDER = 0, LOC_RECENT, LOC_STARRED, LOC_TRASH, LOC_OTHER };
 enum { VIEW_GRID = 0, VIEW_LIST = 1 };
 enum { Z_DETAILS, Z_LIST, Z_SMALL, Z_MEDIUM, Z_LARGE, Z_EXTRA, Z_COUNT };
 enum { HIST_MAX = 48 };
+#define HEADER_H 46.0f               /* both header rows: they are the top of the window */
 
 typedef struct app_t {
     cui_ctx *ui;
@@ -173,6 +174,21 @@ void ui_thumb_end(void);
 
 /* theme.c */
 void theme_apply(cui_ctx *ui, bool dark);
+unsigned theme_hairline(bool dark);        /* 0xRRGGBB of the pane hairline, also the window border */
+
+/* chrome_win.c: the header is the window's title bar */
+void chrome_init(void *hwnd, int client_w, int client_h, int min_w, int min_h);
+bool chrome_message(void *hwnd, unsigned msg, uintptr_t w, intptr_t l, intptr_t *result);   /* true: handled, *result is the answer */
+void chrome_begin_frame(void);
+void chrome_nodrag(cui_rect r);             /* a header control: it takes clicks, the empty space around it drags the window */
+void chrome_nodrag_last(void);              /* the component just built */
+void chrome_window_buttons(void);           /* minimize, maximize and close at the end of the content header */
+void chrome_veil(void);                     /* inside a 36 px stack: dims an icon without a colour option when the window is inactive */
+cui_color chrome_icon_color(void);          /* .color of a header icon button: none when active, muted when not */
+void chrome_set_active(bool active);
+bool chrome_is_active(void);
+void chrome_set_theme(bool dark);           /* the window border and the system menu follow the theme */
+void chrome_snapshot(FILE *f);
 void theme_load_fonts(cui_ctx *ui);
 
 /* ui_icons.c */

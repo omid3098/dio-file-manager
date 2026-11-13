@@ -16,9 +16,6 @@
 #include "clip.h"
 #include "defaultfm.h"
 
-/* dwmapi.h imports visual-style macros that collide with our LOC_* enum. */
-__declspec(dllimport) HRESULT WINAPI DwmSetWindowAttribute(HWND, DWORD, LPCVOID, DWORD);
-
 app_t A;
 static cui_app *g_app;
 static WNDPROC test_window_proc;
@@ -33,6 +30,8 @@ static float zoom_wheel;
 float app_zoom_wheel(void) { float dy = zoom_wheel; zoom_wheel = 0; return dy; }
 
 static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    LRESULT chrome_result;
+    if (chrome_message(h, m, w, l, (intptr_t *)&chrome_result)) return chrome_result;
     if (m == WM_MOUSELEAVE && test_mode) return 0;
     if (m == WM_SETTINGCHANGE && A.ui && A.theme_pref == 0) {
         app_set_theme(0);
@@ -78,9 +77,7 @@ void app_set_theme(int pref) {
     A.theme_pref = pref;
     bool dark = pref == 0 ? system_is_dark() : pref == 2;
     if ((cui_get_theme_mode(A.ui) == CUI_THEME_DARK) != dark) cui_set_theme(A.ui, dark ? CUI_THEME_DARK : CUI_THEME_LIGHT);
-    BOOL caption_dark = dark;
-    if (FAILED(DwmSetWindowAttribute((HWND)A.hwnd, 20, &caption_dark, sizeof caption_dark)))
-        DwmSetWindowAttribute((HWND)A.hwnd, 19, &caption_dark, sizeof caption_dark);
+    chrome_set_theme(dark);
 }
 
 void app_set_search_open(bool open) {
@@ -420,6 +417,7 @@ static void frame(void) {
     cui_ctx *ui = A.ui;
     A.dark = cui_get_theme_mode(ui) == CUI_THEME_DARK;
     theme_apply(ui, A.dark);
+    chrome_begin_frame();
     act_pre_frame();
     poll_list();
     poll_next();
@@ -429,7 +427,7 @@ static void frame(void) {
     cui_vec2 vp = cui_viewport_size(ui);
     bool narrow = vp.x < 640.0f;
     A.content_w = narrow ? vp.x : vp.x - 240.0f;
-    A.content_h = vp.y - 46.0f;
+    A.content_h = vp.y - HEADER_H;
     cui_row(ui, .width = CUI_FILL, .height = CUI_FILL, .bg = CUI_COLOR_BACKGROUND) {
         if (!narrow) {
             cui_column(ui, .width = CUI_PX(240), .height = CUI_FILL, .bg = CUI_COLOR_BACKGROUND) {
@@ -469,6 +467,7 @@ typedef struct options {
     char default_fm[8];            /* --default-fm on|off|status */
     int loc;                       /* 0 folder, else LOC_* for --loc */
     int view, theme, w, h;
+    bool inactive;                 /* pictures: draw the window as if another window had the focus */
     int act;                       /* 0 none, 1 item menu, 2 background menu, 3 rename popover, 4 new-folder popover, 5 and 6 the same two menus in the list view */
 } options;
 
@@ -490,6 +489,7 @@ static void parse_args(options *o) {
         else if (!wcscmp(a, L"--search") && more) arg_u8(argv[++i], o->search, sizeof o->search);
         else if (!wcscmp(a, L"--act") && more) { ++i; o->act = !wcscmp(argv[i], L"menu") ? 1 : !wcscmp(argv[i], L"bgmenu") ? 2 : !wcscmp(argv[i], L"rename") ? 3 : !wcscmp(argv[i], L"newdir") ? 4 : !wcscmp(argv[i], L"listmenu") ? 5 : !wcscmp(argv[i], L"listbg") ? 6 : 0; }
         else if (!wcscmp(a, L"--view") && more) { ++i; o->view = !wcscmp(argv[i], L"list") ? VIEW_LIST : !wcscmp(argv[i], L"grid") ? VIEW_GRID : -1; }
+        else if (!wcscmp(a, L"--inactive")) o->inactive = true;
         else if (!wcscmp(a, L"--theme") && more) { ++i; o->theme = !wcscmp(argv[i], L"dark") ? 2 : !wcscmp(argv[i], L"light") ? 1 : 0; }
         else if (!wcscmp(a, L"--size") && more) { ++i; int w, h; if (swscanf_s(argv[i], L"%dx%d", &w, &h) == 2) { o->w = w; o->h = h; } }
         else if (!wcscmp(a, L"--default-fm") && more) arg_u8(argv[++i], o->default_fm, sizeof o->default_fm);
@@ -564,6 +564,7 @@ static void test_snapshot(const char *base) {
     ui_sidebar_snapshot(f);
     ui_popup_snapshot(f);
     ui_default_fm_snapshot(f);
+    chrome_snapshot(f);
     fprintf(f, "}"); fclose(f);
     DeleteFileA(request);
 }
@@ -629,7 +630,7 @@ int main(void) {
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     bool shot = o.shot[0] != 0;
     g_app = cui_app_create(&(cui_app_desc){ .title = "Dio File Manager", .width = o.w, .height = o.h, .min_width = 360, .min_height = 280,
-                                            .hidden = shot, .continuous = shot });
+                                            .hidden = true, .continuous = shot });   /* shown below, after the caption is gone */
     if (!g_app) return 1;
     test_mode = o.test_state[0] != 0;
     if (test_mode) {   /* checks never start another app on the owner's desktop; they read what would open */
@@ -640,12 +641,14 @@ int main(void) {
         recent_test_source(getenv("DFM_TEST_RECENT"));
         fs_test_drives(getenv("DFM_TEST_DRIVES"), getenv("DFM_TEST_EJECT_LOG"));
     }
-    if (!shot)
-        test_window_proc = (WNDPROC)SetWindowLongPtrW((HWND)cui_app_native_window(g_app), GWLP_WNDPROC, (LONG_PTR)test_input_proc);
+    HWND hwnd = (HWND)cui_app_native_window(g_app);
+    test_window_proc = (WNDPROC)SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)test_input_proc);
     memset(&A, 0, sizeof A);
     A.ui = cui_app_ui(g_app);
     A.hwnd = cui_app_native_window(g_app);
     ui_text_clipboard(A.ui);
+    chrome_init(hwnd, o.w, o.h, 360, 280);
+    if (o.inactive) chrome_set_active(false);
     app_load_view();
     if (o.view >= 0) app_set_view(o.view);
     A.cursor = A.anchor = -1; A.hover = -1; A.last_click_idx = -1;
@@ -663,6 +666,7 @@ int main(void) {
     app_navigate(start);
     if (o.loc) { char e[3] = { '@', (char)('0' + o.loc), 0 }; app_navigate(e); }
     ui_window_callback(g_app, window_frame, o.test_state);
+    if (!shot) { ShowWindow(hwnd, SW_SHOWDEFAULT); UpdateWindow(hwnd); }
 
     int frames = 0, rc = 0, ready = 0, ready_search = 0;
     bool searched = false;

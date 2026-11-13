@@ -13,6 +13,13 @@ static const palette LIGHT = { 0xEDF0F8, 0xF7F8FC, 0xFFFFFF, 0x0E1424, 0x4A5570,
 static const palette DARK = { 0x060810, 0x10131C, 0x171B27, 0xEEF1FA, 0xB1B8CF, 0x767E9C, 0xFFFFFF, 0x8AB4FF, 0x0A0D1A,
                               0x5EEAD4, 0xFBBF24, 0xFC909E, 0x7DD3FC };
 
+/* The hairline between panes and around the window (the border token over the surface), as 0xRRGGBB. */
+unsigned theme_hairline(bool dark) {
+    const palette *p = dark ? &DARK : &LIGHT;
+    cui_color c = cui_mix(CUI_RGB(p->surface), CUI_RGB(p->line_base), 0.09f);
+    return ((unsigned)c.r << 16) | ((unsigned)c.g << 8) | c.b;
+}
+
 /* Written every frame: cui_set_theme and the system theme switch rebuild the stock colours. */
 void theme_apply(cui_ctx *ui, bool dark) {
     const palette *p = dark ? &DARK : &LIGHT;

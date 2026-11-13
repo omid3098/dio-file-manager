@@ -542,6 +542,7 @@ void act_job_button(void) {
         clicked = cui_icon_button(ui, "", .tooltip = "File Operations", .selected = G.job_pop_open);
         cui_canvas_result ring = cui_canvas(ui, "job-ring", CUI_PX(36), CUI_PX(36), paint_job_ring, &v, sizeof v);
         G.job_rect = ring.rect;
+        chrome_nodrag(ring.rect);
         clicked |= ring.clicked;
         cui_tooltip(ui, "File Operations");
     }

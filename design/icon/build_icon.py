@@ -1,7 +1,8 @@
 """Rebuild src/dio-file-manager.ico from design/icon/icon.svg through headless Edge (no build dependency:
 the build only embeds the committed .ico). Run from anywhere:  python design/icon/build_icon.py
 
-16 and 20 px keep only the tile and the folder; the edge and the spark are cut from the SVG there.
+16, 20 and 24 px keep only the tile (1.5 px margin) and a folder 80% as wide as the tile; the edge and the spark are cut there.
+Pass --small-only to redo only those three sizes and keep the others from the existing .ico.
 Pass --preview DIR to also write every size on dark and light backgrounds into DIR."""
 import io, os, pathlib, re, struct, subprocess, sys, tempfile
 from PIL import Image
@@ -9,14 +10,21 @@ from PIL import Image
 here = pathlib.Path(__file__).resolve().parent
 out_ico = here.parent.parent / "src" / "dio-file-manager.ico"
 SIZES = (16, 20, 24, 32, 40, 48, 64, 256)
+SMALL = (16, 20, 24)
 BIG = 1024
 edge = pathlib.Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Microsoft/Edge/Application/msedge.exe"
 
 
-def variant(svg, small):
+def variant(svg, small, size=0):
+    """small: no edge, no spark, a tile with a 1.5 px margin and a folder 80% as wide as the tile (16, 20, 24 px)."""
     if small:
         svg = re.sub(r"<!--edge-->.*?<!--/edge-->", "", svg, flags=re.S)
         svg = re.sub(r"<!--spark-->.*?<!--/spark-->", "", svg, flags=re.S)
+        m = 1.5 * 256 / size                     # margin in 256-unit space
+        tile = 256 - 2 * m
+        svg = svg.replace('<rect x="8" y="8" width="240" height="240" rx="55"',
+                          f'<rect x="{m:.2f}" y="{m:.2f}" width="{tile:.2f}" height="{tile:.2f}" rx="{tile * 0.23:.2f}"', 1)
+        svg = svg.replace("scale(1.1)", f"scale({0.8 * tile / 148:.4f})", 1)
     return svg
 
 
@@ -44,15 +52,16 @@ def main():
     frames = {}
     with tempfile.TemporaryDirectory() as t:
         work = pathlib.Path(t)
-        small = raster(variant(src, True).replace("EDGE_W", "0"), BIG, work)
-        full_by_edge = {}
+        old = Image.open(out_ico) if "--small-only" in sys.argv else None   # keep the larger frames as they are
         for size in SIZES:
-            if size <= 20:
-                big = small
+            if old and size not in SMALL:
+                frames[size] = old.ico.getimage((size, size)).convert("RGBA")
+                continue
+            if size in SMALL:
+                big = raster(variant(src, True, size).replace("EDGE_W", "0"), BIG, work)
             else:
                 edge_w = f"{256 / size:.3f}"   # one device pixel at the final size
-                full_by_edge[size] = raster(variant(src, False).replace("EDGE_W", edge_w), BIG, work)
-                big = full_by_edge[size]
+                big = raster(variant(src, False).replace("EDGE_W", edge_w), BIG, work)
             frames[size] = big.resize((size, size), Image.LANCZOS)
     entries, images = b"", b""
     for size in SIZES:

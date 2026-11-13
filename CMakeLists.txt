@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(dio_file_manager C)
+project(dio_file_manager C RC)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE MinSizeRel)
@@ -13,7 +13,8 @@ FetchContent_Declare(cui GIT_REPOSITORY https://github.com/yappologistic/CUI.git
 FetchContent_MakeAvailable(cui)
 
 file(GLOB DFM_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
-add_executable(dio-file-manager ${DFM_SOURCES})
+# The .rc embeds the icon (resource id 1: CUI loads it as the window class icon).
+add_executable(dio-file-manager ${DFM_SOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/src/dio-file-manager.rc)
 target_include_directories(dio-file-manager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # ui_ctxmenu.c uses CUI's internal popup calls (CUI is pinned to one tag).
 # The internal context layout must match the text-shaping build of CUI.

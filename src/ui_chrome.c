@@ -5,8 +5,6 @@
 #include <string.h>
 #include "ui.h"
 
-#define HEADER_H 46.0f
-
 static const char *const PLACE_LABEL[7] = { "Home", "Desktop", "Documents", "Downloads", "Music", "Pictures", "Videos" };
 static const char *const PLACE_ICON[7] = { CUI_ICON_HOUSE, CUI_ICON_MONITOR, CUI_ICON_FILE_TEXT, CUI_ICON_DOWNLOAD,
                                            CUI_ICON_MUSIC, CUI_ICON_IMAGE, CUI_ICON_VIDEO };
@@ -35,6 +33,7 @@ void ui_sidebar_header(void) {
     cui_ctx *ui = A.ui;
     cui_row(ui, .width = CUI_FILL, .height = CUI_PX(HEADER_H), .pad_x = 8, .gap = 4) {
         cui_spacer(ui);
+        cui_box(ui, .dir = CUI_STACK, .width = CUI_PX(36), .height = CUI_PX(36)) {
         bool menu_open = cui_menu_begin(ui, "Main Menu", &(cui_menu_opts){ .icon = CUI_ICON_MENU, .icon_only = true });
         dfm_menu.button = cui_last_rect(ui);
         if (menu_open) {
@@ -58,6 +57,8 @@ void ui_sidebar_header(void) {
             cui_menu_end(ui);
         }
         dfm_menu.was_open = menu_open;
+        chrome_veil();
+        }
     }
 }
 
@@ -247,15 +248,24 @@ static void view_options_menu(void) {
 void ui_content_header(void) {
     cui_ctx *ui = A.ui;
     cui_row(ui, .width = CUI_FILL, .height = CUI_PX(HEADER_H), .pad_x = 8, .gap = 4) {
-        if (app_is_narrow() && cui_icon_button(ui, CUI_ICON_PANEL_LEFT, .tooltip = "Sidebar")) A.sidebar_open = true;
-        if (cui_icon_button(ui, CUI_ICON_CHEVRON_LEFT, .tooltip = "Back", .shortcut = "Alt Left", .disabled = A.hist_pos <= 0)) app_back();
-        if (cui_icon_button(ui, CUI_ICON_CHEVRON_RIGHT, .tooltip = "Forward", .shortcut = "Alt Right", .disabled = A.hist_pos >= A.hist_n - 1)) app_forward();
+        cui_color dim = chrome_icon_color();
+        if (app_is_narrow()) {
+            if (cui_icon_button(ui, CUI_ICON_PANEL_LEFT, .tooltip = "Sidebar", .color = dim)) A.sidebar_open = true;
+            chrome_nodrag_last();
+        }
+        if (cui_icon_button(ui, CUI_ICON_CHEVRON_LEFT, .tooltip = "Back", .shortcut = "Alt Left", .disabled = A.hist_pos <= 0, .color = dim)) app_back();
+        chrome_nodrag_last();
+        if (cui_icon_button(ui, CUI_ICON_CHEVRON_RIGHT, .tooltip = "Forward", .shortcut = "Alt Right", .disabled = A.hist_pos >= A.hist_n - 1, .color = dim)) app_forward();
+        chrome_nodrag_last();
         cui_gap(ui, 4);
         bool home_first;
         int n = build_segments(&home_first);
+        /* The path bar and the search field stop at 480 px so the header keeps empty space to drag the window by. */
+        cui_row(ui, .width = CUI_FILL, .max_width = 480, .gap = 4) {
         if (A.search_open) {   /* the search field takes the place of the path bar */
             if (A.search_focus) { ui_search_focus(); A.search_focus = false; }
             int f = cui_search(ui, "searchfield", A.search, sizeof A.search, .placeholder = "Search Current Folder", .width = CUI_FILL, .autofocus = true, .clearable = true);
+            chrome_nodrag_last();
             if (f & CUI_CHANGED) fsearch_changed();
             if (fsearch_running()) cui_spinner(ui, 18);
         } else {
@@ -263,6 +273,7 @@ void ui_content_header(void) {
         for (int i = 0; i < n; i++) segs[i] = seg_label[i];
         cui_path_bar_result pr = cui_path_bar(ui, "pathbar", segs, n, .icon = home_first ? CUI_ICON_HOUSE : NULL,
                                               .menus = A.loc == LOC_FOLDER, .no_edit = A.loc != LOC_FOLDER, .text = A.path);
+        chrome_nodrag_last();
         if (A.loc == LOC_FOLDER) {
             if (pr.clicked >= 0 && pr.clicked < n - 1) app_navigate(seg_path[pr.clicked]);
             else if (pr.clicked == n - 1) app_reload();
@@ -288,12 +299,17 @@ void ui_content_header(void) {
             }
         }
         }
-        cui_gap(ui, 4);
+        }   /* the capped row */
+        cui_spacer(ui);
         act_job_button();
-        if (cui_icon_button(ui, CUI_ICON_SEARCH, .tooltip = "Search", .shortcut = "Ctrl F", .selected = A.search_open)) app_set_search_open(!A.search_open);
-        if (cui_icon_button(ui, CUI_ICON_GRID_3X3, .tooltip = "Grid view", .shortcut = "Ctrl 1", .selected = A.zoom >= Z_SMALL)) app_set_view(VIEW_GRID);
-        if (cui_icon_button(ui, CUI_ICON_LIST, .tooltip = "List view", .shortcut = "Ctrl 2", .selected = A.zoom <= Z_LIST)) app_set_view(VIEW_LIST);
+        if (cui_icon_button(ui, CUI_ICON_SEARCH, .tooltip = "Search", .shortcut = "Ctrl F", .selected = A.search_open, .color = dim)) app_set_search_open(!A.search_open);
+        chrome_nodrag_last();
+        if (cui_icon_button(ui, CUI_ICON_GRID_3X3, .tooltip = "Grid view", .shortcut = "Ctrl 1", .selected = A.zoom >= Z_SMALL, .color = dim)) app_set_view(VIEW_GRID);
+        chrome_nodrag_last();
+        if (cui_icon_button(ui, CUI_ICON_LIST, .tooltip = "List view", .shortcut = "Ctrl 2", .selected = A.zoom <= Z_LIST, .color = dim)) app_set_view(VIEW_LIST);
+        chrome_nodrag_last();
         view_options_menu();
+        chrome_window_buttons();
     }
 }
 
