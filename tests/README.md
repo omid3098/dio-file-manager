@@ -3,16 +3,19 @@
 ## Merge queue
 
 `queue_check.py typecheck` builds the candidate in MinSizeRel, including the
-800 KB post-build limit. `changed-safe` builds and runs `actions_smoke.py`;
+800 KB post-build limit. `changed-safe` builds and runs `input_smoke.py`,
+`search_smoke.py` and `actions_smoke.py`;
 `full-safe` also runs all CTest console checks on the hidden desktop with clipboard
 preservation and the shared `Local\DioFileManagerClipboardTest` mutex.
-Input and search smoke checks are temporarily excluded: default-file handlers
-can escape the hidden desktop through Windows brokers. The action checks use
+All use checks pass `--test-state`, so default file opens only write `.opened`
+instead of starting a real app. The action checks use
 explicit stand-ins for file opens, Open With and Terminal; their hidden desktop
 job closes the complete process tree after the run, including on failure.
 The read-only CUI v1.4.0 tree in the main checkout's `.agent-work/cui-src` is
 required; the queue never downloads it. Build products and use-check artifacts
-stay in the main checkout's `.agent-work/queue-v1/candidates`.
+use a unique folder under the main checkout's `.agent-work/merge-queue-checks/`.
+Each helper run removes its own folder on success or failure and copies the
+hidden checks' output into the queue log before cleanup.
 Run the helper's focused checks with
 `python -m unittest discover -s tests -p test_queue_check.py`.
 
