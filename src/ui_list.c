@@ -25,7 +25,7 @@ static void columns_for(colset *s) {
         add_col(s, C_LOC, "Original Location", 260, CUI_TEXT_LEFT, 1);
         add_col(s, C_TIME, "Date Deleted", 160, CUI_TEXT_LEFT, 0);
         add_col(s, C_SIZE, "Size", 100, CUI_TEXT_RIGHT, 2);
-    } else if (A.loc == LOC_FOLDER) {
+    } else if (A.loc == LOC_FOLDER && !A.searching) {
         add_col(s, C_NAME, "Name", 380, CUI_TEXT_LEFT, 0);
         add_col(s, C_SIZE, "Size", 100, CUI_TEXT_RIGHT, 1);
         add_col(s, C_TIME, "Modified", 140, CUI_TEXT_LEFT, 2);
@@ -80,7 +80,6 @@ void ui_list_view(void) {
             bool row_hot = cui_last_hovered(ui);
             if (row_hot && cui_mouse_clicked(ui, CUI_MOUSE_RIGHT)) { if (!A.sel[r]) app_select_only(r); A.cursor = r; A.ctx_item = true; }
             cui_push_id_int(ui, r);
-            act_context_menu();
             cui_pop_id(ui);
             for (int c = 0; c < cs.n; c++) {
                 char buf[FS_PATH_MAX];

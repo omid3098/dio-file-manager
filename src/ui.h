@@ -31,7 +31,7 @@ typedef struct app_t {
     int view, zoom;                  /* VIEW_*, 0..3 */
     int sort_key;
     bool sort_desc, show_hidden;
-    bool search_open;
+    bool search_open, searching;     /* searching: A.list is the list of search results */
     char search[256], search_applied[256];
     int theme_pref;                  /* 0 system, 1 light, 2 dark */
     bool dark;
@@ -88,8 +88,6 @@ bool app_at_place(int which);              /* is the sidebar place 0..6 (Home..V
 /* ui_actions.c */
 void act_pre_frame(void);
 void act_keys(void);                        /* F2, Ctrl+Shift+N, Ctrl+C/X/V, Delete, Shift+Delete, Alt+Enter */
-void act_context_menu(void);                /* call once after a view; right clicks on items set A.ctx_item first */
-void act_background(void);                  /* an empty-space canvas with the background menu; put it under the view */
 void act_job_button(void);                  /* header: running-job ring and its popover */
 void act_frame(void);                       /* inside the content stack: popovers, dialogs, job polling */
 void act_list_ready(void);
@@ -117,6 +115,25 @@ int views_state(void);
 void ui_trash_bar(void);
 void ui_other_locations(void);
 void act_reselect(const char *name);
+
+/* ui_ctxmenu.c */
+bool ctxmenu_begin(cui_ctx *ui, const char *id, bool open_here);
+void ctxmenu_end(cui_ctx *ui);
+
+/* ui_search.c */
+void fsearch_changed(void);                 /* the query text changed */
+void fsearch_frame(void);
+void fsearch_end(void);                     /* back to the folder's own list; the caller rebuilds the view */
+bool fsearch_running(void);
+void fsearch_empty_view(void);
+
+/* ui_thumbs.c */
+typedef struct ui_thumb { cui_texture tex; int w, h; } ui_thumb;
+bool ui_thumb_wanted(const fs_entry *e, const char *name);
+int ui_thumb_px(float icon);
+void ui_thumb_begin(void);
+bool ui_thumb_lookup(const char *path, uint64_t mtime, int px, ui_thumb *out);
+void ui_thumb_end(void);
 
 /* theme.c */
 void theme_apply(cui_ctx *ui, bool dark);

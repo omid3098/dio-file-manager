@@ -18,8 +18,14 @@ static WNDPROC test_window_proc;
 
 /* An inactive desktop has no physical pointer. Its automatic leave messages
  * would overwrite the driver's real mouse messages before the frame runs. */
+static bool test_mode;
+static wchar_t typed[16];       /* letters typed while no field has the keyboard; they open the search */
+static int typed_n;
+
 static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
-    if (m == WM_MOUSELEAVE) return 0;
+    if (m == WM_MOUSELEAVE && test_mode) return 0;
+    if (m == WM_CHAR && w > 0x20 && w != 0x7F && typed_n < 15 &&
+        !(GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000)) typed[typed_n++] = (wchar_t)w;
     return CallWindowProcW(test_window_proc, h, m, w, l);
 }
 
@@ -31,7 +37,7 @@ const fs_entry *app_item(int i) { return &A.list->items[A.vis[i]]; }
 const char *app_item_name(int i) { return fs_name(A.list, A.vis[i]); }
 
 void app_path_of(int i, char *out, size_t cap) {
-    if (A.loc != LOC_FOLDER) { snprintf(out, cap, "%s", fs_extra(A.list, app_item(i)->path_off)); return; }
+    if (A.loc != LOC_FOLDER || A.searching) { snprintf(out, cap, "%s", fs_extra(A.list, app_item(i)->path_off)); return; }
     size_t bl = strlen(A.path);
     snprintf(out, cap, "%s%s%s", A.path, (bl && A.path[bl - 1] == '\\') ? "" : "\\", app_item_name(i));
 }
@@ -67,7 +73,12 @@ void app_copy_text(const char *utf8) {
 
 void app_set_search_open(bool open) {
     A.search_open = open;
-    if (!open && A.search[0]) { A.search[0] = 0; app_rebuild_view(); }
+    if (!open) {
+        bool was = A.searching || A.search[0];
+        fsearch_end();
+        A.search[0] = 0;
+        if (was) app_rebuild_view();
+    }
 }
 
 /* ---- selection ---- */
@@ -132,7 +143,7 @@ void app_rebuild_view(void) {
         for (int i = 0; i < A.list->count; i++) {
             const fs_entry *e = &A.list->items[i];
             if ((e->flags & FS_HIDDEN) && !A.show_hidden) continue;
-            if (A.search[0] && !contains_nocase(fs_name(A.list, i), A.search)) continue;
+            if (A.search[0] && A.loc != LOC_FOLDER && !contains_nocase(fs_name(A.list, i), A.search)) continue;
             A.vis[A.vis_n++] = i;
         }
     }
@@ -162,6 +173,7 @@ static void poll_list(void) {
 /* ---- navigation ---- */
 
 static void load_entry(const char *entry) {
+    fsearch_end();
     if (A.list) { fs_list_release(A.list); A.list = NULL; }
     A.list_seen = false; A.vis_n = 0; A.sel_n = 0; A.cursor = A.anchor = -1; A.reset_scroll = true;
     A.search[0] = 0; A.search_open = false; A.sidebar_open = false;
@@ -256,6 +268,15 @@ static void global_keys(void) {
     else if (cui_shortcut(ui, CUI_MOD_ALT, CUI_KEY_UP)) app_up();
     else if (cui_shortcut(ui, CUI_MOD_ALT, CUI_KEY_HOME)) { if (A.places[0][0]) app_navigate(A.places[0]); }
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_F)) app_set_search_open(true);
+    if (typed_n) {   /* a letter typed in the view starts the search, as in GNOME Files */
+        if (!typing && !A.search_open && !act_modal_open() && A.loc != LOC_OTHER && A.list && A.list_seen) {
+            typed[typed_n] = 0;
+            fs_w_to_u8(typed, A.search, (int)sizeof A.search);
+            A.search_open = true;
+            fsearch_changed();
+        }
+        typed_n = 0;
+    }
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_1)) app_set_view(VIEW_GRID);
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_2)) app_set_view(VIEW_LIST);
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_H)) { A.show_hidden = !A.show_hidden; app_rebuild_view(); }
@@ -288,13 +309,15 @@ static void list_body(void) {
         return;
     }
     if (st == FS_LOADING) return;
+    if (A.list->count == 0 && A.searching) { fsearch_empty_view(); return; }
     if (A.list->count == 0) {
         if (A.loc == LOC_RECENT) ui_state_view(CUI_ICON_CLOCK, "No Recent Files", "Files you open will show up here.");
         else if (A.loc == LOC_STARRED) ui_state_view(CUI_ICON_STAR, "No Starred Files", "Star a file or folder to find it quickly.");
         else if (A.loc == LOC_TRASH) ui_state_view(CUI_ICON_TRASH_2, "Trash is Empty", "Items you move to the Trash will show up here.");
-        else { act_background(); ui_state_view(CUI_ICON_FOLDER_OPEN, "Folder is Empty", NULL); }
+        else { ui_state_view(CUI_ICON_FOLDER_OPEN, "Folder is Empty", NULL); }
         return;
     }
+    if (A.vis_n == 0 && A.searching) { fsearch_empty_view(); return; }
     if (A.vis_n == 0) {
         ui_state_view(CUI_ICON_SEARCH, A.search[0] ? "No Results" : "Nothing to Show",
                       A.search[0] ? "Try a different search." : "Only hidden items are here. Press Ctrl+H to show them.");
@@ -321,12 +344,13 @@ static void frame(void) {
     theme_apply(ui, A.dark);
     act_pre_frame();
     poll_list();
+    fsearch_frame();
     if (A.list && fs_list_state(A.list) == FS_LOADING) cui_request_wakeup(ui, 0.02f);
     global_keys();
     cui_vec2 vp = cui_viewport_size(ui);
     bool narrow = vp.x < 640.0f;
     A.content_w = narrow ? vp.x : vp.x - 240.0f;
-    A.content_h = vp.y - 46.0f - (A.search_open ? 54.0f : 0.0f);
+    A.content_h = vp.y - 46.0f;
     cui_row(ui, .width = CUI_FILL, .height = CUI_FILL, .bg = CUI_COLOR_BACKGROUND) {
         if (!narrow) {
             cui_column(ui, .width = CUI_PX(240), .height = CUI_FILL, .bg = CUI_COLOR_BACKGROUND) {
@@ -336,7 +360,6 @@ static void frame(void) {
         }
         cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .bg = CUI_COLOR_SURFACE, .border_color = CUI_COLOR_BORDER_SUBTLE) {
             ui_content_header();
-            ui_search_bar();
             cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_FILL, .clip = true) {
                 content_body();
                 app_count_selection();
@@ -357,11 +380,11 @@ static void frame(void) {
 /* ---- start ---- */
 
 typedef struct options {
-    char shot[FS_PATH_MAX], path[FS_PATH_MAX], select[260];
+    char shot[FS_PATH_MAX], path[FS_PATH_MAX], select[260], search[256];
     char test_state[FS_PATH_MAX];
     int loc;                       /* 0 folder, else LOC_* for --loc */
     int view, theme, w, h;
-    int act;                       /* 0 none, 1 item menu, 2 background menu, 3 rename popover, 4 new-folder popover */
+    int act;                       /* 0 none, 1 item menu, 2 background menu, 3 rename popover, 4 new-folder popover, 5 and 6 the same two menus in the list view */
 } options;
 
 static void arg_u8(const wchar_t *w, char *out, size_t cap) { fs_w_to_u8(w, out, (int)cap); }
@@ -379,7 +402,8 @@ static void parse_args(options *o) {
         else if (!wcscmp(a, L"--path") && more) arg_u8(argv[++i], o->path, sizeof o->path);
         else if (!wcscmp(a, L"--loc") && more) { ++i; o->loc = !wcscmp(argv[i], L"recent") ? LOC_RECENT : !wcscmp(argv[i], L"starred") ? LOC_STARRED : !wcscmp(argv[i], L"trash") ? LOC_TRASH : !wcscmp(argv[i], L"other") ? LOC_OTHER : 0; }
         else if (!wcscmp(a, L"--select") && more) arg_u8(argv[++i], o->select, sizeof o->select);
-        else if (!wcscmp(a, L"--act") && more) { ++i; o->act = !wcscmp(argv[i], L"menu") ? 1 : !wcscmp(argv[i], L"bgmenu") ? 2 : !wcscmp(argv[i], L"rename") ? 3 : !wcscmp(argv[i], L"newdir") ? 4 : 0; }
+        else if (!wcscmp(a, L"--search") && more) arg_u8(argv[++i], o->search, sizeof o->search);
+        else if (!wcscmp(a, L"--act") && more) { ++i; o->act = !wcscmp(argv[i], L"menu") ? 1 : !wcscmp(argv[i], L"bgmenu") ? 2 : !wcscmp(argv[i], L"rename") ? 3 : !wcscmp(argv[i], L"newdir") ? 4 : !wcscmp(argv[i], L"listmenu") ? 5 : !wcscmp(argv[i], L"listbg") ? 6 : 0; }
         else if (!wcscmp(a, L"--view") && more) o->view = !wcscmp(argv[++i], L"list") ? VIEW_LIST : VIEW_GRID;
         else if (!wcscmp(a, L"--theme") && more) { ++i; o->theme = !wcscmp(argv[i], L"dark") ? 2 : !wcscmp(argv[i], L"light") ? 1 : 0; }
         else if (!wcscmp(a, L"--size") && more) { ++i; int w, h; if (swscanf_s(argv[i], L"%dx%d", &w, &h) == 2) { o->w = w; o->h = h; } }
@@ -445,9 +469,16 @@ static void shot_action(const options *o, int k) {
         y += (float)((A.cursor / A.cols) - A.first_row) * A.first_rect.h;
     }
     if (o->act == 2) { x = A.first_rect.x + A.first_rect.w - 60; y = A.first_rect.y + A.first_rect.h * 3 + 30; }
+    if (o->act == 5) { x = 500; y = 46 + 36 + 36 + 18; }
+    if (o->act == 6) { x = 500; y = 600; }
     HWND w = (HWND)A.hwnd;
     float scale = (float)GetDpiForWindow(w) / 96.0f;
     LPARAM at = (LPARAM)((int)(x * scale) | ((int)(y * scale) << 16));
+    if (o->act >= 5) {
+        if (k == 3) SendMessageW(w, WM_MOUSEMOVE, 0, at);
+        if (k == 6) SendMessageW(w, WM_RBUTTONDOWN, MK_RBUTTON, at);
+        if (k == 7) SendMessageW(w, WM_RBUTTONUP, 0, at);
+    }
     if ((o->act == 1 || o->act == 2) && k == 3) SendMessageW(w, WM_MOUSEMOVE, 0, at);
     if ((o->act == 1 || o->act == 2) && k == 6) SendMessageW(w, WM_RBUTTONDOWN, MK_RBUTTON, at);
     if ((o->act == 1 || o->act == 2) && k == 7) SendMessageW(w, WM_RBUTTONUP, 0, at);
@@ -464,13 +495,15 @@ int main(void) {
     g_app = cui_app_create(&(cui_app_desc){ .title = "Dio File Manager", .width = o.w, .height = o.h, .min_width = 360, .min_height = 280,
                                             .hidden = shot, .continuous = shot });
     if (!g_app) return 1;
-    if (o.test_state[0])
+    test_mode = o.test_state[0] != 0;
+    if (!shot)
         test_window_proc = (WNDPROC)SetWindowLongPtrW((HWND)cui_app_native_window(g_app), GWLP_WNDPROC, (LONG_PTR)test_input_proc);
     memset(&A, 0, sizeof A);
     A.ui = cui_app_ui(g_app);
     A.hwnd = cui_app_native_window(g_app);
     A.view = o.view; A.zoom = 1; A.cursor = A.anchor = -1; A.hover = -1; A.last_click_idx = -1;
     A.sort_key = FS_SORT_NAME;
+    A.trash_check_t = -100;
     starred_load();
     for (int i = 0; i < 7; i++) fs_known(i, A.places[i], sizeof A.places[i]);
     A.drive_n = fs_drives(A.drives, 26);
@@ -481,7 +514,8 @@ int main(void) {
     app_navigate(start);
     if (o.loc) { char e[3] = { '@', (char)('0' + o.loc), 0 }; app_navigate(e); }
 
-    int frames = 0, rc = 0, ready = 0;
+    int frames = 0, rc = 0, ready = 0, ready_search = 0;
+    bool searched = false;
     while (cui_app_frame(g_app)) {
         frame();
         frames++;
@@ -490,7 +524,15 @@ int main(void) {
             if (o.select[0] && A.sel_n == 0)
                 for (int i = 0; i < A.vis_n; i++)
                     if (!strcmp(app_item_name(i), o.select)) { app_select_only(i); app_count_selection(); break; }
-            if (!o.select[0] || A.sel_n > 0) {
+            if (o.search[0] && !searched) {   /* the same entry point as Ctrl+F and typing */
+                searched = true;
+                snprintf(A.search, sizeof A.search, "%s", o.search);
+                A.search_open = true;
+                fsearch_changed();
+            }
+            bool search_ok = !o.search[0] || (searched && A.searching && !fsearch_running() && A.vis_n >= 0 && frames > ready_search + 60);
+            if (searched && !ready_search) ready_search = frames;
+            if (search_ok && (!o.select[0] || A.sel_n > 0)) {
                 if (!ready) ready = frames;
                 int k = frames - ready;
                 shot_action(&o, k);

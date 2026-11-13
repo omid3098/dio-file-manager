@@ -69,7 +69,7 @@ static void layout_name(cui_ctx *ui, const char *name, float maxw, name_lines *o
 
 /* ---- painting ---- */
 
-typedef struct row_data { int row, col; } row_data;
+typedef struct row_data { int row, col; ui_thumb thumb; bool has_thumb; } row_data;
 
 static void paint_row(cui_ctx *ui, cui_rect r, void *user) {
     int row = ((row_data *)user)->row;
@@ -88,7 +88,18 @@ static void paint_row(cui_ctx *ui, cui_rect r, void *user) {
         if (sel) cui_draw_rect(ui, ib, CUI_CORNERS(14), CUI_TOKEN_COLOR(CUI_TOKEN_ACTIVE));
         else if (hov) cui_draw_rect(ui, ib, CUI_CORNERS(14), CUI_COLOR_HOVER);
         float icy = top + box * 0.5f;
+        const ui_thumb *th = &((row_data *)user)->thumb;
         if (e->flags & FS_DIR) ui_draw_folder(ui, cx, icy, icon);
+        else if (((row_data *)user)->has_thumb && th->w > 0 && th->h > 0) {
+            /* the picture, with its aspect, inside the icon's box */
+            float k = icon / (float)(th->w > th->h ? th->w : th->h);
+            float dw = (float)th->w * k, dh = (float)th->h * k;
+            cui_rect pr = { cx - dw * 0.5f, icy - dh * 0.5f, dw, dh };
+            float rad = icon * 0.09f;
+            cui_draw_shadow(ui, (cui_rect){ pr.x, pr.y + 1, pr.w, pr.h }, CUI_CORNERS(rad), icon * 0.05f, 0, (cui_vec2){ 0, 1 },
+                            cui_alpha(cui_color_of(ui, CUI_COLOR_FOREGROUND), 0.18f));
+            cui_draw_image(ui, th->tex, pr, (cui_rect){ 0, 0, 1, 1 }, CUI_CORNERS(rad), (cui_color){ 0 });
+        }
         else ui_draw_file(ui, cx, icy, icon, name, e->kind);
         if (A.loc != LOC_TRASH && app_is_starred(i)) {
             cui_vec2 sp = { ib.x + ib.w - 8, ib.y + 12 };
@@ -135,6 +146,7 @@ void ui_grid_view(void) {
     int first, last;
     A.hover = -1;
     if (A.reset_scroll) { cui_scroll_to(ui, "grid", 0); A.reset_scroll = false; }
+    ui_thumb_begin();
     cui_virtual_list_begin(ui, "grid", rows, A.cell_h, CUI_FILL, &first, &last);
     A.first_row = first; A.last_row = last;
     for (int r = first; r < last; r++) {
@@ -145,6 +157,11 @@ void ui_grid_view(void) {
                 int idx = r * cols + col;
                 cui_push_id_int(ui, col);
                 row_data d = { r, col };
+                if (idx < A.vis_n && ui_thumb_wanted(app_item(idx), app_item_name(idx))) {
+                    char tp[FS_PATH_MAX];
+                    app_path_of(idx, tp, sizeof tp);
+                    d.has_thumb = ui_thumb_lookup(tp, app_item(idx)->mtime, ui_thumb_px(icon_size()), &d.thumb);
+                }
                 cui_canvas_result c = cui_canvas(ui, "cell", CUI_FILL, CUI_PX(A.cell_h), paint_row, &d, sizeof d);
                 if (r == first && col == 0) {
                     A.first_rect = (cui_rect){ c.rect.x - GPAD, c.rect.y, c.rect.w * (float)cols + 2 * GPAD, c.rect.h };
@@ -168,7 +185,6 @@ void ui_grid_view(void) {
                     }
                 }
                 if (on_item && cui_mouse_clicked(ui, CUI_MOUSE_RIGHT)) { if (!A.sel[idx]) select_click(idx, 0); A.ctx_item = true; }
-                act_context_menu();
                 if (on_item) {
                     name_lines nl;
                     layout_name(ui, app_item_name(idx), c.rect.w - 10, &nl);
@@ -181,6 +197,7 @@ void ui_grid_view(void) {
         if (open_idx >= 0) { app_open_vis(open_idx); break; }
     }
     cui_virtual_list_end(ui);
+    ui_thumb_end();
 }
 
 /* ---- keyboard ---- */

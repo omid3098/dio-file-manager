@@ -148,6 +148,11 @@ void ui_content_header(void) {
         cui_gap(ui, 4);
         bool home_first;
         int n = build_segments(&home_first);
+        if (A.search_open) {   /* the search field takes the place of the path bar */
+            int f = cui_search(ui, "searchfield", A.search, sizeof A.search, .placeholder = "Search Current Folder", .width = CUI_FILL, .autofocus = true, .clearable = true);
+            if (f & CUI_CHANGED) fsearch_changed();
+            if (fsearch_running()) cui_spinner(ui, 18);
+        } else {
         const char *segs[32];
         for (int i = 0; i < n; i++) segs[i] = seg_label[i];
         cui_path_bar_result pr = cui_path_bar(ui, "pathbar", segs, n, .icon = home_first ? CUI_ICON_HOUSE : NULL,
@@ -176,6 +181,7 @@ void ui_content_header(void) {
                 cui_path_bar_menu_end(ui);
             }
         }
+        }
         cui_gap(ui, 4);
         act_job_button();
         if (cui_icon_button(ui, CUI_ICON_SEARCH, .tooltip = "Search", .shortcut = "Ctrl F", .selected = A.search_open)) app_set_search_open(!A.search_open);
@@ -185,15 +191,7 @@ void ui_content_header(void) {
     }
 }
 
-void ui_search_bar(void) {
-    cui_ctx *ui = A.ui;
-    if (!A.search_open) return;
-    cui_row(ui, .width = CUI_FILL, .pad_x = 12, .pad_bottom = 8, .gap = 8) {
-        int f = cui_search(ui, "searchfield", A.search, sizeof A.search, .placeholder = "Search in this folder", .width = CUI_FILL, .autofocus = true, .clearable = true);
-        if (f & CUI_CHANGED) app_rebuild_view();
-        if (cui_icon_button(ui, CUI_ICON_X, .tooltip = "Close search")) app_set_search_open(false);
-    }
-}
+void ui_search_bar(void) {}   /* the field lives in the content header now */
 
 /* ---- states and the status pill ---- */
 

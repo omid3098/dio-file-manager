@@ -40,6 +40,8 @@ static struct {
     HRESULT undo_hr;
 
     char reselect[260];
+
+    bool ctx_item;                 /* the open context menu is the item menu */
 } G = { .undo_toast = -1 };
 
 /* ---- small helpers ---- */
@@ -67,7 +69,7 @@ static void toast_error(const char *title, DWORD code, const char *path) {
 
 static bool files_view(void) { return A.loc != LOC_OTHER && A.loc != LOC_TRASH && A.list && fs_list_state(A.list) == FS_DONE; }
 void act_reselect(const char *name) { snprintf(G.reselect, sizeof G.reselect, "%s", name); }
-static bool in_folder(void) { return A.loc == LOC_FOLDER && A.list && fs_list_state(A.list) == FS_DONE; }
+static bool in_folder(void) { return A.loc == LOC_FOLDER && !A.searching && A.list && fs_list_state(A.list) == FS_DONE; }
 
 static int first_selected(void) {
     for (int i = 0; i < A.vis_n; i++) if (A.sel[i]) return i;
@@ -297,13 +299,12 @@ void act_pre_frame(void) {
     if (cui_mouse_clicked(A.ui, CUI_MOUSE_RIGHT)) A.ctx_item = false;
 }
 
-void act_context_menu(void) {
+static void menu_items(void) {
     cui_ctx *ui = A.ui;
-    if (A.loc == LOC_OTHER || !cui_context_menu_begin(ui, "ctx")) return;
-    if (A.loc == LOC_TRASH) { views_trash_menu(); cui_context_menu_end(ui); return; }
+    if (A.loc == LOC_TRASH) { views_trash_menu(); return; }
     bool folder_ok = in_folder();
-    bool virt = A.loc != LOC_FOLDER;   /* Recent or Starred: items from many folders */
-    if (A.ctx_item && A.sel_n > 0) {
+    bool virt = A.loc != LOC_FOLDER || A.searching;   /* Recent, Starred or search results: items from many folders */
+    if (G.ctx_item && A.sel_n > 0) {
         bool one = A.sel_n == 1;
         if (cui_menu_item(ui, "Open", .icon = CUI_ICON_FOLDER_OPEN, .shortcut = "Enter")) open_selected();
         if (cui_menu_item(ui, "Open With\xE2\x80\xA6", .icon = CUI_ICON_EXTERNAL_LINK, .disabled = !one)) open_with();
@@ -330,14 +331,24 @@ void act_context_menu(void) {
         if (cui_menu_item(ui, "Open in Terminal", .icon = CUI_ICON_TERMINAL)) act_open_terminal();
         if (cui_menu_item(ui, "Properties", .icon = CUI_ICON_INFO)) properties(false);
     }
-    cui_context_menu_end(ui);
 }
 
-/* A canvas under the view: a right click on empty space reaches the background menu through it. */
 static void paint_none(cui_ctx *ui, cui_rect r, void *user) { (void)ui; (void)r; (void)user; }
-void act_background(void) {
-    cui_canvas(A.ui, "under", CUI_FILL, CUI_FILL, paint_none, NULL, 0);
-    act_context_menu();
+
+/* Any right click in the content pane opens the menu at the pointer: on an item the item menu, anywhere else
+ * the background menu (also in the empty space below the grid rows). Its width is its own (ui_ctxmenu.c). */
+static void context_menu(void) {
+    cui_ctx *ui = A.ui;
+    cui_vec2 m = cui_mouse_pos(ui), vp = cui_viewport_size(ui);
+    float x0 = app_is_narrow() ? 0.0f : 240.0f, y0 = 46.0f;
+    bool in_header = A.view == VIEW_LIST && A.vis_n > 0 && m.y < y0 + 36.0f;
+    bool open_here = cui_mouse_clicked(ui, CUI_MOUSE_RIGHT) && A.loc != LOC_OTHER && !G.delete_open && !G.conflict_open &&
+                     !A.sidebar_open && m.x >= x0 && m.x < vp.x && m.y >= y0 && m.y < vp.y && !in_header;
+    if (open_here) G.ctx_item = A.ctx_item;
+    if (ctxmenu_begin(ui, "ctxmenu", open_here)) {
+        menu_items();
+        ctxmenu_end(ui);
+    }
 }
 
 /* ---- popovers and dialogs ---- */
@@ -496,10 +507,17 @@ void act_frame(void) {
         if (below < 0) below = 0;
         if (below > A.content_h - 150) below = A.content_h - 150;
     }
-    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad_top = below) {
-        cui_canvas(ui, "popanchor", CUI_FILL, CUI_PX(1), paint_none, NULL, 0);
+    /* under the item itself: its cell in the grid, the name column in the list */
+    float left = 8, aw = 360;
+    if (A.view == VIEW_GRID && A.cols > 0 && A.first_rect.w > 64) {
+        aw = (A.first_rect.w - 32) / (float)A.cols;
+        left = 16 + (float)(A.cursor >= 0 ? A.cursor % A.cols : 0) * aw;
+    }
+    cui_row(ui, .width = CUI_FILL, .height = CUI_FILL, .pad_top = below, .pad_left = left) {
+        cui_canvas(ui, "popanchor", CUI_PX(aw), CUI_PX(1), paint_none, NULL, 0);
     }
     name_popover();
+    context_menu();
     conflict_dialog();
     delete_dialog();
 }
