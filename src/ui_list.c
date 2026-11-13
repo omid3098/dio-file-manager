@@ -33,7 +33,7 @@ static void columns_for(colset *s) {
         add_col(s, C_STAR, "", 44, CUI_TEXT_CENTER, 0);
     } else {
         add_col(s, C_NAME, "Name", 300, CUI_TEXT_LEFT, 0);
-        add_col(s, C_LOC, "Location", 230, CUI_TEXT_LEFT, 2);
+        add_col(s, C_LOC, "Location", A.searching ? 200.0f : 230.0f, CUI_TEXT_LEFT, 2);
         add_col(s, C_SIZE, "Size", 100, CUI_TEXT_RIGHT, 1);
         add_col(s, C_TIME, A.loc == LOC_RECENT ? "Opened" : "Modified", 140, CUI_TEXT_LEFT, 0);
         add_col(s, C_TYPE, "Type", 110, CUI_TEXT_LEFT, 3);
@@ -77,7 +77,10 @@ void ui_list_view(void) {
                 A.last_click_idx = r;
                 A.last_click_t = now;
             }
-            bool row_hot = cui_last_hovered(ui);
+            /* the pointer inside the row, also when a cell of the row is the hovered widget */
+            cui_rect rr = cui_last_rect(ui);
+            cui_vec2 mp = cui_mouse_pos(ui);
+            bool row_hot = cui_last_hovered(ui) || (mp.x >= rr.x && mp.x < rr.x + rr.w && mp.y >= rr.y && mp.y < rr.y + rr.h && mp.y >= 46.0f + 36.0f);
             if (row_hot && cui_mouse_clicked(ui, CUI_MOUSE_RIGHT)) { if (!A.sel[r]) app_select_only(r); A.cursor = r; A.ctx_item = true; }
             cui_push_id_int(ui, r);
             cui_pop_id(ui);
@@ -90,7 +93,7 @@ void ui_list_view(void) {
                     cui_text(ui, app_item_name(r), .nowrap = true, .width = CUI_FILL);
                     break;
                 case C_LOC:
-                    view_location_text(r, buf, sizeof buf);
+                    if (A.searching) search_location_text(r, buf, sizeof buf); else view_location_text(r, buf, sizeof buf);
                     cui_data_grid_cell_text(ui, buf);
                     break;
                 case C_SIZE:

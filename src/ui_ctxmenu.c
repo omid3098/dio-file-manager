@@ -5,8 +5,11 @@
 #include <cui_internal.h>
 #include "ui.h"
 
+static cui_id menu_pid;   /* the id made inside the frame's id scope; ctxmenu_is_open runs outside it */
+
 bool ctxmenu_begin(cui_ctx *ui, const char *id, bool open_here) {
     cui_id pid = cui_make_id(ui, id) ^ 0xC7Cu;
+    menu_pid = pid;
     if (open_here) {
         cui__close_all_popups(ui);
         cui__popup_set(ui, pid, true);
@@ -18,3 +21,8 @@ bool ctxmenu_begin(cui_ctx *ui, const char *id, bool open_here) {
 }
 
 void ctxmenu_end(cui_ctx *ui) { cui__popup_end(ui); }
+
+bool ctxmenu_is_open(cui_ctx *ui) {
+    cui_popup *p = menu_pid ? cui__popup_get(ui, menu_pid, false) : NULL;
+    return p && p->open;
+}

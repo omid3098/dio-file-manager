@@ -154,3 +154,18 @@ void fsearch_empty_view(void) {
     }
     ui_state_view(CUI_ICON_SEARCH, "No Results Found", "Try a different search.");
 }
+
+/* The Location column of the results, as in GNOME Files: the folder of the result below the searched folder
+ * ("sub\deeper"), or the searched folder's own name when the result sits directly in it. */
+void search_location_text(int vis, char *out, size_t cap) {
+    char p[FS_PATH_MAX], d[FS_PATH_MAX];
+    app_path_of(vis, p, sizeof p);
+    if (!fs_parent(p, d, sizeof d)) { snprintf(out, cap, "%s", p); return; }
+    size_t rl = strlen(A.path);
+    while (rl > 0 && A.path[rl - 1] == '\\') rl--;
+    if (rl && _strnicmp(d, A.path, rl) == 0 && d[rl] == '\\') snprintf(out, cap, "%s", d + rl + 1);
+    else if (rl && _strnicmp(d, A.path, rl) == 0 && d[rl] == 0) {
+        const char *leaf = strrchr(A.path, '\\');
+        snprintf(out, cap, "%s", leaf && leaf[1] ? leaf + 1 : A.path);
+    } else snprintf(out, cap, "%s", d);
+}

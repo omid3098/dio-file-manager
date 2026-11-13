@@ -1,0 +1,188 @@
+"""Real Win32 input checks for search and the context menu, on a private desktop.
+Run from the repo: python tests/use/search_smoke.py
+DFM_EXE selects the executable, DFM_USE_WORK the folder for artifacts and the sandbox.
+It reuses the driver of input_smoke.py (imported, not copied). Requires the shared correct/hidden.py.
+"""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import time
+
+ROOT = Path(__file__).resolve().parents[2]
+os.environ.setdefault('DFM_USE_WORK', str(ROOT / '.agent-work/search-v2/use'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import input_smoke as base  # noqa: E402
+
+WORK = base.WORK
+FIND = WORK / 'find'
+
+
+def make_sandbox():
+    # Only this folder is ever emptied: it holds the files these checks look at.
+    shutil.rmtree(FIND, ignore_errors=True)
+    for d in ('sub/deeper', 'Documents', 'Music'):
+        (FIND / d).mkdir(parents=True)
+    for f in ('sub/deeper/quarterly-report.txt', 'Documents/quarterly-plan.txt', 'notes.txt', 'budget.txt', 'sub/readme.md'):
+        (FIND / f).write_text('x', encoding='utf-8')
+
+
+def typed(a, text):
+    for ch in text:
+        a.msg(0x102, ord(ch))
+        time.sleep(.01)
+
+
+def inside():
+    results = []
+
+    def check(name, fn, view='grid'):
+        if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
+            return
+        app = None
+        try:
+            make_sandbox()
+            app = base.App(name, FIND, view)
+            fn(app)
+            app.snap(name + '-passed')
+            results.append({'check': name, 'result': 'passed'})
+        except Exception as e:
+            if app:
+                app.snap(name + '-failed')
+            results.append({'check': name, 'result': 'FAILED', 'reason': str(e)})
+        finally:
+            if app:
+                app.close()
+        print(json.dumps(results[-1]), flush=True)
+
+    def searched(a, count):
+        def done():
+            s = a.snap()
+            return s['searching'] and s['count'] == count
+        a.until(f'Search did not show {count} results', done, seconds=8)
+
+    def ctrl_f(a):
+        a.key(ord('F'), (17,))
+        a.until('Search field did not take the keyboard', lambda: a.snap()['typing'])
+        typed(a, 'quarterly')
+        searched(a, 2)
+        s = a.snap('search-results')
+        assert s['query'] == 'quarterly', f'Query is {s["query"]!r}'
+        a.key(27)
+        a.until('Esc did not return to the folder', lambda: not a.snap()['search'])
+        s = a.wait_ready()
+        assert not s['searching'] and s['count'] == 5, f'Folder not back: {s["count"]} items'
+
+    def one_letter(a):
+        typed(a, 'q')
+        a.until('A letter in the view did not open search', lambda: a.snap()['search'])
+        time.sleep(1)
+        s = a.snap('one-letter')
+        assert s['query'] == 'q', f'Query is {s["query"]!r}, not one letter'
+
+    def path_field_keeps_letters(a):
+        a.key(ord('L'), (17,))
+        typed(a, 'abc')   # at once, before the path field has shown that it holds the keyboard
+        time.sleep(.6)
+        s = a.snap('path-typing')
+        assert not s['search'] and not s['searching'], 'Letters typed into the path field started a search'
+        assert s['typing'], 'Path field lost the keyboard'
+
+    def background_menu(a):
+        a.rclick(700, 420)   # far below the one row of cells
+        s = a.snap('menu-bg')
+        assert s['ctx'] and s['selected'] == 0, 'No background menu below the grid rows'
+        a.key(27)
+        a.until('Esc did not close the menu', lambda: not a.snap()['ctx'])
+
+    def result_opens(a):
+        a.key(ord('F'), (17,))
+        a.until('Search field did not take the keyboard', lambda: a.snap()['typing'])
+        typed(a, 'sub')
+        searched(a, 1)
+        x, y = a.cell_xy(0)
+        a.rclick(x, y)
+        s = a.snap('result-menu')
+        assert s['ctx'] and s['selected'] == 1, 'A result takes no item menu'
+        a.key(27)
+        a.until('Esc did not close the menu', lambda: not a.snap()['ctx'])
+        a.click(x, y)
+        a.click(x, y)
+        a.until('Double click did not open the result', lambda: a.snap()['path'] == str(FIND / 'sub') and not a.snap()['searching'])
+
+    def menu_keys(a):
+        a.cell(0)
+        x, y = a.cell_xy(0)
+        a.rclick(x, y)
+        assert a.snap('menu-keys-open')['ctx'], 'Item menu did not open'
+        a.key(27)
+        a.until('Esc did not close the menu', lambda: not a.snap()['ctx'])
+        a.rclick(x, y)
+        assert a.snap()['ctx'], 'Item menu did not open again'
+        # Open, Open With, Cut, Copy, then Rename: the first Down lands on the first row.
+        for _ in range(6):
+            a.key(40)
+        a.key(38)   # Up goes back one row: Rename again
+        a.snap('menu-keys-down')
+        a.key(13)
+        a.until('Down and Enter did not choose Rename', lambda: a.snap()['act'] & 1)
+        assert not a.snap()['ctx'], 'Menu stayed open after Enter'
+        assert a.snap()['cursor'] == 0, 'The grid cursor moved while the menu had the keys'
+        time.sleep(.5)
+        a.snap('rename-popover')
+
+    def list_menus(a):
+        a.rclick(500, 46 + 36 + 18)   # the first row
+        s = a.snap('menu-list-item')
+        assert s['ctx'] and s['selected'] == 1, 'List view: no item menu'
+        a.key(27)
+        a.until('Esc did not close the menu', lambda: not a.snap()['ctx'])
+        a.rclick(500, 560)   # empty space below the rows
+        assert a.snap('menu-list-bg')['ctx'], 'List view: no background menu'
+        a.key(27)
+        a.until('Esc did not close the menu', lambda: not a.snap()['ctx'])
+        a.rclick(1070, 700)   # the bottom right corner: the menu must stay inside the window
+        a.snap('menu-edge')
+        a.key(27)
+        a.path(FIND / 'Music')
+        a.rclick(500, 300)   # an empty folder
+        assert a.snap('menu-list-empty')['ctx'], 'Empty folder: no menu'
+
+    check('1-ctrl-f-and-esc', ctrl_f)
+    check('2-one-letter', one_letter)
+    check('3-path-field-keeps-letters', path_field_keeps_letters)
+    check('4-background-menu', background_menu)
+    check('5-result-opens-and-menu', result_opens)
+    check('6-menu-keys', menu_keys)
+    check('7-list-menus', list_menus, 'list')
+    (WORK / 'search-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
+    return int(any(r['result'] != 'passed' for r in results))
+
+
+def main():
+    WORK.mkdir(parents=True, exist_ok=True)
+    (WORK / 'tmp').mkdir(exist_ok=True)
+    (WORK / 'appdata').mkdir(exist_ok=True)
+    os.environ.update(TEMP=str(WORK / 'tmp'), TMP=str(WORK / 'tmp'))
+    if '--inside' in sys.argv:
+        return inside()
+    gaming = Path(r'C:\Users\Omid\.agents\tools\gaming.py')
+    code = subprocess.run([sys.executable, str(gaming), 'check'], creationflags=subprocess.CREATE_NO_WINDOW).returncode
+    if code == 3:
+        subprocess.run([sys.executable, str(gaming), 'wait', '--cap', '60'], check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+    elif code:
+        return code
+    sys.path.insert(0, r'C:\Users\Omid\.agents\source\correct')
+    from hidden import popen
+    with (WORK / 'search.log').open('wb') as out, (WORK / 'search.err').open('wb') as err:
+        run = popen([sys.executable, str(Path(__file__).resolve()), '--inside'], ROOT, dict(os.environ), b'', out, err)
+        try:
+            return run.wait(timeout=180)
+        finally:
+            run.close()
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

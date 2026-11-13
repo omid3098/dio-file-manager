@@ -119,6 +119,10 @@ void act_reselect(const char *name);
 /* ui_ctxmenu.c */
 bool ctxmenu_begin(cui_ctx *ui, const char *id, bool open_here);
 void ctxmenu_end(cui_ctx *ui);
+bool ctxmenu_is_open(cui_ctx *ui);
+
+/* ui_search.c: the Location column text of a search result */
+void search_location_text(int vis, char *out, size_t cap);
 
 /* ui_search.c */
 void fsearch_changed(void);                 /* the query text changed */

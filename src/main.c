@@ -259,7 +259,25 @@ void app_set_view(int v) {
 
 /* ---- keys ---- */
 
+static bool path_key;           /* Ctrl+L was pressed this frame: the path field takes the keyboard in it */
+
+/* A letter typed in the file view starts the search, as in GNOME Files. It is decided at the end of the frame,
+ * when every field has shown whether it holds the keyboard: a path field that Ctrl+L just opened, a rename or
+ * new-folder popover, the search field and an open menu keep their letters. */
+static void typed_letters(void) {
+    if (!typed_n) return;
+    if (!path_key && !cui_wants_keyboard(A.ui) && !A.search_open && !act_modal_open() && !ctxmenu_is_open(A.ui) &&
+        A.loc != LOC_OTHER && A.list && A.list_seen) {
+        typed[typed_n] = 0;
+        fs_w_to_u8(typed, A.search, (int)sizeof A.search);
+        A.search_open = true;
+        fsearch_changed();
+    }
+    typed_n = 0;
+}
+
 static void global_keys(void) {
+    path_key = false;
     cui_ctx *ui = A.ui;
     int mods = cui_key_mods(ui);
     bool typing = cui_wants_keyboard(ui);
@@ -268,21 +286,14 @@ static void global_keys(void) {
     else if (cui_shortcut(ui, CUI_MOD_ALT, CUI_KEY_UP)) app_up();
     else if (cui_shortcut(ui, CUI_MOD_ALT, CUI_KEY_HOME)) { if (A.places[0][0]) app_navigate(A.places[0]); }
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_F)) app_set_search_open(true);
-    if (typed_n) {   /* a letter typed in the view starts the search, as in GNOME Files */
-        if (!typing && !A.search_open && !act_modal_open() && A.loc != LOC_OTHER && A.list && A.list_seen) {
-            typed[typed_n] = 0;
-            fs_w_to_u8(typed, A.search, (int)sizeof A.search);
-            A.search_open = true;
-            fsearch_changed();
-        }
-        typed_n = 0;
-    }
+    if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_L)) path_key = true;
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_1)) app_set_view(VIEW_GRID);
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_2)) app_set_view(VIEW_LIST);
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_H)) { A.show_hidden = !A.show_hidden; app_rebuild_view(); }
     if (cui_key_pressed(ui, CUI_KEY_F5)) app_reload();
     if ((mods & CUI_MOD_CTRL) && cui_key_pressed(ui, CUI_KEY_EQUAL) && A.zoom < 3) A.zoom++;
     if ((mods & CUI_MOD_CTRL) && cui_key_pressed(ui, CUI_KEY_MINUS) && A.zoom > 0) A.zoom--;
+    if (ctxmenu_is_open(ui)) return;   /* an open menu has Up, Down, Enter and Esc; the view and the search field do not */
     if (typing) {
         if (cui_key_pressed(ui, CUI_KEY_ESCAPE) && A.search_open) app_set_search_open(false);
         return;
@@ -375,6 +386,7 @@ static void frame(void) {
             cui_sheet_end(ui);
         }
     }
+    typed_letters();
 }
 
 /* ---- start ---- */
@@ -441,16 +453,17 @@ static void test_snapshot(const char *base) {
     fprintf(f, "{\"loc\":%d,\"trash\":%d,\"views\":%d,\"path\":", A.loc, A.trash_n, views_state()); json_text(f, A.path);
     fprintf(f, ",\"view\":%d,\"state\":%d,\"count\":%d,\"selected\":%d,\"cursor\":%d,"
                "\"first\":%d,\"last\":%d,\"cols\":%d,\"hidden\":%d,\"narrow\":%d,\"overlay\":%d,"
-               "\"typing\":%d,\"act\":%d,\"row\":[%.2f,%.2f,%.2f,%.2f],\"selection\":[",
+               "\"typing\":%d,\"ctx\":%d,\"search\":%d,\"searching\":%d,\"act\":%d,\"row\":[%.2f,%.2f,%.2f,%.2f],\"selection\":[",
             A.view, A.list ? fs_list_state(A.list) : -1, A.vis_n, A.sel_n, A.cursor,
             A.first_row, A.last_row, A.cols, A.show_hidden, app_is_narrow(), A.sidebar_open,
-            cui_wants_keyboard(A.ui), act_state(), A.first_rect.x, A.first_rect.y, A.first_rect.w, A.first_rect.h);
+            cui_wants_keyboard(A.ui), ctxmenu_is_open(A.ui), A.search_open, A.searching, act_state(), A.first_rect.x, A.first_rect.y, A.first_rect.w, A.first_rect.h);
     bool comma = false;
     for (int i = 0; i < A.vis_n; i++) if (A.sel[i]) {
         if (comma) fputc(',', f);
         json_text(f, app_item_name(i)); comma = true;
     }
-    fprintf(f, "],\"documents\":"); json_text(f, A.places[2]);
+    fprintf(f, "],\"query\":"); json_text(f, A.search);
+    fprintf(f, ",\"documents\":"); json_text(f, A.places[2]);
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));
     json_text(f, A.drive_n ? A.drives[0].root : "");
     fprintf(f, "}"); fclose(f);

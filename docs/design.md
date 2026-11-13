@@ -51,7 +51,8 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   up to two lines then cut short with an ellipsis (whole name in a tooltip, and in full while
   selected). Folders are drawn filled in the accent colour (a back flap a step darker), not as
   outline icons. Files are a page with a folded corner, with a small type label ("PDF", "JPG")
-  or a Lucide type icon; image files show a thumbnail once thumbnails exist. Zoom with Ctrl+plus
+  or a Lucide type icon; image files show a thumbnail (aspect kept, rounded corners, soft shadow) once it
+  is read, only for the cells in view, with the page icon until then. Zoom with Ctrl+plus
   and Ctrl+minus: 48, 64, 96 and 128 px icons.
 - **Selection:** the icon gets a rounded `selected` fill; the name gets an accent pill with
   `accent-fg` text. Click selects, Ctrl+click toggles, Shift+click selects a range, dragging on
@@ -71,7 +72,12 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 - Double click or Enter opens: a folder in place, a file with its default app.
 - Alt+Left and Alt+Right go back and forward; Alt+Up goes to the parent; Alt+Home goes Home.
 - Ctrl+L types a path; Ctrl+F searches below the current folder; typing a letter in the view
-  starts the search as well; Esc ends it.
+  starts the search as well (only while the file view has the keyboard: not in the path field, the
+  rename or new-folder popover, the search field or an open menu); Esc ends it and returns to the folder.
+  The search field takes the place of the path bar; the search runs 0.25 s after the last key, below
+  the folder, at most 10,000 results. Results list in the grid or the list; the list adds a Location
+  column with the folder of the result relative to the searched folder. No match shows "No Results
+  Found". Results open and take the item menu, with Open Item Location.
 - Ctrl+1 grid, Ctrl+2 list; Ctrl+H hidden files; F5 reload; Ctrl+A select all.
 - F2 renames in a small popover under the item ("Rename" field and button); Ctrl+Shift+N makes a
   folder through a popover ("New Folder" name field and Create).
@@ -81,6 +87,9 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   Shift+Delete deletes for ever after a confirm dialog.
 - Right click on an item: Open, Open With…, Cut, Copy, Rename, Move to Trash, Star, Copy Path,
   Properties. On the background: New Folder, Paste, Select All, Open in Terminal, Properties.
+  The menu opens at the pointer with its own width (as narrow in the list view and in an empty
+  folder as in the grid), from any right click in the content pane, also below the last grid row.
+  While it is open it has Up, Down, Enter and Esc; the file view and the search field do not.
 - Ctrl+Z right after a delete undoes it like the toast's Undo button.
   Star/Unstar in the item menu, or the star in a list row, saves the item in Starred
   across app restarts. The list lives under the current user's AppData.

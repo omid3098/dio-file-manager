@@ -513,7 +513,7 @@ void act_frame(void) {
         aw = (A.first_rect.w - 32) / (float)A.cols;
         left = 16 + (float)(A.cursor >= 0 ? A.cursor % A.cols : 0) * aw;
     }
-    cui_row(ui, .width = CUI_FILL, .height = CUI_FILL, .pad_top = below, .pad_left = left) {
+    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad_top = below, .pad_left = left) {
         cui_canvas(ui, "popanchor", CUI_PX(aw), CUI_PX(1), paint_none, NULL, 0);
     }
     name_popover();
