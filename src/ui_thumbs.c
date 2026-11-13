@@ -27,8 +27,8 @@ bool ui_thumb_wanted(const fs_entry *e, const char *name) {
     return _stricmp(fs_ext_of(name), "pdf") == 0;
 }
 
-/* The size to ask for: a little more than the icon, so it stays sharp. */
-int ui_thumb_px(float icon) { return icon <= 48 ? 96 : icon <= 64 ? 128 : icon <= 96 ? 192 : 256; }
+/* Request the displayed edge, rather than always loading a large picture. */
+int ui_thumb_px(float icon) { return (int)(icon * cui_dpi_scale(A.ui) + 0.5f); }
 
 void ui_thumb_begin(void) {
     tick++;
@@ -67,6 +67,7 @@ bool ui_thumb_lookup(const char *path, uint64_t mtime, int px, ui_thumb *out) {
     thumbs_request(cache, path, px, mtime);
     thumbs_image im;
     thumbs_result r = thumbs_get(cache, path, px, mtime, &im);
+    if (r == THUMBS_PENDING || r == THUMBS_MISSING || r == THUMBS_READY) cui_request_wakeup(A.ui, 0.03f);
     if (r == THUMBS_NONE) add_ent(path, mtime, px, 0, 0, 0);
     else if (r == THUMBS_READY && uploads < UPLOADS_PER_FRAME) {
         cui_texture t = cui_image_create(A.ui, im.width, im.height, im.rgba);

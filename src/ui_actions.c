@@ -613,7 +613,8 @@ void act_frame(void) {
     if (A.cursor >= 0) {
         int row = A.view == VIEW_GRID && A.cols > 0 ? A.cursor / A.cols : A.cursor + 1;
         float rh = A.view == VIEW_GRID ? A.cell_h : 36.0f;
-        below = (float)(row - A.first_row + (A.view == VIEW_GRID ? 1 : 0)) * rh;
+        if (A.zoom == Z_LIST && A.column_rows > 0) below = (float)(A.cursor % A.column_rows + 1) * rh;
+        else below = (float)(row - A.first_row + (A.view == VIEW_GRID ? 1 : 0)) * rh;
         if (A.view == VIEW_LIST) below += A.first_rect.y - 46.0f;
         if (below < 0) below = 0;
         if (A.view == VIEW_GRID && below > A.content_h - 150) below = A.content_h - 150;

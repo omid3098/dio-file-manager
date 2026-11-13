@@ -54,6 +54,7 @@ static bool star_hot_now, star_hot_prev;   /* the pointer was over a star button
 
 void ui_list_view(void) {
     cui_ctx *ui = A.ui;
+    A.cols = 1; A.cell_h = 36;
     colset cs;
     columns_for(&cs);
     int cur = 0;

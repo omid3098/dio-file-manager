@@ -34,6 +34,22 @@ Alt+Enter opens only Properties; plain Enter opens an item only without modifier
 The running-job header control is one clickable progress ring; its popover names
 the copy and offers Cancel. Real-input action checks and private-desktop shell
 substitutions are documented in `tests/README.md`.
+`ui_zoom.c` owns the six-stop scale, shortcuts and atomic replacement of
+`%APPDATA%\dio-file-manager\view.txt`. Its record holds the current and last icon stops.
+Startup restores it unless `--view grid|list` overrides it. `ui_grid.c` draws the four
+icon stops and the column-major List stop; `ui_list.c` keeps Details and its
+place-specific columns, including Location for search. `ui_ctxmenu.c` also isolates
+CUI's scroll-input consumption and virtual horizontal columns. List maps the ordinary
+wheel sideways; Ctrl+wheel is consumed before the file view scrolls. The popover uses
+CUI's slider with a step of one. Thumbnails request the displayed device-pixel edge.
+
+`tests/use/view_smoke.py` imports the Win32 driver from `input_smoke.py`, runs on the
+private desktop and redirects APPDATA into its sandbox for restart checks. It covers
+slider drags, shortcuts, persistence, selection/opening, column order, special places,
+search and a 50 ms input-message limit while scrolling 20,000 items at every stop.
+Clipboard-preserving checks acquire the shared Windows mutex
+`Local\DioFileManagerClipboardTest` before saving any formats and hold it through
+restoration; the wait is capped at 15 minutes. The helper lives in `clipboard_guard.py`.
 
 ## Build and install
 

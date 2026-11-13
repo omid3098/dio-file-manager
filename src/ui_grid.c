@@ -5,14 +5,14 @@
 #include <stdio.h>
 #include "ui.h"
 
-static const float ZOOM[4] = { 48, 64, 96, 128 };
+static const float ZOOM[Z_COUNT] = { 16, 16, 32, 64, 96, 144 };
 #define GPAD 16.0f
 #define NAME_SIZE 13.0f
 #define LINE_H 17.0f
 
 static float icon_size(void) { return ZOOM[A.zoom]; }
-static float min_cell_w(void) { return icon_size() + 48; }
-static float cell_height(void) { return icon_size() + 12 + 8 + 2 * LINE_H + 10; }
+static float min_cell_w(void) { return A.zoom == Z_SMALL ? 240 : icon_size() + 48; }
+static float cell_height(void) { return A.zoom == Z_SMALL ? 48 : icon_size() + 12 + 8 + 2 * LINE_H + 10; }
 
 /* ---- name layout: up to two lines, the second cut short with an ellipsis ---- */
 
@@ -69,14 +69,38 @@ static void layout_name(cui_ctx *ui, const char *name, float maxw, name_lines *o
 
 /* ---- painting ---- */
 
-typedef struct row_data { int row, col; ui_thumb thumb; bool has_thumb; } row_data;
+typedef struct row_data { int idx; ui_thumb thumb; bool has_thumb; } row_data;
+
+static void paint_compact(cui_ctx *ui, cui_rect r, const row_data *d) {
+    int i = d->idx;
+    float icon = icon_size(), cy = r.y + r.h * 0.5f;
+    if (A.sel[i] || A.hover == i)
+        cui_draw_rect(ui, (cui_rect){ r.x + 4, r.y + 2, r.w - 8, r.h - 4 }, CUI_CORNERS(8), A.sel[i] ? CUI_TOKEN_COLOR(CUI_TOKEN_ACTIVE) : CUI_COLOR_HOVER);
+    const fs_entry *e = app_item(i);
+    float cx = r.x + 12 + icon * 0.5f;
+    if (e->flags & FS_DIR) ui_draw_folder(ui, cx, cy, icon);
+    else if (d->has_thumb && d->thumb.w && d->thumb.h) {
+        float scale = icon / (float)(d->thumb.w > d->thumb.h ? d->thumb.w : d->thumb.h);
+        float w = d->thumb.w * scale, h = d->thumb.h * scale;
+        cui_draw_image(ui, d->thumb.tex, (cui_rect){ cx - w/2, cy - h/2, w, h }, (cui_rect){0,0,1,1}, CUI_CORNERS(2), (cui_color){0});
+    } else ui_draw_file(ui, cx, cy, icon, app_item_name(i), e->kind);
+    char name[264];
+    const char *full = app_item_name(i);
+    float width = r.w - icon - 36;
+    int len = (int)strlen(full), n = fit_prefix(ui, full, len, width);
+    if (n < len) n = fit_prefix(ui, full, len, width - text_w(ui, "\xE2\x80\xA6", 3));
+    memcpy(name, full, (size_t)n); name[n] = 0;
+    if (n < len) memcpy(name + n, "\xE2\x80\xA6", 4);
+    cui_draw_text(ui, CUI_FONT_BODY, NAME_SIZE, (cui_vec2){ r.x + icon + 20, cy - 7 }, CUI_COLOR_FOREGROUND, name, -1);
+}
 
 static void paint_row(cui_ctx *ui, cui_rect r, void *user) {
-    int row = ((row_data *)user)->row;
+    if (((row_data *)user)->idx >= A.vis_n) return;
+    if (A.zoom <= Z_SMALL) { paint_compact(ui, r, user); return; }
     float icon = icon_size();
     float cw = r.w;   /* one canvas per cell: a context menu is as wide as the cell it opens on */
-    for (int c = ((row_data *)user)->col; c == ((row_data *)user)->col; c++) {
-        int i = row * A.cols + c;
+    do {
+        int i = ((row_data *)user)->idx;
         if (i >= A.vis_n) break;
         const fs_entry *e = app_item(i);
         const char *name = app_item_name(i);
@@ -119,7 +143,7 @@ static void paint_row(cui_ctx *ui, cui_rect r, void *user) {
                 cui_draw_text(ui, CUI_FONT_BODY, NAME_SIZE, (cui_vec2){ p.x, p.y + 1 }, CUI_COLOR_FOREGROUND, nl.line[k], -1);
             }
         }
-    }
+    } while (0);
 }
 
 static void select_click(int idx, int mods) {
@@ -133,6 +157,44 @@ static void select_click(int idx, int mods) {
         app_select_only(idx);
     }
     A.cursor = idx;
+}
+
+static int build_cell(int idx) {
+    cui_ctx *ui = A.ui;
+    row_data d = { idx };
+    if (idx < A.vis_n && ui_thumb_wanted(app_item(idx), app_item_name(idx))) {
+        char path[FS_PATH_MAX]; app_path_of(idx, path, sizeof path);
+        d.has_thumb = ui_thumb_lookup(path, app_item(idx)->mtime, ui_thumb_px(icon_size()), &d.thumb);
+    }
+    cui_canvas_result c = cui_canvas(ui, "cell", CUI_FILL, CUI_PX(A.cell_h), paint_row, &d, sizeof d);
+    if ((A.zoom == Z_LIST && idx == A.first_row * A.column_rows) || (A.zoom != Z_LIST && idx == A.first_row * A.cols)) {
+        A.first_rect = (cui_rect){ c.rect.x - GPAD, c.rect.y, c.rect.w * (float)A.cols + 2 * GPAD, c.rect.h };
+    }
+    bool on_item = c.hovered && idx < A.vis_n;
+    if (on_item) A.hover = idx;
+    if (c.clicked) {
+        if (on_item) {
+            double now = cui_time(ui);
+            if (idx == A.last_click_idx && now - A.last_click_t < 0.45 && !(cui_key_mods(ui) & (CUI_MOD_SHIFT | CUI_MOD_CTRL))) {
+                A.last_click_idx = -1;
+                return idx;
+            } else {
+                select_click(idx, cui_key_mods(ui));
+                A.last_click_idx = idx;
+                A.last_click_t = now;
+            }
+        } else if (!(cui_key_mods(ui) & (CUI_MOD_SHIFT | CUI_MOD_CTRL))) {
+            app_clear_selection();
+        }
+    }
+    if (on_item && cui_mouse_clicked(ui, CUI_MOUSE_RIGHT)) { if (!A.sel[idx]) select_click(idx, 0); A.ctx_item = true; }
+    if (on_item && A.zoom <= Z_SMALL) cui_tooltip(ui, app_item_name(idx));
+    else if (on_item) {
+        name_lines nl;
+        layout_name(ui, app_item_name(idx), c.rect.w - 10, &nl);
+        if (nl.cut) cui_tooltip(ui, app_item_name(idx));
+    }
+    return -1;
 }
 
 void ui_grid_view(void) {
@@ -156,40 +218,8 @@ void ui_grid_view(void) {
             for (int col = 0; col < cols; col++) {
                 int idx = r * cols + col;
                 cui_push_id_int(ui, col);
-                row_data d = { r, col };
-                if (idx < A.vis_n && ui_thumb_wanted(app_item(idx), app_item_name(idx))) {
-                    char tp[FS_PATH_MAX];
-                    app_path_of(idx, tp, sizeof tp);
-                    d.has_thumb = ui_thumb_lookup(tp, app_item(idx)->mtime, ui_thumb_px(icon_size()), &d.thumb);
-                }
-                cui_canvas_result c = cui_canvas(ui, "cell", CUI_FILL, CUI_PX(A.cell_h), paint_row, &d, sizeof d);
-                if (r == first && col == 0) {
-                    A.first_rect = (cui_rect){ c.rect.x - GPAD, c.rect.y, c.rect.w * (float)cols + 2 * GPAD, c.rect.h };
-                    if (A.first_rect.w > 100) A.content_w = A.first_rect.w;
-                }
-                bool on_item = c.hovered && idx < A.vis_n;
-                if (on_item) A.hover = idx;
-                if (c.clicked) {
-                    if (on_item) {
-                        double now = cui_time(ui);
-                        if (idx == A.last_click_idx && now - A.last_click_t < 0.45 && !(cui_key_mods(ui) & (CUI_MOD_SHIFT | CUI_MOD_CTRL))) {
-                            A.last_click_idx = -1;
-                            open_idx = idx;
-                        } else {
-                            select_click(idx, cui_key_mods(ui));
-                            A.last_click_idx = idx;
-                            A.last_click_t = now;
-                        }
-                    } else if (!(cui_key_mods(ui) & (CUI_MOD_SHIFT | CUI_MOD_CTRL))) {
-                        app_clear_selection();
-                    }
-                }
-                if (on_item && cui_mouse_clicked(ui, CUI_MOUSE_RIGHT)) { if (!A.sel[idx]) select_click(idx, 0); A.ctx_item = true; }
-                if (on_item) {
-                    name_lines nl;
-                    layout_name(ui, app_item_name(idx), c.rect.w - 10, &nl);
-                    if (nl.cut) cui_tooltip(ui, app_item_name(idx));
-                }
+                int opened = build_cell(idx);
+                if (opened >= 0) open_idx = opened;
                 cui_pop_id(ui);
             }
         }
@@ -198,6 +228,32 @@ void ui_grid_view(void) {
     }
     cui_virtual_list_end(ui);
     ui_thumb_end();
+}
+
+void ui_column_view(void) {
+    cui_ctx *ui = A.ui;
+    int rows, first, last, opened = -1;
+    ui_columns_begin(&rows, &first, &last);
+    A.column_rows = rows; A.cols = 1; A.cell_h = 32;
+    A.first_row = first; A.last_row = last; A.hover = -1;
+    ui_thumb_begin();
+    for (int col = first; col < last; col++) {
+        cui_push_id_int(ui, col);
+        cui_column(ui, .width = CUI_PX(240), .height = CUI_FILL) {
+            for (int row = 0; row < rows; row++) {
+                int idx = col * rows + row;
+                if (idx >= A.vis_n) break;
+                cui_push_id_int(ui, row);
+                int item = build_cell(idx);
+                if (item >= 0) opened = item;
+                cui_pop_id(ui);
+            }
+        }
+        cui_pop_id(ui);
+    }
+    ui_columns_end();
+    ui_thumb_end();
+    if (opened >= 0) app_open_vis(opened);
 }
 
 /* ---- keyboard ---- */
@@ -214,6 +270,7 @@ static void move_cursor(int to, bool extend) {
         A.anchor = to;
     }
     A.cursor = to;
+    if (A.zoom == Z_LIST) { ui_columns_reveal(to / (A.column_rows > 0 ? A.column_rows : 1)); return; }
     int row = to / A.cols;
     float ch = A.cell_h;
     float view_h = A.content_h > 50 ? A.content_h : 400;
@@ -228,6 +285,18 @@ void ui_grid_keys(void) {
     int cur = A.cursor >= 0 ? A.cursor : -1;
     int rows_per_page = (int)(A.content_h / A.cell_h);
     if (rows_per_page < 1) rows_per_page = 1;
+    if (A.zoom == Z_LIST) {
+        int rows = A.column_rows > 0 ? A.column_rows : 1;
+        if (cui_key_pressed(ui, CUI_KEY_RIGHT)) move_cursor(cur < 0 ? 0 : cur + rows, shift);
+        else if (cui_key_pressed(ui, CUI_KEY_LEFT)) move_cursor(cur < 0 ? 0 : cur - rows, shift);
+        else if (cui_key_pressed(ui, CUI_KEY_DOWN)) move_cursor(cur + 1, shift);
+        else if (cui_key_pressed(ui, CUI_KEY_UP)) move_cursor(cur - 1, shift);
+        else if (cui_key_pressed(ui, CUI_KEY_HOME)) move_cursor(0, shift);
+        else if (cui_key_pressed(ui, CUI_KEY_END)) move_cursor(A.vis_n - 1, shift);
+        else if (cui_key_pressed(ui, CUI_KEY_PAGE_DOWN)) move_cursor(cur + rows * (int)(A.content_w / 240), shift);
+        else if (cui_key_pressed(ui, CUI_KEY_PAGE_UP)) move_cursor(cur - rows * (int)(A.content_w / 240), shift);
+        return;
+    }
     if (cui_key_pressed(ui, CUI_KEY_RIGHT)) move_cursor(cur + 1, shift);
     else if (cui_key_pressed(ui, CUI_KEY_LEFT)) move_cursor(cur < 0 ? 0 : cur - 1, shift);
     else if (cui_key_pressed(ui, CUI_KEY_DOWN)) move_cursor(cur < 0 ? 0 : cur + A.cols, shift);

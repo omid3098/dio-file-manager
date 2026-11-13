@@ -35,6 +35,10 @@ static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     if (m == WM_CHAR && w > 0x20 && w != 0x7F && typed_n < 15 &&
         !(GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000)) typed[typed_n++] = (wchar_t)w;
+    if (m == WM_KEYDOWN || m == WM_KEYUP) {
+        if (w == VK_ADD) w = VK_OEM_PLUS;
+        else if (w == VK_SUBTRACT) w = VK_OEM_MINUS;
+    }
     return CallWindowProcW(test_window_proc, h, m, w, l);
 }
 
@@ -267,9 +271,6 @@ void app_open_vis(int i) {
     if (FAILED(hr)) cui_toast(A.ui, "Could not open the file", .description = p, .tone = CUI_TONE_DANGER);
 }
 
-void app_set_view(int v) {
-    if (A.view != v) { A.view = v; A.reset_scroll = true; }
-}
 
 /* ---- keys ---- */
 
@@ -309,9 +310,8 @@ static void global_keys(void) {
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_2)) app_set_view(VIEW_LIST);
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_H)) { A.show_hidden = !A.show_hidden; app_rebuild_view(); }
     if (cui_key_pressed(ui, CUI_KEY_F5)) app_reload();
-    if ((mods & CUI_MOD_CTRL) && cui_key_pressed(ui, CUI_KEY_EQUAL) && A.zoom < 3) A.zoom++;
-    if ((mods & CUI_MOD_CTRL) && cui_key_pressed(ui, CUI_KEY_MINUS) && A.zoom > 0) A.zoom--;
-    if (ctxmenu_is_open(ui)) return;   /* an open menu has Up, Down, Enter and Esc; the view and the search field do not */
+    ui_zoom_keys();
+    if (ctxmenu_is_open(ui) || ui_view_options_open()) return;   /* an open menu has Up, Down, Enter and Esc; the view and the search field do not */
     if (typing) {
         if (cui_key_pressed(ui, CUI_KEY_ESCAPE) && A.search_open) app_set_search_open(false);
         return;
@@ -352,7 +352,8 @@ static void list_body(void) {
                       A.search[0] ? "Try a different search." : "Only hidden items are here. Press Ctrl+H to show them.");
         return;
     }
-    if (A.view == VIEW_GRID) ui_grid_view(); else ui_list_view();
+    if (A.zoom == Z_LIST) ui_column_view();
+    else if (A.view == VIEW_GRID) ui_grid_view(); else ui_list_view();
 }
 
 static void content_body(void) {
@@ -419,7 +420,7 @@ typedef struct options {
 static void arg_u8(const wchar_t *w, char *out, size_t cap) { fs_w_to_u8(w, out, (int)cap); }
 
 static void parse_args(options *o) {
-    o->view = VIEW_GRID; o->theme = 0; o->w = 1080; o->h = 720;
+    o->view = -1; o->theme = 0; o->w = 1080; o->h = 720;
     int argc = 0;
     wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (!argv) return;
@@ -433,7 +434,7 @@ static void parse_args(options *o) {
         else if (!wcscmp(a, L"--select") && more) arg_u8(argv[++i], o->select, sizeof o->select);
         else if (!wcscmp(a, L"--search") && more) arg_u8(argv[++i], o->search, sizeof o->search);
         else if (!wcscmp(a, L"--act") && more) { ++i; o->act = !wcscmp(argv[i], L"menu") ? 1 : !wcscmp(argv[i], L"bgmenu") ? 2 : !wcscmp(argv[i], L"rename") ? 3 : !wcscmp(argv[i], L"newdir") ? 4 : !wcscmp(argv[i], L"listmenu") ? 5 : !wcscmp(argv[i], L"listbg") ? 6 : 0; }
-        else if (!wcscmp(a, L"--view") && more) o->view = !wcscmp(argv[++i], L"list") ? VIEW_LIST : VIEW_GRID;
+        else if (!wcscmp(a, L"--view") && more) { ++i; o->view = !wcscmp(argv[i], L"list") ? VIEW_LIST : !wcscmp(argv[i], L"grid") ? VIEW_GRID : -1; }
         else if (!wcscmp(a, L"--theme") && more) { ++i; o->theme = !wcscmp(argv[i], L"dark") ? 2 : !wcscmp(argv[i], L"light") ? 1 : 0; }
         else if (!wcscmp(a, L"--size") && more) { ++i; int w, h; if (swscanf_s(argv[i], L"%dx%d", &w, &h) == 2) { o->w = w; o->h = h; } }
         else if (a[0] != L'-' && !o->path[0]) arg_u8(a, o->path, sizeof o->path);
@@ -470,7 +471,7 @@ static void test_snapshot(const char *base) {
         if (comma) fputc(',', f);
         json_text(f, app_item_name(i)); comma = true;
     }
-    fprintf(f, "],\"query\":"); json_text(f, A.search);
+    fprintf(f, "],\"zoom\":%d,\"icon\":%d,\"column_rows\":%d,\"slider\":[%.2f,%.2f,%.2f,%.2f],\"query\":", A.zoom, A.last_icon, A.column_rows, A.zoom_rect.x, A.zoom_rect.y, A.zoom_rect.w, A.zoom_rect.h); json_text(f, A.search);
     fprintf(f, ",\"documents\":"); json_text(f, A.places[2]);
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));
     json_text(f, A.drive_n ? A.drives[0].root : "");
@@ -539,7 +540,9 @@ int main(void) {
     memset(&A, 0, sizeof A);
     A.ui = cui_app_ui(g_app);
     A.hwnd = cui_app_native_window(g_app);
-    A.view = o.view; A.zoom = 1; A.cursor = A.anchor = -1; A.hover = -1; A.last_click_idx = -1;
+    app_load_view();
+    if (o.view >= 0) app_set_view(o.view);
+    A.cursor = A.anchor = -1; A.hover = -1; A.last_click_idx = -1;
     A.sort_key = FS_SORT_NAME;
     A.trash_check_t = -100;
     starred_load();

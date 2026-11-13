@@ -4,6 +4,7 @@ DFM_USE_WORK and DFM_EXE select isolated artifacts and the executable.
 Requires the shared correct/hidden.py.
 """
 import ctypes as C
+from contextlib import contextmanager
 from ctypes import wintypes as W
 import json
 import os

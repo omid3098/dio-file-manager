@@ -39,7 +39,9 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   a home icon on the first segment when inside Home, a menu on each chevron; Ctrl+L or a click on
   the empty part turns it into a text field); on the right a search toggle, a view switch
   (grid or list) and a view-options menu (sort by name, size, modified or type; reversed order;
-  show hidden files).
+  show hidden files). Its first control is a six-stop view slider: Details at the left, then List,
+  Small icons, Medium icons, Large icons and Extra large icons at the right. The current stop is
+  named under the slider.
 - **Sidebar rows:** Recent, Starred, Home, Desktop, Documents, Downloads, Music, Pictures, Videos,
   Trash; a hairline; each drive by its label and letter ("Local Disk (C:)"), with an eject button
   for removable drives; "Other Locations" last (all drives with their used and free space).
@@ -52,12 +54,19 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   selected). Folders are drawn filled in the accent colour (a back flap a step darker), not as
   outline icons. Files are a page with a folded corner, with a small type label ("PDF", "JPG")
   or a Lucide type icon; image files show a thumbnail (aspect kept, rounded corners, soft shadow) once it
-  is read, only for the cells in view, with the page icon until then. Zoom with Ctrl+plus
-  and Ctrl+minus: 48, 64, 96 and 128 px icons.
+  is read, only for the cells in view, with the page icon until then. The icon stops use 32, 64,
+  96 and 144 px icons; Medium (64 px) is the default. Small puts the name beside the icon.
+  Thumbnail requests match the displayed edge, including the display scale.
+- **List stop:** 16 px icons and names in 240 px columns, filled top to bottom then left to right.
+  The wheel scrolls sideways. Only visible columns are built.
+- **View shortcuts:** Ctrl+wheel and Ctrl+plus/minus move one stop; Ctrl+0 returns to Medium.
+  The grid button (Ctrl+1) returns to the last icon stop; the list button (Ctrl+2) opens Details.
+  The current and last icon stops survive restarts in `%APPDATA%\dio-file-manager\view.txt`.
+  Search, Recent, Starred and Trash share this scale.
 - **Selection:** the icon gets a rounded `selected` fill; the name gets an accent pill with
   `accent-fg` text. Click selects, Ctrl+click toggles, Shift+click selects a range, dragging on
   the empty background draws a rubber band.
-- **List view:** columns Name (16 px icon and name), Size, Modified, Type; sortable headers;
+- **Details stop:** columns Name (16 px icon and name), Size, Modified, Type; sortable headers;
   folders first. Rows 36 px.
 - **Floating status pill:** bottom right of the content pane, over the files, only while something
   is selected or loading: "“report.pdf” selected (2.4 MB)", "3 items selected (5.1 MB)",

@@ -8,6 +8,7 @@
 
 enum { LOC_FOLDER = 0, LOC_RECENT, LOC_STARRED, LOC_TRASH, LOC_OTHER };
 enum { VIEW_GRID = 0, VIEW_LIST = 1 };
+enum { Z_DETAILS, Z_LIST, Z_SMALL, Z_MEDIUM, Z_LARGE, Z_EXTRA, Z_COUNT };
 enum { HIST_MAX = 48 };
 
 typedef struct app_t {
@@ -29,7 +30,7 @@ typedef struct app_t {
     uint64_t sel_bytes;
 
     /* view settings */
-    int view, zoom;                  /* VIEW_*, 0..3 */
+    int view, zoom, last_icon;       /* zoom is the six-stop scale; view keeps the header shortcuts */
     int sort_key;
     bool sort_desc, show_hidden;
     bool search_open, searching;     /* searching: A.list is the list of search results */
@@ -46,6 +47,8 @@ typedef struct app_t {
     float content_w, content_h;
     int cols, first_row, last_row;
     float cell_h;
+    int column_rows;                /* List fills each column from top to bottom */
+    cui_rect zoom_rect;             /* slider track, for real-input checks */
     int hover;
     double last_click_t;
     int last_click_idx;
@@ -79,6 +82,10 @@ void app_select_all(void);
 void app_clear_selection(void);
 void app_count_selection(void);
 void app_set_view(int view);
+void app_set_zoom(int stop);
+void app_load_view(void);
+void ui_zoom_keys(void);
+bool ui_view_options_open(void);
 void app_path_of(int vis_index, char *out, size_t cap);
 bool app_is_narrow(void);
 void app_copy_text(const char *utf8);       /* to the Windows clipboard */
@@ -130,6 +137,10 @@ bool ctxmenu_row_hovered(cui_ctx *ui);       /* call immediately after cui_data_
 bool ctxmenu_begin(cui_ctx *ui, const char *id, bool open_here);
 void ctxmenu_end(cui_ctx *ui);
 bool ctxmenu_is_open(cui_ctx *ui);
+float ui_zoom_wheel(cui_ctx *ui);
+void ui_columns_begin(int *rows, int *first, int *last);
+void ui_columns_end(void);
+void ui_columns_reveal(int column);
 
 /* ui_search.c: the Location column text of a search result */
 void search_location_text(int vis, char *out, size_t cap);
@@ -170,6 +181,7 @@ void ui_status_pill(void);
 
 /* ui_grid.c, ui_list.c */
 void ui_grid_view(void);
+void ui_column_view(void);
 void ui_grid_keys(void);
 void ui_list_view(void);
 void ui_handle_open_keys(void);

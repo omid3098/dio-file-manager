@@ -192,22 +192,26 @@ static int build_segments(bool *home_first) {
     return n;
 }
 
+bool ui_view_options_open(void) { return cui_popover_is_open(A.ui, "view-options"); }
+
 static void view_options_menu(void) {
     cui_ctx *ui = A.ui;
     static const char *const KEYS[4] = { "Name", "Size", "Modified", "Type" };
-    static const char *const ZN[4] = { "Small", "Medium", "Large", "Extra Large" };
-    if (!cui_menu_begin(ui, "View Options", &(cui_menu_opts){ .icon = CUI_ICON_SLIDERS_HORIZONTAL, .icon_only = true })) return;
+    static const char *const names[Z_COUNT] = { "Details", "List", "Small icons", "Medium icons", "Large icons", "Extra large icons" };
+    if (cui_icon_button(ui, CUI_ICON_SLIDERS_HORIZONTAL, .tooltip = "View options", .selected = ui_view_options_open())) cui_popover_toggle(ui, "view-options");
+    if (!cui_popover_begin(ui, "view-options", &(cui_popover_opts){ .placement = CUI_PLACE_BOTTOM_END, .width = 300, .pad = 12, .gap = 4 })) return;
+    float stop = (float)A.zoom;
+    if (cui_slider(ui, "View size", &stop, 0, Z_COUNT - 1, .step = 1, .width = CUI_FILL)) app_set_zoom((int)(stop + 0.5f));
+    A.zoom_rect = cui_last_rect(ui);
+    cui_text(ui, names[A.zoom], .width = CUI_FILL, .align = CUI_TEXT_CENTER, .size = 13, .color = CUI_COLOR_TEXT_SECONDARY);
+    cui_menu_separator(ui);
     cui_menu_label(ui, "Sort by");
     for (int i = 0; i < 4; i++)
         if (cui_menu_item(ui, KEYS[i], .checked = A.sort_key == i)) { A.sort_key = i; app_resort(); }
     cui_menu_separator(ui);
     if (cui_menu_item(ui, "Reversed Order", .checked = A.sort_desc)) { A.sort_desc = !A.sort_desc; app_resort(); }
     if (cui_menu_item(ui, "Show Hidden Files", .checked = A.show_hidden, .shortcut = "Ctrl H")) { A.show_hidden = !A.show_hidden; app_rebuild_view(); }
-    cui_menu_separator(ui);
-    cui_menu_label(ui, "Icon size");
-    for (int i = 0; i < 4; i++)
-        if (cui_menu_item(ui, ZN[i], .checked = A.zoom == i)) A.zoom = i;
-    cui_menu_end(ui);
+    cui_popover_end(ui);
 }
 
 void ui_content_header(void) {
