@@ -1,5 +1,17 @@
 # Operations checks
 
+## Merge queue
+
+`queue_check.py typecheck` builds the candidate in MinSizeRel, including the
+800 KB post-build limit. `changed` builds and runs every `tests/use/*_smoke.py`;
+`full` also runs all CTest console checks on the hidden desktop with clipboard
+preservation and the shared `Local\DioFileManagerClipboardTest` mutex.
+The read-only CUI v1.4.0 tree in the main checkout's `.agent-work/cui-src` is
+required; the queue never downloads it. Build products and use-check artifacts
+stay in the main checkout's `.agent-work/queue-v1/candidates`.
+Run the helper's focused checks with
+`python -m unittest discover -s tests -p test_queue_check.py`.
+
 The console test uses only files it creates under
 `E:\w\dio-file-manager\.agent-work\console\ops\verification` by default.
 It refuses to reuse an existing verification folder. The sandbox tests remove
