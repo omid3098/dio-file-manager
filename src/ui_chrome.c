@@ -175,6 +175,7 @@ void ui_content_header(void) {
             }
         }
         cui_gap(ui, 4);
+        act_job_button();
         if (cui_icon_button(ui, CUI_ICON_SEARCH, .tooltip = "Search", .shortcut = "Ctrl F", .selected = A.search_open)) app_set_search_open(!A.search_open);
         if (cui_icon_button(ui, CUI_ICON_GRID_3X3, .tooltip = "Grid view", .shortcut = "Ctrl 1", .selected = A.view == VIEW_GRID)) app_set_view(VIEW_GRID);
         if (cui_icon_button(ui, CUI_ICON_LIST, .tooltip = "List view", .shortcut = "Ctrl 2", .selected = A.view == VIEW_LIST)) app_set_view(VIEW_LIST);

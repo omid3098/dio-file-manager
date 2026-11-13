@@ -79,6 +79,8 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   Shift+Delete deletes for ever after a confirm dialog.
 - Right click on an item: Open, Open With…, Cut, Copy, Rename, Move to Trash, Star, Copy Path,
   Properties. On the background: New Folder, Paste, Select All, Open in Terminal, Properties.
+- Ctrl+Z right after a delete undoes it like the toast's Undo button. Star is not built yet, so the item menu has no Star row.
+  The rename and new-folder popovers open centred in the view, not directly under the item.
 - Trash shows the Recycle Bin with Restore and Empty Trash.
 - Paste onto a name that exists asks: Replace, Skip or Keep Both, with "Apply to all".
 

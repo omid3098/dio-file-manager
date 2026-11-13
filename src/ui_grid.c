@@ -69,18 +69,18 @@ static void layout_name(cui_ctx *ui, const char *name, float maxw, name_lines *o
 
 /* ---- painting ---- */
 
-typedef struct row_data { int row; } row_data;
+typedef struct row_data { int row, col; } row_data;
 
 static void paint_row(cui_ctx *ui, cui_rect r, void *user) {
     int row = ((row_data *)user)->row;
     float icon = icon_size();
-    float cw = (r.w - 2 * GPAD) / (float)A.cols;
-    for (int c = 0; c < A.cols; c++) {
+    float cw = r.w;   /* one canvas per cell: a context menu is as wide as the cell it opens on */
+    for (int c = ((row_data *)user)->col; c == ((row_data *)user)->col; c++) {
         int i = row * A.cols + c;
         if (i >= A.vis_n) break;
         const fs_entry *e = app_item(i);
         const char *name = app_item_name(i);
-        float cx = r.x + GPAD + c * cw + cw * 0.5f;
+        float cx = r.x + cw * 0.5f;
         float top = r.y + 2;
         bool sel = A.sel[i], hov = A.hover == i;
         float box = icon + 16;
@@ -133,55 +133,47 @@ void ui_grid_view(void) {
     cui_virtual_list_begin(ui, "grid", rows, A.cell_h, CUI_FILL, &first, &last);
     A.first_row = first; A.last_row = last;
     for (int r = first; r < last; r++) {
+        int open_idx = -1;
         cui_push_id_int(ui, r);
-        row_data d = { r };
-        cui_canvas_result c = cui_canvas(ui, "row", CUI_FILL, CUI_PX(A.cell_h), paint_row, &d, sizeof d);
-        cui_pop_id(ui);
-        if (r == first) A.first_rect = c.rect;
-        if (r == first && c.rect.w > 100) A.content_w = c.rect.w;
-        float cw = (c.rect.w - 2 * GPAD) / (float)cols;
-        int col = (int)floorf((c.mouse.x - GPAD) / cw);
-        int idx = r * cols + col;
-        bool on_item = c.hovered && col >= 0 && col < cols && idx < A.vis_n;
-        if (on_item) {
-            /* only the icon box and the name count as "on the item" */
-            A.hover = idx;
-        }
-        if (c.clicked) {
-            if (on_item) {
-                double now = cui_time(ui);
-                if (idx == A.last_click_idx && now - A.last_click_t < 0.45 && !(cui_key_mods(ui) & (CUI_MOD_SHIFT | CUI_MOD_CTRL))) {
-                    A.last_click_idx = -1;
-                    app_open_vis(idx);
-                    break;
+        cui_row(ui, .width = CUI_FILL, .height = CUI_PX(A.cell_h), .pad_x = GPAD, .gap = 0) {
+            for (int col = 0; col < cols; col++) {
+                int idx = r * cols + col;
+                cui_push_id_int(ui, col);
+                row_data d = { r, col };
+                cui_canvas_result c = cui_canvas(ui, "cell", CUI_FILL, CUI_PX(A.cell_h), paint_row, &d, sizeof d);
+                if (r == first && col == 0) {
+                    A.first_rect = (cui_rect){ c.rect.x - GPAD, c.rect.y, c.rect.w * (float)cols + 2 * GPAD, c.rect.h };
+                    if (A.first_rect.w > 100) A.content_w = A.first_rect.w;
                 }
-                select_click(idx, cui_key_mods(ui));
-                A.last_click_idx = idx;
-                A.last_click_t = now;
-            } else if (!(cui_key_mods(ui) & (CUI_MOD_SHIFT | CUI_MOD_CTRL))) {
-                app_clear_selection();
+                bool on_item = c.hovered && idx < A.vis_n;
+                if (on_item) A.hover = idx;
+                if (c.clicked) {
+                    if (on_item) {
+                        double now = cui_time(ui);
+                        if (idx == A.last_click_idx && now - A.last_click_t < 0.45 && !(cui_key_mods(ui) & (CUI_MOD_SHIFT | CUI_MOD_CTRL))) {
+                            A.last_click_idx = -1;
+                            open_idx = idx;
+                        } else {
+                            select_click(idx, cui_key_mods(ui));
+                            A.last_click_idx = idx;
+                            A.last_click_t = now;
+                        }
+                    } else if (!(cui_key_mods(ui) & (CUI_MOD_SHIFT | CUI_MOD_CTRL))) {
+                        app_clear_selection();
+                    }
+                }
+                if (on_item && cui_mouse_clicked(ui, CUI_MOUSE_RIGHT)) { if (!A.sel[idx]) select_click(idx, 0); A.ctx_item = true; }
+                act_context_menu();
+                if (on_item) {
+                    name_lines nl;
+                    layout_name(ui, app_item_name(idx), c.rect.w - 10, &nl);
+                    if (nl.cut) cui_tooltip(ui, app_item_name(idx));
+                }
+                cui_pop_id(ui);
             }
-        }
-        if (on_item && cui_mouse_clicked(ui, CUI_MOUSE_RIGHT) && !A.sel[idx]) { select_click(idx, 0); }
-        if (on_item) {
-            name_lines nl;
-            layout_name(ui, app_item_name(idx), cw - 10, &nl);
-            if (nl.cut) cui_tooltip(ui, app_item_name(idx));
-        }
-        cui_push_id_int(ui, r);
-        if (cui_context_menu_begin(ui, "ctx")) {
-            bool any = A.sel_n > 0;
-            if (cui_menu_item(ui, "Open", .icon = CUI_ICON_FOLDER_OPEN, .disabled = !any)) app_open_vis(A.cursor >= 0 ? A.cursor : 0);
-            if (cui_menu_item(ui, "Copy Path", .icon = CUI_ICON_COPY, .disabled = !any)) {
-                char p[FS_PATH_MAX];
-                app_path_of(A.cursor >= 0 ? A.cursor : 0, p, sizeof p);
-                app_copy_text(p);
-            }
-            cui_menu_separator(ui);
-            if (cui_menu_item(ui, "Select All", .shortcut = "Ctrl A")) app_select_all();
-            cui_context_menu_end(ui);
         }
         cui_pop_id(ui);
+        if (open_idx >= 0) { app_open_vis(open_idx); break; }
     }
     cui_virtual_list_end(ui);
 }

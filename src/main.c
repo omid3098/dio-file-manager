@@ -9,6 +9,7 @@
 #include <wchar.h>
 #include <cui/cui_render.h>
 #include "ui.h"
+#include "shell.h"
 
 app_t A;
 static cui_app *g_app;
@@ -153,6 +154,7 @@ static void poll_list(void) {
         (A.list->sort_key != A.sort_key || A.list->sort_desc != A.sort_desc))
         fs_list_sort(A.list, A.sort_key, A.sort_desc);
     app_rebuild_view();
+    act_list_ready();
 }
 
 /* ---- navigation ---- */
@@ -216,8 +218,8 @@ void app_open_vis(int i) {
     char p[FS_PATH_MAX];
     app_path_of(i, p, sizeof p);
     if (app_item(i)->flags & FS_DIR) { app_navigate(p); return; }
-    wchar_t w[FS_PATH_MAX];
-    if (fs_u8_to_w(p, w, FS_PATH_MAX)) ShellExecuteW(NULL, L"open", w, NULL, NULL, SW_SHOWNORMAL);
+    HRESULT hr = shell_open((HWND)A.hwnd, p);
+    if (FAILED(hr)) cui_toast(A.ui, "Could not open the file", .description = p, .tone = CUI_TONE_DANGER);
 }
 
 void app_set_view(int v) {
@@ -246,6 +248,7 @@ static void global_keys(void) {
         return;
     }
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_A)) app_select_all();
+    act_keys();
     if (cui_key_pressed(ui, CUI_KEY_ESCAPE)) {
         if (A.search_open) app_set_search_open(false); else app_clear_selection();
     }
@@ -297,7 +300,7 @@ static void content_body(void) {
         return;
     }
     if (st == FS_LOADING) return;
-    if (A.list->count == 0) { ui_state_view(CUI_ICON_FOLDER_OPEN, "Folder is Empty", NULL); return; }
+    if (A.list->count == 0) { act_background(); ui_state_view(CUI_ICON_FOLDER_OPEN, "Folder is Empty", NULL); return; }
     if (A.vis_n == 0) {
         ui_state_view(CUI_ICON_SEARCH, A.search[0] ? "No Results" : "Nothing to Show",
                       A.search[0] ? "Try a different search." : "Only hidden items are here. Press Ctrl+H to show them.");
@@ -313,6 +316,7 @@ static void frame(void) {
     if (A.theme_pref == 0 && ++tick % 30 == 0) app_set_theme(0);
     A.dark = cui_get_theme_mode(ui) == CUI_THEME_DARK;
     theme_apply(ui, A.dark);
+    act_pre_frame();
     poll_list();
     if (A.list && fs_list_state(A.list) == FS_LOADING) cui_request_wakeup(ui, 0.02f);
     global_keys();
@@ -334,6 +338,7 @@ static void frame(void) {
                 content_body();
                 app_count_selection();
                 ui_status_pill();
+                act_frame();
             }
         }
     }
@@ -351,6 +356,7 @@ typedef struct options {
     char shot[FS_PATH_MAX], path[FS_PATH_MAX], select[260];
     char test_state[FS_PATH_MAX];
     int view, theme, w, h;
+    int act;                       /* 0 none, 1 item menu, 2 background menu, 3 rename popover, 4 new-folder popover */
 } options;
 
 static void arg_u8(const wchar_t *w, char *out, size_t cap) { fs_w_to_u8(w, out, (int)cap); }
@@ -367,6 +373,7 @@ static void parse_args(options *o) {
         else if (!wcscmp(a, L"--test-state") && more) arg_u8(argv[++i], o->test_state, sizeof o->test_state);
         else if (!wcscmp(a, L"--path") && more) arg_u8(argv[++i], o->path, sizeof o->path);
         else if (!wcscmp(a, L"--select") && more) arg_u8(argv[++i], o->select, sizeof o->select);
+        else if (!wcscmp(a, L"--act") && more) { ++i; o->act = !wcscmp(argv[i], L"menu") ? 1 : !wcscmp(argv[i], L"bgmenu") ? 2 : !wcscmp(argv[i], L"rename") ? 3 : !wcscmp(argv[i], L"newdir") ? 4 : 0; }
         else if (!wcscmp(a, L"--view") && more) o->view = !wcscmp(argv[++i], L"list") ? VIEW_LIST : VIEW_GRID;
         else if (!wcscmp(a, L"--theme") && more) { ++i; o->theme = !wcscmp(argv[i], L"dark") ? 2 : !wcscmp(argv[i], L"light") ? 1 : 0; }
         else if (!wcscmp(a, L"--size") && more) { ++i; int w, h; if (swscanf_s(argv[i], L"%dx%d", &w, &h) == 2) { o->w = w; o->h = h; } }
@@ -404,10 +411,10 @@ static void test_snapshot(const char *base) {
     fprintf(f, "{\"path\":"); json_text(f, A.path);
     fprintf(f, ",\"view\":%d,\"state\":%d,\"count\":%d,\"selected\":%d,\"cursor\":%d,"
                "\"first\":%d,\"last\":%d,\"cols\":%d,\"hidden\":%d,\"narrow\":%d,\"overlay\":%d,"
-               "\"typing\":%d,\"row\":[%.2f,%.2f,%.2f,%.2f],\"selection\":[",
+               "\"typing\":%d,\"act\":%d,\"row\":[%.2f,%.2f,%.2f,%.2f],\"selection\":[",
             A.view, A.list ? fs_list_state(A.list) : -1, A.vis_n, A.sel_n, A.cursor,
             A.first_row, A.last_row, A.cols, A.show_hidden, app_is_narrow(), A.sidebar_open,
-            cui_wants_keyboard(A.ui), A.first_rect.x, A.first_rect.y, A.first_rect.w, A.first_rect.h);
+            cui_wants_keyboard(A.ui), act_state(), A.first_rect.x, A.first_rect.y, A.first_rect.w, A.first_rect.h);
     bool comma = false;
     for (int i = 0; i < A.vis_n; i++) if (A.sel[i]) {
         if (comma) fputc(',', f);
@@ -420,6 +427,26 @@ static void test_snapshot(const char *base) {
     snprintf(output, sizeof output, "%s.png", base);
     write_shot(g_app, output);
     DeleteFileA(request);
+}
+
+/* Screenshot of an action: the same real events a person would cause, at set frames. */
+static void shot_action(const options *o, int k) {
+    if (!o->act) return;
+    float x = A.first_rect.x + 16, y = A.first_rect.y + 40;
+    if (A.cursor >= 0 && A.cols > 0) {
+        int col = A.cursor % A.cols;
+        x += (col + 0.5f) * (A.first_rect.w - 32) / A.cols;
+        y += (float)((A.cursor / A.cols) - A.first_row) * A.first_rect.h;
+    }
+    if (o->act == 2) { x = A.first_rect.x + A.first_rect.w - 60; y = A.first_rect.y + A.first_rect.h * 3 + 30; }
+    HWND w = (HWND)A.hwnd;
+    float scale = (float)GetDpiForWindow(w) / 96.0f;
+    LPARAM at = (LPARAM)((int)(x * scale) | ((int)(y * scale) << 16));
+    if ((o->act == 1 || o->act == 2) && k == 3) SendMessageW(w, WM_MOUSEMOVE, 0, at);
+    if ((o->act == 1 || o->act == 2) && k == 6) SendMessageW(w, WM_RBUTTONDOWN, MK_RBUTTON, at);
+    if ((o->act == 1 || o->act == 2) && k == 7) SendMessageW(w, WM_RBUTTONUP, 0, at);
+    if (o->act == 3 && k == 3) act_rename();
+    if (o->act == 4 && k == 3) act_new_folder();
 }
 
 int main(void) {
@@ -435,6 +462,7 @@ int main(void) {
         test_window_proc = (WNDPROC)SetWindowLongPtrW((HWND)cui_app_native_window(g_app), GWLP_WNDPROC, (LONG_PTR)test_input_proc);
     memset(&A, 0, sizeof A);
     A.ui = cui_app_ui(g_app);
+    A.hwnd = cui_app_native_window(g_app);
     A.view = o.view; A.zoom = 1; A.cursor = A.anchor = -1; A.hover = -1; A.last_click_idx = -1;
     A.sort_key = FS_SORT_NAME;
     for (int i = 0; i < 7; i++) fs_known(i, A.places[i], sizeof A.places[i]);
@@ -445,7 +473,7 @@ int main(void) {
     if (!start[0] || !fs_is_dir(start)) start = A.drive_n ? A.drives[0].root : "C:\\";
     app_navigate(start);
 
-    int frames = 0, rc = 0;
+    int frames = 0, rc = 0, ready = 0;
     while (cui_app_frame(g_app)) {
         frame();
         frames++;
@@ -455,7 +483,10 @@ int main(void) {
                 for (int i = 0; i < A.vis_n; i++)
                     if (!strcmp(app_item_name(i), o.select)) { app_select_only(i); app_count_selection(); break; }
             if (!o.select[0] || A.sel_n > 0) {
-                if (frames > 48) { rc = write_shot(g_app, o.shot) ? 0 : 2; break; }
+                if (!ready) ready = frames;
+                int k = frames - ready;
+                shot_action(&o, k);
+                if (k >= (o.act ? 40 : 3)) { rc = write_shot(g_app, o.shot) ? 0 : 2; break; }
             }
         }
         if (shot && frames > 600) { rc = 3; break; }

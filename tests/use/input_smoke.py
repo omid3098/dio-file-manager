@@ -99,6 +99,31 @@ class App:
         time.sleep(.08)
         self.keys(())
 
+    def rclick(self, x, y):
+        p = self.point(x, y)
+        self.msg(0x200, 0, p)
+        time.sleep(.05)
+        self.msg(0x204, 2, p)
+        time.sleep(.05)
+        self.msg(0x205, 0, p)
+        time.sleep(.3)
+
+    def cell_xy(self, index):
+        s = self.snap()
+        x,y,w,h = s['row']
+        col = index % s['cols']
+        row = index // s['cols'] - s['first']
+        return x + 16 + (col+.5)*(w-32)/s['cols'], y + row*h + 40
+
+    def until(self, what, cond, seconds=5):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if cond():
+                return
+            self.msg(0)
+            time.sleep(.05)
+        raise AssertionError(what)
+
     def cell(self, index, mods=()):
         s = self.snap()
         x,y,w,h = s['row']
@@ -147,13 +172,27 @@ class App:
             self.proc.kill()
 
 
+SAND = ROOT/'.agent-work/actions-v1/sandbox'
+
+
+def fresh(*names):
+    # Only this folder is ever emptied: it holds the files the action checks create.
+    import shutil
+    shutil.rmtree(SAND, ignore_errors=True)
+    SAND.mkdir(parents=True)
+    for n in names:
+        (SAND/n).write_text('x', encoding='utf-8')
+
+
 def inside():
     results = []
-    def check(name, folder, fn, view='grid'):
+    def check(name, folder, fn, view='grid', prep=None):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
         app = None
         try:
+            if prep:
+                prep()
             app = App(name, folder, view)
             fn(app)
             app.snap(name+'-passed')
@@ -243,6 +282,60 @@ def inside():
     def denied(a):
         assert a.snap()['state']==2, 'Unreadable folder state'
 
+    def popup(a, key, mods, text):
+        a.key(key, mods)
+        a.until('Popover did not open', lambda: a.snap()['act'] & 1)
+        time.sleep(.5)  # the field takes focus and selects its text on its second frame
+        for ch in text:
+            a.msg(0x102, ord(ch))
+            time.sleep(.01)
+        a.key(13)
+
+    def rename(a):
+        a.cell(0)
+        assert a.snap()['selection'] == ['a.txt'], 'Select a.txt'
+        popup(a, 113, (), 'zz')
+        a.until('Rename did not happen', lambda: (SAND/'zz.txt').exists())
+        assert not (SAND/'a.txt').exists() and (SAND/'b.txt').exists(), 'Only a.txt is renamed, extension kept'
+        a.until('New name not selected', lambda: a.snap()['selection'] == ['zz.txt'])
+        a.snap('rename-done')
+
+    def new_folder(a):
+        popup(a, ord('N'), (17,16), 'Docs')
+        a.until('Folder not made', lambda: (SAND/'Docs').is_dir())
+        a.until('New folder not selected', lambda: a.snap()['selection'] == ['Docs'])
+
+    def copy_paste(a):
+        a.cell(0); assert a.snap()['selection'] == ['a.txt']
+        a.key(ord('C'), (17,))
+        a.key(ord('V'), (17,))
+        a.until('No copy made', lambda: (SAND/'a (copy).txt').exists())
+        assert (SAND/'a.txt').exists(), 'Original kept'
+        a.key(ord('V'), (17,))
+        a.until('Second paste gave no "(copy 2)"', lambda: (SAND/'a (copy 2).txt').exists())
+
+    def trash_undo(a):
+        a.cell(0); assert a.snap()['selection'] == ['a.txt']
+        a.key(46)
+        a.until('Delete did not remove the file', lambda: not (SAND/'a.txt').exists())
+        time.sleep(.6)
+        a.snap('trash-toast')
+        a.key(ord('Z'), (17,))
+        a.until('Undo did not bring the file back', lambda: (SAND/'a.txt').exists())
+
+    def context(a):
+        x,y = a.cell_xy(1)
+        a.rclick(x,y)
+        a.snap('menu-item')
+        a.key(27)
+        a.rclick(700,420)
+        a.snap('menu-bg')
+
+    check('9-rename', SAND, rename, prep=lambda: fresh('a.txt','b.txt'))
+    check('9-new-folder', SAND, new_folder, prep=lambda: fresh('a.txt'))
+    check('9-copy-paste', SAND, copy_paste, prep=lambda: fresh('a.txt'))
+    check('9-trash-undo', SAND, trash_undo, prep=lambda: fresh('a.txt','b.txt'))
+    check('9-context', SAND, context, prep=lambda: fresh('a.txt','b.txt','c.pdf'))
     check('1-grid-wheel', WORK/'big', wheel)
     check('2-list-wheel', WORK/'big', wheel, 'list')
     check('3-navigation', WORK/'fixture', navigation)

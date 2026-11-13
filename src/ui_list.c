@@ -28,6 +28,10 @@ void ui_list_view(void) {
                 A.last_click_idx = r;
                 A.last_click_t = now;
             }
+            if (cui_last_hovered(ui) && cui_mouse_clicked(ui, CUI_MOUSE_RIGHT)) { if (!A.sel[r]) app_select_only(r); A.cursor = r; A.ctx_item = true; }
+            cui_push_id_int(ui, r);
+            act_context_menu();
+            cui_pop_id(ui);
             cui_data_grid_cell(ui);
             cui_icon(ui, ui_kind_icon(e->kind), 16, ui_kind_color(e->kind));
             cui_text(ui, app_item_name(r), .nowrap = true, .width = CUI_FILL);

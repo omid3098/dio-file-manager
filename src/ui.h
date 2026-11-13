@@ -51,6 +51,8 @@ typedef struct app_t {
     bool sidebar_open;               /* overlay in narrow windows */
     bool reset_scroll;
     cui_rect first_rect;             /* first built grid row, for the input smoke test */
+    bool ctx_item;                   /* the last right click was on an item */
+    void *hwnd;                      /* the native window, for shell calls */
 } app_t;
 
 extern app_t A;
@@ -78,6 +80,20 @@ void app_copy_text(const char *utf8);       /* to the Windows clipboard */
 void app_set_theme(int pref);              /* 0 system, 1 light, 2 dark */
 void app_set_search_open(bool open);
 bool app_at_place(int which);              /* is the sidebar place 0..6 (Home..Videos) the current folder */
+
+/* ui_actions.c */
+void act_pre_frame(void);
+void act_keys(void);                        /* F2, Ctrl+Shift+N, Ctrl+C/X/V, Delete, Shift+Delete, Alt+Enter */
+void act_context_menu(void);                /* call once after a view; right clicks on items set A.ctx_item first */
+void act_background(void);                  /* an empty-space canvas with the background menu; put it under the view */
+void act_job_button(void);                  /* header: running-job ring and its popover */
+void act_frame(void);                       /* inside the content stack: popovers, dialogs, job polling */
+void act_list_ready(void);
+void act_rename(void);
+void act_new_folder(void);
+void act_open_terminal(void);
+bool act_modal_open(void);
+int act_state(void);                        /* bit 0 popover, 1 job, 2 delete dialog, 3 conflict dialog, 4 undo */
 
 /* theme.c */
 void theme_apply(cui_ctx *ui, bool dark);
