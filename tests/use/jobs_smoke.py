@@ -56,7 +56,12 @@ foreach ($pair in @(@('one', 'kept.txt'), @('duplicate', 'kept.txt'), @('other',
 
 def paste(a, folder):
     a.path(SAND / folder)
-    a.cell(0)
+    s = a.snap()
+    if s['zoom'] == 0:
+        x, y, w, h = s['row']
+        a.click(x + 80, y + (0 - s['first']) * 36 + 18)
+    else:
+        a.cell(0)
     a.key(ord('C'), (17,))
     a.path(SAND / 'target')
     a.key(ord('V'), (17,))

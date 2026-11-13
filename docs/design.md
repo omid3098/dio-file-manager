@@ -129,6 +129,12 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   Its bar shows an item count, Restore for the selection and Empty Trash.
   Empty Trash and Delete Permanently require confirmation.
 - Other Locations lists drives with a usage bar and free/total space. Clicking one opens it.
+- A file that is still being copied into the shown folder is listed under its final name, dimmed, with
+  "Copying..." in the size column (list) and no thumbnail. The copy writes to a hidden temporary name
+  `.<name>.dfm-copy-<pid>-<n>.tmp`; the listing shows such a file only while the copying process is alive and
+  hides it as soon as the real file exists. The folder never reads "Only hidden items are here" for it. Open,
+  copy and trash skip it. The folder relists on its own when a copy or move into it starts a file and shortly
+  after, keeping selection and scroll.
 - Paste onto a name that exists asks: Replace, Skip or Keep Both, with "Apply to all".
 
 ## Colours (Halo, from `tokens.json`)
@@ -151,6 +157,12 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 
 The app follows the system's light or dark setting by default; the main menu can pin one.
 Radii: controls 10, menus and popovers 14, dialogs 20.
+
+## Icon contrast
+
+File-type icons in the list and Details views (below 40 px) are drawn as a 1.25 px outline plus a solid fold,
+in an ink mixed from the icon's colour toward the text colour until it reaches 4.5:1 against the page, row,
+raised and selected backgrounds (`ui_icon_ink`). `view_smoke.py` case 8 measures it in both themes.
 
 ## Type
 

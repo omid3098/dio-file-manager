@@ -107,7 +107,8 @@ These overrides are confined to the check process and its children.
 The progress check copies roughly 256 MB of real data. `DFM_TEST_COPY_DELAY_MS=50`
 slows each copy callback in that check's app, so a fast disk cannot finish before
 the ring and Cancel can be clicked. The normal default is zero; values above
-100 ms or too long for the setting buffer are ignored. JSON/PNG proof and native
+500 ms or too long for the setting buffer are ignored. `jobs_smoke.py` uses 300 ms so that a
+128 MiB copy lasts about 19 s and still runs when the machine is busy. JSON/PNG proof and native
 window records remain in `DFM_USE_WORK`.
 
 All clipboard-mutating use checks import `preserved_clipboard` from
@@ -117,6 +118,13 @@ waiting up to 15 minutes, before saving any formats. It releases the mutex only
 after restoring them. Use a 22-minute runner cap when other workers may be using
 the clipboard. The clipboard roundtrip check also asserts that another thread
 cannot acquire the mutex during preservation, including nested guards.
+
+Recycle Bin guard: every suite imports `tests/use/recycle_guard.py` through `input_smoke.py`. At exit,
+also after a failure, it finds Recycle Bin items whose original path is under the check's work folder
+(`DFM_USE_WORK`) and whose deletion time is after the suite started, and removes their `$I` and `$R`
+files. Items from anywhere else are never touched. `recycle_guard_test.py` proves that decoys survive and
+a real round trip is removed. To clean up after old runs by hand:
+`python tests/use/recycle_guard.py <work folder> --since <seconds>`.
 
 The queue uses the safe mode names so baseline probes refuse old helpers
 that could run brokered file-opening checks.

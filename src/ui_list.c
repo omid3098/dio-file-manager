@@ -98,7 +98,7 @@ void ui_list_view(void) {
                     break;
                 case C_SIZE:
                     if (e->flags & FS_DIR) cui_data_grid_cell_text(ui, "");
-                    else if (e->flags & FS_INCOMING) cui_data_grid_cell_text(ui, "Copyingâ¦");
+                    else if (e->flags & FS_INCOMING) cui_data_grid_cell_text(ui, "Copying...");
                     else { fs_format_size(buf, sizeof buf, e->size); cui_data_grid_cell_text(ui, buf); }
                     break;
                 case C_TIME:
