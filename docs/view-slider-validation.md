@@ -1,4 +1,103 @@
-# View slider acceptance — NOT READY TO LAND
+# View slider validation — final worker checks passed
+
+Base main: `7f805a855d66e6599cf248e1e53e90fe081da931` (unchanged).
+Runtime repair: `cd36c03` restores the draw-driven Trash refresh from `e4cccb7`.
+The persistent worker waits indefinitely between requests; it has no timer and
+posts no redraw messages. Startup polling and file-operation invalidations remain.
+No slider behavior, input rate or display pacing changed. No merge, push or install.
+
+## Fixed acceptance rules
+
+- Idle: at most **0.5% of one core in every one of five 60-second windows**.
+- Scrolling: five alternating main/branch 30-second pairs. Branch mean CPU must
+  be at most main mean plus **0.5 percentage points**. The former fixed 5.0% line
+  is dropped because main itself exceeds it.
+- Mean frames and mean Trash queries per 30-second scrolling window must each
+  be within **2% of main**, across five alternating pairs with 600 wheel events
+  per window. CPU uses clean binaries; counters use separate instrumented builds.
+- MinSizeRel executable: at most **819,200 bytes**. Both requested use suites pass.
+
+## Final clean CPU samples
+
+All percentages are of one core. Each row ran main first, then branch; five scroll
+pairs ran before five idle pairs. No samples were excluded. Only one clean CPU
+comparison was run for this repair, through the v2 `cpu_final.py --final` driver
+with a task-local adapter applying the parent's revised scrolling rule.
+
+| Pair | Scroll main (30 s) | Scroll branch (30 s) | Idle main (60 s) | Idle branch (60 s) |
+|---|---:|---:|---:|---:|
+| 1 | 4.580946 | 6.089749 | 0.078097 | 0.026034 |
+| 2 | 7.339328 | 4.841037 | 0.078105 | 0.026034 |
+| 3 | 6.038210 | 7.495854 | 0.052069 | 0.026035 |
+| 4 | 3.385178 | 2.290302 | 0.078101 | 0.156197 |
+| 5 | 6.038471 | 7.130631 | 0.078104 | 0.078101 |
+
+Scroll means: main **5.476427%**, branch
+**5.569515%**; difference
+**0.093088 points**, below 0.5. All five
+branch idle samples pass; maximum **0.156197%**.
+The wheel driver sent 600 or 601 events per CPU scrolling window; every window
+advanced the viewport. No input pacing or rate was changed.
+
+## Final frame and Trash-query samples
+
+Same v2 counter instrumentation: Interlocked counters only, in disposable
+git-archive builds. No captures or file output during each measured window.
+
+| Pair | Main queries | Branch queries | Main frames | Branch frames |
+|---|---:|---:|---:|---:|
+| 1 | 15 | 15 | 803 | 795 |
+| 2 | 15 | 15 | 818 | 816 |
+| 3 | 15 | 15 | 797 | 821 |
+| 4 | 15 | 15 | 812 | 792 |
+| 5 | 15 | 15 | 801 | 819 |
+
+Mean queries: **15.0 / 15.0** (main / branch), no difference.
+Mean frames: **806.2 / 808.6**, branch
+**0.297693%** higher, within 2%.
+
+The first counter driver reset immediately after scrolling stopped and recorded
+13 branch frames with zero Trash queries over its next 30 seconds. Its strict
+zero-total-frame assertion failed. A separate settled-idle comparison then measured
+both builds after three seconds with no input: **main 0 queries / 2 frames,
+branch 0 queries / 2 frames**, each over 30 seconds. An initial baseline-only
+attempt also found 0 / 2 on main. Thus total idle frames are not absolutely zero
+even on main; Trash performs no queries and branch adds no idle frames. All raw
+attempts are retained. `record.py` asserts zero queries and equal idle frames.
+
+## Final use checks and executable
+
+- `input_smoke.py`: **20/20 passed**, once. Startup badge read **58 items at
+  0.594 seconds**, within its two-second case, before subsequent Trash operations.
+- `view_smoke.py`: **11/11 passed**, once. All six message-delay checks passed;
+  maximum **47.765 ms** against 50 ms.
+- MinSizeRel build passed: **448,000 bytes**, below 819,200, at
+  `build/accept/MinSizeRel/dio-file-manager.exe` in the slider worktree.
+
+Every UI run used the private desktop and `--test-state`, with the gaming check
+before launch. Existing clipboard cases retain `Local\DioFileManagerClipboardTest`.
+The three other use suites were not rerun in this worker; their earlier 51/51
+full-suite evidence and visual inspection are preserved below. No new visual
+captures or independent review were requested for this timer rollback.
+
+## Evidence
+
+Task folder: `E:/w/dio-file-manager/.agent-work/viewzoom-v3/`.
+Clean CPU: `cpu-final.json`, `cpu-final.log`, `cpu-final.err`, `cpu-bounded.log`.
+Counters: `counts.json`, `counts.log`, `counts.err`, `counts-summary.json`,
+`idle-counts.json`, `idle-counts.log`, and bounded run logs. The initial counter
+failure remains in `check-exits.json`; `acceptance.json` and `record.py` evaluate
+the complete final evidence, including the corrected settled-idle comparison.
+Use suites: `input/results.json`, `input/input.log`, `view/view-results.json`,
+`view/view.log`. Scripts adapt the read-only v2 drivers; instrumented archives,
+their builds, fixtures, screenshots and logs remain in this task folder.
+
+The earlier observations below are historical, including their obsolete 5% scroll
+limit and timer failure; they do not describe this repaired build.
+
+---
+
+## Historical: timer repair failed acceptance
 
 Base main remains 7f805a855d66e6599cf248e1e53e90fe081da931.
 Runtime change: e6fb51c1643c3db0d9368c2471a152b528c958e9. A later documentation-only
