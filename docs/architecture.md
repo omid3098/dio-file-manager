@@ -30,6 +30,11 @@ so both growing and shrinking use the current pixel dimensions.
 Search results keep their own listing. Trash completion drops missing results and refreshes
 the saved folder; reload and Undo rerun the query without closing it.
 
+Alt+Enter opens only Properties; plain Enter opens an item only without modifiers.
+The running-job header control is one clickable progress ring; its popover names
+the copy and offers Cancel. Real-input action checks and private-desktop shell
+substitutions are documented in `tests/README.md`.
+
 ## Build and install
 
 From the repository root, build the app and console checks together:

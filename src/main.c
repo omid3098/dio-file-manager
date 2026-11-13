@@ -314,7 +314,7 @@ static void global_keys(void) {
     if (cui_key_pressed(ui, CUI_KEY_ESCAPE)) {
         if (A.search_open) app_set_search_open(false); else app_clear_selection();
     }
-    if (cui_key_pressed(ui, CUI_KEY_ENTER) && A.cursor >= 0) app_open_vis(A.cursor);
+    if (cui_shortcut(ui, 0, CUI_KEY_ENTER) && A.cursor >= 0) app_open_vis(A.cursor);
     if (A.view == VIEW_GRID) ui_grid_keys();
 }
 
@@ -466,6 +466,7 @@ static void test_snapshot(const char *base) {
     fprintf(f, ",\"documents\":"); json_text(f, A.places[2]);
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));
     json_text(f, A.drive_n ? A.drives[0].root : "");
+    act_test_snapshot(f);
     fprintf(f, "}"); fclose(f);
     snprintf(output, sizeof output, "%s.png", base);
     ui_window_screenshot(g_app, output);

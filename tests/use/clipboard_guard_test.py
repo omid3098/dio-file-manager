@@ -4,7 +4,9 @@ Run only on the hidden desktop, with a live app window as the clipboard owner.
 import ctypes as C
 from ctypes import wintypes as W
 import struct
-from clipboard_guard import U, K, preserved_clipboard, open_clipboard
+import threading
+from clipboard_guard import U, K, open_clipboard
+from input_smoke import preserved_clipboard
 
 K.GlobalAlloc.argtypes = [W.UINT, C.c_size_t]
 K.GlobalAlloc.restype = W.HGLOBAL
@@ -14,6 +16,21 @@ U.RegisterClipboardFormatW.argtypes = [W.LPCWSTR]
 
 
 def roundtrip(hwnd):
+    def contend(expected):
+        outcomes = []
+        def other_thread():
+            mutex = K.CreateMutexW(None, False, r'Local\DioFileManagerClipboardTest')
+            assert mutex
+            try:
+                result = K.WaitForSingleObject(mutex, 0)
+                outcomes.append(result)
+                if result in (0, 0x80):
+                    K.ReleaseMutex(mutex)
+            finally:
+                K.CloseHandle(mutex)
+        thread = threading.Thread(target=other_thread)
+        thread.start(); thread.join(timeout=3)
+        assert outcomes == [expected], f'Clipboard mutex ownership: {outcomes}'
     binary = U.RegisterClipboardFormatW('Dio File Manager clipboard preservation test')
     fixture = {
         13: 'clipboard sentinel فارسی\0'.encode('utf-16-le'),
@@ -52,6 +69,7 @@ def roundtrip(hwnd):
             U.CloseClipboard()
 
     with preserved_clipboard(hwnd):  # restore the user's original formats last
+        contend(258)  # Another worker cannot enter until save/use/restore has finished.
         put(fixture)
         with preserved_clipboard(hwnd):
             put({13: 'changed\0'.encode('utf-16-le')})

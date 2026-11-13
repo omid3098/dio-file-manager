@@ -79,6 +79,7 @@ struct ops_job {
     ops_state state;
     int answer, all_answer;
     uint64_t copy_base;
+    DWORD test_copy_delay;
 };
 static int cancelled(ops_job *j) { return InterlockedCompareExchange(&j->cancel, 0, 0) != 0; }
 static void text_path(char *out, size_t size, const wchar_t *w) {
@@ -157,6 +158,7 @@ static DWORD CALLBACK copy_progress(LARGE_INTEGER total, LARGE_INTEGER done, LAR
     ops_job *j = context;
     (void)total; (void)stream_size; (void)stream_done; (void)stream; (void)reason; (void)src; (void)dst;
     EnterCriticalSection(&j->lock); j->state.bytes_done = j->copy_base + (uint64_t)done.QuadPart; LeaveCriticalSection(&j->lock);
+    if (j->test_copy_delay) Sleep(j->test_copy_delay);
     return cancelled(j) ? PROGRESS_CANCEL : PROGRESS_CONTINUE;
 }
 static int remove_node(ops_job *j, const wchar_t *path, int progress) {
@@ -309,6 +311,13 @@ ops_job *ops_start(ops_kind kind, const char *const *sources, size_t count, cons
         (kind == OPS_RENAME && count != 1) || ((kind == OPS_RENAME || kind == OPS_NEW_FOLDER) && ops_name_error(name))) { SetLastError(ERROR_INVALID_PARAMETER); return NULL; }
     j = calloc(1, sizeof(*j)); if (!j) { SetLastError(ERROR_NOT_ENOUGH_MEMORY); return NULL; }
     InitializeCriticalSection(&j->lock); j->kind = kind; j->count = count; j->all_answer = -1;
+    /* Slow real CopyFileEx callbacks only when a private-desktop check requests it. */
+    char delay[16];
+    DWORD delay_n = GetEnvironmentVariableA("DFM_TEST_COPY_DELAY_MS", delay, sizeof delay);
+    if (delay_n && delay_n < sizeof delay) {
+        unsigned long ms = strtoul(delay, NULL, 10);
+        if (ms <= 100) j->test_copy_delay = (DWORD)ms;
+    }
     j->answer_event = CreateEventW(NULL, TRUE, FALSE, NULL);
     j->sources = calloc(count ? count : 1, sizeof(*j->sources));
     if (!j->answer_event || !j->sources) goto error;

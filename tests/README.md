@@ -18,8 +18,8 @@ It refuses to reuse an existing verification folder. The sandbox tests remove
 their files on exit, including failure. A cross-volume test additionally creates
 and removes a `dio-file-manager-test-<pid>` folder on a second fixed drive.
 Clipboard tests snapshot the prior clipboard formats and restore them afterward.
-No test opens a terminal, an app, Properties, or Open With. Recent files and those
-shell actions are compile-checked only. Empty Trash is never run by tests.
+The console checks do not open shell windows. The real-input action checks below
+exercise the shell entries on a private desktop. Empty Trash is never run by tests.
 
 The main build adds `dfm-ops-tests` when this directory exists. Run that executable
 hidden with a bounded runner. `run.py` builds the same test directly with MSVC
@@ -71,3 +71,37 @@ suite has 8, including list-row menus and search Trash/Undo. Clipboard checks pr
 formats in memory; when wrapping console tests, preserve the clipboard around the whole
 process as well so a failed assertion cannot leave test data behind.
 Set `TEMP` and `TMP` below the task folder before each runner call.
+
+## Action checks
+
+`tests/use/actions_smoke.py` imports the input suite's helpers and has 7 checks:
+Open With, Open in Terminal, Properties by menu and Alt+Enter, toast Undo,
+Replace/Keep Both/Skip, Shift+Delete cancel/confirm, and large-copy progress/cancel.
+It uses only its sandbox and preserves the clipboard during copy/paste checks.
+Set `DFM_EXE` to the MinSizeRel exe and `DFM_USE_WORK` below the task folder, then
+run it through `waitfor.py` with a 22-minute cap. Pillow is used to check that
+the painted header arc grows while real CopyFileEx callbacks report progress.
+
+Properties is the real Windows sheet: the check reads its filename and Location,
+checks its thread's desktop, then closes it. Windows Terminal can reuse an
+instance on the interactive desktop, and Open With can invoke a shell broker.
+These checks therefore substitute a native stand-in window using test-only
+`DFM_TEST_TERMINAL` and `DFM_TEST_OPEN_WITH` command prefixes. Its recorded command
+line, file arguments, working directory, and window desktop are checked; the
+stock chooser and actual terminal GUI are deliberately not launched. `DFM_TEST_OPEN`
+catches unintended default-handler launches, including an Alt+Enter regression.
+These overrides are confined to the check process and its children.
+
+The progress check copies roughly 256 MB of real data. `DFM_TEST_COPY_DELAY_MS=50`
+slows each copy callback in that check's app, so a fast disk cannot finish before
+the ring and Cancel can be clicked. The normal default is zero; values above
+100 ms or too long for the setting buffer are ignored. JSON/PNG proof and native
+window records remain in `DFM_USE_WORK`.
+
+All clipboard-mutating use checks import `preserved_clipboard` from
+`input_smoke.py`. It takes the machine-shared Windows named mutex
+`Local\DioFileManagerClipboardTest` with CreateMutexW/WaitForSingleObject,
+waiting up to 15 minutes, before saving any formats. It releases the mutex only
+after restoring them. Use a 22-minute runner cap when other workers may be using
+the clipboard. The clipboard roundtrip check also asserts that another thread
+cannot acquire the mutex during preservation, including nested guards.

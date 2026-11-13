@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORK = Path(os.environ.get('DFM_USE_WORK', ROOT / '.agent-work/use-v1'))
 EXE = Path(os.environ.get('DFM_EXE', ROOT / 'build/MinSizeRel/dio-file-manager.exe'))
 sys.pycache_prefix = str(WORK/'tmp/pycache')
-from clipboard_guard import clipboard_test_lock  # shared by every clipboard check
+from clipboard_guard import clipboard_test_lock, preserved_clipboard  # shared by every clipboard check
 U = C.WinDLL('user32', use_last_error=True)
 K = C.WinDLL('kernel32', use_last_error=True)
 ENUM = C.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
@@ -35,6 +35,7 @@ U.PostMessageW.argtypes = [W.HWND, W.UINT, W.WPARAM, W.LPARAM]
 U.GetWindowRect.argtypes = [W.HWND, C.POINTER(W.RECT)]
 U.GetClientRect.argtypes = [W.HWND, C.POINTER(W.RECT)]
 U.InvalidateRect.argtypes = [W.HWND, C.c_void_p, W.BOOL]
+
 
 
 class App:
@@ -360,7 +361,6 @@ def inside():
         a.until('New folder not selected', lambda: a.snap()['selection'] == ['Docs'])
 
     def copy_paste(a):
-        from clipboard_guard import preserved_clipboard
         with preserved_clipboard(a.hwnd):
             a.cell(0); assert a.snap()['selection'] == ['a.txt']
             a.key(ord('C'), (17,))
@@ -510,6 +510,7 @@ def main():
         run=popen([sys.executable,str(Path(__file__).resolve()),'--inside'],ROOT,dict(os.environ),b'',out,err)
         try:
             return run.wait(timeout=1950)  # two clipboard lock waits of up to 15 minutes
+
         finally:
             run.close()
 

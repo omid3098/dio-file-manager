@@ -4,6 +4,7 @@
 #include <cui/cui.h>
 #include <cui/cui_app.h>
 #include "fs.h"
+#include <stdio.h>
 
 enum { LOC_FOLDER = 0, LOC_RECENT, LOC_STARRED, LOC_TRASH, LOC_OTHER };
 enum { VIEW_GRID = 0, VIEW_LIST = 1 };
@@ -96,6 +97,7 @@ void act_new_folder(void);
 void act_open_terminal(void);
 bool act_modal_open(void);
 int act_state(void);                        /* bit 0 popover, 1 job, 2 delete dialog, 3 conflict dialog, 4 undo */
+void act_test_snapshot(FILE *f);             /* observation only, for real-input checks */
 
 /* ui_views.c */
 void ui_draw_star(cui_ctx *ui, float cx, float cy, float r, cui_color c);

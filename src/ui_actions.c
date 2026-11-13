@@ -22,6 +22,7 @@ static struct {
     int n;
     bool conflict_open, apply_all;
     bool job_pop_open;
+    cui_rect job_button, job_cancel, conflict_buttons[3], delete_buttons[2];
 
     int pop;                       /* POP_* currently shown */
     int want_pop;                  /* POP_* to open at the next anchor */
@@ -427,8 +428,11 @@ static void conflict_dialog(void) {
         cui_dialog_footer_begin(ui);
         ops_answer ans = (ops_answer)-1;
         if (cui_button(ui, "Skip")) ans = OPS_SKIP;
+        G.conflict_buttons[0] = cui_last_rect(ui);
         if (cui_button(ui, "Keep Both")) ans = OPS_KEEP_BOTH;
+        G.conflict_buttons[1] = cui_last_rect(ui);
         if (cui_button(ui, "Replace", .variant = CUI_BUTTON_DANGER)) ans = OPS_REPLACE;
+        G.conflict_buttons[2] = cui_last_rect(ui);
         cui_dialog_footer_end(ui);
         cui_dialog_end(ui);
         if ((int)ans >= 0) { ops_resolve(G.job, ans, G.apply_all); G.conflict_open = false; }
@@ -442,10 +446,12 @@ static void delete_dialog(void) {
     if (cui_dialog_begin(ui, G.delete_title, &open, &(cui_dialog_opts){ .description = "If you delete an item, it will be permanently lost.", .width = 440 })) {
         cui_dialog_footer_begin(ui);
         if (cui_button(ui, "Cancel")) open = false;
+        G.delete_buttons[0] = cui_last_rect(ui);
         if (cui_button(ui, "Delete", .variant = CUI_BUTTON_DANGER)) {
             start_job(OPS_DELETE, G.delete_paths, G.delete_n, NULL, NULL, "Deleting");
             open = false;
         }
+        G.delete_buttons[1] = cui_last_rect(ui);
         cui_dialog_footer_end(ui);
         cui_dialog_end(ui);
     }
@@ -453,6 +459,13 @@ static void delete_dialog(void) {
 }
 
 /* The small progress ring in the header; a popover shows the job and cancels it. */
+static void paint_job_ring(cui_ctx *ui, cui_rect r, void *user) {
+    float v = *(float *)user;
+    cui_vec2 center = {r.x + r.w * .5f, r.y + r.h * .5f};
+    cui_draw_arc(ui, center, 9, 0, 6.2831853f, 2.5f, cui_color_of(ui, CUI_COLOR_BORDER));
+    cui_draw_arc(ui, center, 9, -1.5707963f, -1.5707963f + 6.2831853f * v, 2.5f, cui_color_of(ui, CUI_COLOR_ACCENT));
+}
+
 void act_job_button(void) {
     cui_ctx *ui = A.ui;
     if (!G.job || !G.st) return;
@@ -460,8 +473,15 @@ void act_job_button(void) {
                                 : (G.st->files_total ? (float)((double)G.st->files_done / (double)G.st->files_total) : 0.0f);
     if (v < 0.04f) v = 0.04f;
     if (v > 1) v = 1;
-    if (cui_icon_button(ui, CUI_ICON_LOADER_CIRCLE, .tooltip = G.title, .selected = G.job_pop_open)) G.job_pop_open = !G.job_pop_open;
-    cui_progress_ring(ui, "", v, 18);
+    bool clicked = false;
+    cui_box(ui, .dir = CUI_STACK, .width = CUI_PX(36), .height = CUI_PX(36)) {
+        clicked = cui_icon_button(ui, "", .tooltip = G.title, .selected = G.job_pop_open);
+        cui_canvas_result ring = cui_canvas(ui, "job-ring", CUI_PX(36), CUI_PX(36), paint_job_ring, &v, sizeof v);
+        G.job_button = ring.rect;
+        clicked |= ring.clicked;
+        cui_tooltip(ui, G.title);
+    }
+    if (clicked) G.job_pop_open = !G.job_pop_open;
     if (G.job_pop_open) cui_popover_open(ui, "jobpop");
     if (cui_popover_begin(ui, "jobpop", &(cui_popover_opts){ .placement = CUI_PLACE_BOTTOM_END, .width = 300, .pad = 14 })) {
         cui_column(ui, .width = CUI_FILL, .gap = 8) {
@@ -470,6 +490,7 @@ void act_job_button(void) {
             cui_progress(ui, v, .width = CUI_FILL);
             cui_row(ui, .width = CUI_FILL, .justify = CUI_JUSTIFY_END) {
                 if (cui_button(ui, "Cancel", .size = CUI_SIZE_SM)) ops_cancel(G.job);
+                G.job_cancel = cui_last_rect(ui);
             }
         }
         cui_popover_end(ui);
@@ -538,4 +559,12 @@ void act_list_ready(void) {
 
 int act_state(void) {
     return (G.pop != POP_NONE ? 1 : 0) | (G.job ? 2 : 0) | (G.delete_open ? 4 : 0) | (G.conflict_open ? 8 : 0) | (G.undo_state ? 16 : 0) | (views_state() << 5);
+}
+
+void act_test_snapshot(FILE *f) {
+    cui_rect rects[] = { G.job_button, G.job_cancel, G.conflict_buttons[0], G.conflict_buttons[1], G.conflict_buttons[2], G.delete_buttons[0], G.delete_buttons[1] };
+    fprintf(f, ",\"job\":{\"active\":%d,\"popover\":%d,\"done\":%llu,\"total\":%llu},\"action_rects\":[",
+            G.job != NULL, G.job_pop_open, G.st ? G.st->bytes_done : 0, G.st ? G.st->bytes_total : 0);
+    for (int i = 0; i < 7; i++) fprintf(f, "%s[%.2f,%.2f,%.2f,%.2f]", i ? "," : "", rects[i].x, rects[i].y, rects[i].w, rects[i].h);
+    fprintf(f, "]");
 }

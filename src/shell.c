@@ -8,11 +8,30 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Private-desktop checks must not activate a broker on the user's desktop. */
+static HRESULT test_launch(const wchar_t *setting, const wchar_t *args, const wchar_t *dir) {
+    wchar_t command[32768];
+    DWORD n = GetEnvironmentVariableW(setting, command, 32768);
+    STARTUPINFOW si = {sizeof(si)}; PROCESS_INFORMATION pi = {0};
+    if (!n) return S_FALSE;
+    if (n >= 32768 || wcslen(args) + n + 2 >= 32768) return E_INVALIDARG;
+    wcscat_s(command, 32768, L" "); wcscat_s(command, 32768, args);
+    if (!CreateProcessW(NULL, command, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, dir, &si, &pi))
+        return HRESULT_FROM_WIN32(GetLastError());
+    CloseHandle(pi.hThread); CloseHandle(pi.hProcess); return S_OK;
+}
+
 static HRESULT execute(HWND owner, const char *path, const wchar_t *verb, ULONG mask) {
     wchar_t *w = dfm_wide(path);
     SHELLEXECUTEINFOW info = { sizeof(info) };
     BOOL ok;
     if (!w) return HRESULT_FROM_WIN32(GetLastError());
+    if (!wcscmp(verb, L"open")) {
+        wchar_t args[32768];
+        _snwprintf_s(args, 32768, _TRUNCATE, L"\"%s\"", w);
+        HRESULT test = test_launch(L"DFM_TEST_OPEN", args, NULL);
+        if (test != S_FALSE) { free(w); return test; }
+    }
     info.hwnd = owner; info.lpFile = w; info.lpVerb = verb;
     info.nShow = SW_SHOWNORMAL; info.fMask = mask | SEE_MASK_FLAG_NO_UI;
     ok = ShellExecuteExW(&info); free(w);
@@ -24,6 +43,10 @@ HRESULT shell_open_with(HWND owner, const char *path) {
     wchar_t *w = dfm_wide(path);
     OPENASINFO info = {0}; HRESULT hr;
     if (!w) return HRESULT_FROM_WIN32(GetLastError());
+    wchar_t args[32768];
+    _snwprintf_s(args, 32768, _TRUNCATE, L"\"%s\"", w);
+    hr = test_launch(L"DFM_TEST_OPEN_WITH", args, NULL);
+    if (hr != S_FALSE) { free(w); return hr; }
     info.pcszFile = w; info.oaifInFlags = OAIF_ALLOW_REGISTRATION | OAIF_EXEC;
     hr = SHOpenWithDialog(owner, &info); free(w); return hr;
 }
@@ -36,6 +59,9 @@ HRESULT shell_terminal(const char *folder) {
     n = wcslen(w) + MAX_PATH + 32; cmd = malloc(n * sizeof(wchar_t));
     terminal_dir = dfm_join(w, L".");
     if (!cmd || !terminal_dir) { free(cmd); free(terminal_dir); free(w); return E_OUTOFMEMORY; }
+    _snwprintf_s(cmd, n, _TRUNCATE, L"-d \"%s\"", terminal_dir);
+    HRESULT test = test_launch(L"DFM_TEST_TERMINAL", cmd, w);
+    if (test != S_FALSE) { free(cmd); free(terminal_dir); free(w); return test; }
     if (SearchPathW(NULL, L"wt.exe", NULL, MAX_PATH, wt, NULL)) {
         /* The launcher is hidden. Windows Terminal creates the requested GUI. */
         _snwprintf_s(cmd, n, _TRUNCATE, L"\"%s\" -d \"%s\"", wt, terminal_dir);
