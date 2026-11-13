@@ -11,6 +11,8 @@ HIDDEN = Path(r'C:\Users\Omid\.agents\source\correct')
 
 def run(argv, **kwargs):
     print(subprocess.list2cmdline(list(map(str, argv))), flush=True)
+    if not kwargs.get('capture_output'):
+        kwargs.update(stdout=sys.stdout, stderr=sys.stderr)
     return subprocess.run(list(map(str, argv)), cwd=ROOT, check=True,
                           creationflags=subprocess.CREATE_NO_WINDOW, **kwargs)
 
