@@ -84,7 +84,7 @@ def install(work):
     if work in _installed:
         return
     _installed.add(work)
-    since = time.time() - 2
+    since = time.time()
 
     def clean():
         removed = purge(bin_dirs_for(work), work, since)

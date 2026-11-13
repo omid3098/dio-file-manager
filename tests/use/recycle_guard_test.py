@@ -39,6 +39,17 @@ class Matching(unittest.TestCase):
             left = sorted(p.name for p in Path(t).iterdir())
             self.assertEqual(left, sorted(f'${k}{n}' for n in ('sibling', 'elsewhere', 'before') for k in 'IR'))
 
+    def test_item_deleted_just_before_the_start_survives(self):
+        with tempfile.TemporaryDirectory() as t:
+            now = time.time()
+            work = r'E:\w\x\.agent-work\suite'
+            Path(t, '$Ijust').write_bytes(info(work + r'\notes.txt', now - 1))     # deleted one second before the start
+            Path(t, '$Rjust').write_text('data')
+            Path(t, '$Iafter').write_bytes(info(work + r'\made.txt', now + 1))     # deleted by the check itself
+            Path(t, '$Rafter').write_text('data')
+            self.assertEqual(g.purge([t], work, now), [work + r'\made.txt'])
+            self.assertEqual(sorted(p.name for p in Path(t).iterdir()), ['$Ijust', '$Rjust'])
+
     def test_real_recycle_bin_round_trip(self):
         work = Path(tempfile.mkdtemp(prefix='dfm-recycle-', dir=os.environ.get('DFM_USE_WORK') or None))
         victim = work / 'trashed.txt'

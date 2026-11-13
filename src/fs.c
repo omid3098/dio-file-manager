@@ -236,11 +236,15 @@ static bool incoming_name(const wchar_t *w, wchar_t *final, size_t cap) {
     size_t fl = pid_at - ml - 1;                                /* length of the final name */
     if (fl == 0 || fl >= cap) return false;
     if (pid != GetCurrentProcessId()) {
-        HANDLE p = OpenProcess(SYNCHRONIZE, FALSE, pid);
+        /* a live process with that number must also be this program: a crashed copy's number may be reused */
+        HANDLE p = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
         if (!p) return false;
-        bool alive = WaitForSingleObject(p, 0) == WAIT_TIMEOUT;
+        wchar_t theirs[1024], ours[1024];
+        DWORD tn = 1024;
+        bool mine = WaitForSingleObject(p, 0) == WAIT_TIMEOUT && QueryFullProcessImageNameW(p, 0, theirs, &tn) &&
+                    GetModuleFileNameW(NULL, ours, 1024) < 1024 && !_wcsicmp(theirs, ours);
         CloseHandle(p);
-        if (!alive) return false;
+        if (!mine) return false;
     }
     memcpy(final, w + 1, fl * sizeof *w); final[fl] = 0;
     return true;

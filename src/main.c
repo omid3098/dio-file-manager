@@ -274,37 +274,50 @@ void app_reload(void) {
 /* ---- a quiet reload: the folder shows new files while a copy runs, and the selection and scroll stay ---- */
 
 static fs_list *next_list;
-static char **keep_names;
-static int keep_n;
 
-static void quiet_cleanup(void) {
-    if (next_list) { fs_list_release(next_list); next_list = NULL; }
-    for (int i = 0; i < keep_n; i++) free(keep_names[i]);
-    free(keep_names); keep_names = NULL; keep_n = 0;
-}
+static void quiet_cleanup(void) { if (next_list) { fs_list_release(next_list); next_list = NULL; } }
+
+static int cmp_name(const void *a, const void *b) { return strcmp(*(const char *const *)a, *(const char *const *)b); }
 
 void app_reload_quiet(void) {
     if (A.loc != LOC_FOLDER || A.searching || !A.list || !A.list_seen || next_list || fs_list_state(A.list) != FS_DONE) return;
     next_list = fs_list_start(A.path, A.sort_key, A.sort_desc);
-    keep_names = calloc((size_t)A.sel_n + 1, sizeof *keep_names);
-    for (int i = 0; keep_names && i < A.vis_n; i++)
-        if (A.sel[i] && keep_n < A.sel_n) keep_names[keep_n++] = _strdup(app_item_name(i));
 }
 
+/* The selection, cursor and anchor are read when the new listing replaces the old one, not when it was asked for:
+ * the user may have clicked meanwhile. Names point into the old listing, which lives until they are used. */
 static void poll_next(void) {
     if (!next_list) return;
     if (fs_list_state(next_list) == FS_LOADING) { cui_request_wakeup(A.ui, 0.03f); return; }
-    if (A.loc != LOC_FOLDER || A.searching || strcmp(next_list->path, A.path) != 0 || fs_list_state(next_list) != FS_DONE) { quiet_cleanup(); return; }
+    /* a check holds the swap while this file exists, to change the selection during a slow listing */
+    const char *gate = test_mode ? getenv("DFM_TEST_HOLD_RELOAD") : NULL;
+    if (gate && GetFileAttributesA(gate) != INVALID_FILE_ATTRIBUTES) { cui_request_wakeup(A.ui, 0.03f); return; }
+    if (A.loc != LOC_FOLDER || A.searching || strcmp(next_list->path, A.path) != 0 || fs_list_state(next_list) != FS_DONE) {
+        quiet_cleanup(); return;
+    }
+    const char **keep = malloc(((size_t)A.sel_n + 1) * sizeof *keep);
+    const char *cur = A.cursor >= 0 && A.cursor < A.vis_n ? app_item_name(A.cursor) : NULL;
+    const char *anc = A.anchor >= 0 && A.anchor < A.vis_n ? app_item_name(A.anchor) : NULL;
+    int n = 0, first = -1;
+    for (int i = 0; keep && i < A.vis_n; i++)
+        if (A.sel[i] && n < A.sel_n) keep[n++] = app_item_name(i);
+    if (n) qsort(keep, (size_t)n, sizeof *keep, cmp_name);
+    fs_list *old = A.list;
     ui_band_cancel();
-    fs_list_release(A.list);
     A.list = next_list; next_list = NULL;
+    if (A.list->sort_key != A.sort_key || A.list->sort_desc != A.sort_desc) fs_list_sort(A.list, A.sort_key, A.sort_desc);
     app_rebuild_view();
     A.reset_scroll = false;
-    for (int k = 0; k < keep_n; k++)
-        for (int i = 0; i < A.vis_n; i++)
-            if (!strcmp(app_item_name(i), keep_names[k])) { A.sel[i] = true; if (A.cursor < 0) A.cursor = i; break; }
-    if (keep_n) app_count_selection();
-    quiet_cleanup();
+    for (int i = 0; i < A.vis_n; i++) {
+        const char *name = app_item_name(i);
+        if (n && bsearch(&name, keep, (size_t)n, sizeof *keep, cmp_name)) { A.sel[i] = true; if (first < 0) first = i; }
+        if (cur && A.cursor < 0 && !strcmp(name, cur)) A.cursor = i;
+        if (anc && A.anchor < 0 && !strcmp(name, anc)) A.anchor = i;
+    }
+    if (A.cursor < 0) A.cursor = first;
+    if (n) app_count_selection();
+    free(keep);
+    fs_list_release(old);
 }
 
 void app_up(void) {

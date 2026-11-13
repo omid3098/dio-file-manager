@@ -197,6 +197,54 @@ def inside():
         finally:
             (b / 'a.bin').rename(b / 'b.bin')
 
+    def kept_selection(a):
+        # The selection a user makes while a quiet reload is still listing must survive it (the swap reads the
+        # selection when it happens). The check holds the swap with a gate file, selects, then lets it go.
+        target = SAND / 'target'
+        for n in ('x1.txt', 'x2.txt', 'x3.txt'):
+            (target / n).write_text(n, encoding='utf-8')
+        gate = Path(os.environ['DFM_TEST_HOLD_RELOAD'])
+        gate.write_text('hold')
+        try:
+            paste(a, 'source-a')
+            time.sleep(1.5)                       # the listing that shows a.bin has long finished and waits at the gate
+            assert a.snap()['names'] == ['x1.txt', 'x2.txt', 'x3.txt'], a.snap()['names']
+            a.cell(1)
+            assert a.snap()['selection'] == ['x2.txt']
+        finally:
+            gate.unlink(missing_ok=True)
+        a.until('Incoming file was not listed', lambda: a.snap()['incoming'] == ['a.bin'])
+        s = a.snap()
+        assert s['selection'] == ['x2.txt'], f"Quiet reload restored an outdated selection: {s['selection']}"
+        assert s['cursor'] == s['names'].index('x2.txt'), s
+        a.until('Copy did not finish', lambda: not a.snap()['jobs'], seconds=120)
+
+    def conflict_first(a):
+        # A conflict dialog left open for over a second must not use up the refreshes: after Keep Both the new
+        # incoming file still shows.
+        (SAND / 'target' / 'a.bin').write_bytes(b'old')
+        paste(a, 'source-a')
+        a.until('Existing name did not ask', lambda: a.snap()['act'] & 8, seconds=20)
+        time.sleep(1.5)
+        a.click(*center(a.snap()['conflict_keep']))
+        a.until('Kept copy was not listed while copying', lambda: len(a.snap()['incoming']) == 1, seconds=20)
+        a.until('Copy did not finish', lambda: not a.snap()['jobs'], seconds=120)
+        a.until('Finished copy still listed as incoming', lambda: len(a.snap()['names']) == 2 and not a.snap()['incoming'])
+
+    def inner_folder(a):
+        # A folder opened while it is being filled shows its incoming file and, when the copy ends, the real file.
+        pack = SAND / 'source-d' / 'pack'
+        shutil.rmtree(SAND / 'source-d', ignore_errors=True)
+        pack.mkdir(parents=True)
+        os.link(SAND / 'source-a' / 'a.bin', pack / 'big.bin')
+        paste(a, 'source-d')
+        a.until('Pasted folder was not listed', lambda: a.snap()['names'] == ['pack'], seconds=20)
+        a.path(SAND / 'target' / 'pack')
+        a.until('Incoming file inside the folder was not listed', lambda: a.snap()['incoming'] == ['big.bin'], seconds=20)
+        a.until('Copy did not finish', lambda: not a.snap()['jobs'], seconds=120)
+        a.until('Finished file in the opened folder still incoming', lambda: a.snap()['names'] == ['big.bin'] and not a.snap()['incoming'])
+        shutil.rmtree(SAND / 'source-d', ignore_errors=True)
+
     def recent(a):
         a.click(90, 62)
         s = a.wait_ready()
@@ -237,6 +285,9 @@ def inside():
     check('5-eject', eject)
     check('6-incoming-dark-details', incoming, 'list', 'dark')
     check('7-incoming-light-icons', incoming, 'grid', 'light')
+    check('8-selection-kept-in-quiet-reload', kept_selection)
+    check('9-conflict-then-incoming', conflict_first)
+    check('10-folder-opened-while-filling', inner_folder)
     (WORK / 'jobs-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 
@@ -248,7 +299,8 @@ def main():
     eject_log = WORK / 'eject.txt'
     os.environ.update(TEMP=str(WORK / 'tmp'), TMP=str(WORK / 'tmp'),
                       DFM_TEST_RECENT=str(SAND / 'recent'), DFM_JOBS_SANDBOX=str(SAND),
-                      DFM_TEST_DRIVES=str(drives), DFM_TEST_EJECT_LOG=str(eject_log), DFM_TEST_COPY_DELAY_MS='300')
+                      DFM_TEST_DRIVES=str(drives), DFM_TEST_EJECT_LOG=str(eject_log), DFM_TEST_COPY_DELAY_MS='300',
+                      DFM_TEST_HOLD_RELOAD=str(WORK / 'hold-reload'))
     if '--inside' in sys.argv:
         return inside()
     gaming = r'C:\Users\Omid\.agents\tools\gaming.py'

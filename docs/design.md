@@ -132,9 +132,12 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 - A file that is still being copied into the shown folder is listed under its final name, dimmed, with
   "Copying..." in the size column (list) and no thumbnail. The copy writes to a hidden temporary name
   `.<name>.dfm-copy-<pid>-<n>.tmp`; the listing shows such a file only while the copying process is alive and
-  hides it as soon as the real file exists. The folder never reads "Only hidden items are here" for it. Open,
-  copy and trash skip it. The folder relists on its own when a copy or move into it starts a file and shortly
-  after, keeping selection and scroll.
+  is this program, and hides it as soon as the real file exists. The folder never reads "Only hidden items are
+  here" for it. Open, copy and trash skip it. The shown folder (the paste folder or one inside it) relists on
+  its own when a copy or move starts a file, shortly after, once more after a conflict question is answered,
+  and when the job ends. The selection, cursor and anchor are read when the new listing replaces the old one
+  and kept by name (sorted, binary search); scroll stays. A file name longer than 200 UTF-16 units is copied
+  under a temp name without it, so such a file is not shown while it copies (a deliberate limit).
 - Paste onto a name that exists asks: Replace, Skip or Keep Both, with "Apply to all".
 
 ## Colours (Halo, from `tokens.json`)

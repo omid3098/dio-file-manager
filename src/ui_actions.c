@@ -19,6 +19,7 @@ typedef struct file_job {
     struct file_job *next;
     char listed[1024];   /* the file whose start the folder listing last showed */
     double listed_t, again;   /* again: relist once more, in case the temp file was made after the first listing */
+    bool waited;              /* a conflict question was open: the file starts after it is answered */
     ops_job *job;
     ops_state st;
     ops_kind kind;
@@ -160,6 +161,13 @@ static void clear_cut_clipboard(void) {
     if (OpenClipboard(hwnd())) { EmptyClipboard(); CloseClipboard(); }
 }
 
+/* The shown folder is the one a copy or move pastes into, or a folder inside it (a pasted folder being filled). */
+static bool shows_receiving(const file_job *j) {
+    size_t n = strlen(j->dir);
+    if (_strnicmp(j->dir, A.path, n) != 0) return false;
+    return A.path[n] == 0 || A.path[n] == '\\' || (n > 0 && j->dir[n - 1] == '\\');
+}
+
 static void job_done(file_job *j) {
     unsigned errors = j->st.errors;
     DWORD code = j->st.error_code;
@@ -181,7 +189,7 @@ static void job_done(file_job *j) {
         else snprintf(t, sizeof t, "%d items moved to Trash", j->n);
         G.undo_toast = cui_toast(A.ui, t, .action = "Undo", .show_timer = true, .duration = 8);
     }
-    if (strcmp(j->dir, A.path) == 0 && A.loc != LOC_OTHER) {
+    if ((strcmp(j->dir, A.path) == 0 || ((kind == OPS_COPY || kind == OPS_MOVE) && A.loc == LOC_FOLDER && shows_receiving(j))) && A.loc != LOC_OTHER) {
         if (A.searching && kind == OPS_TRASH) fsearch_refresh(); else app_reload();
     }
     A.trash_check_t = -100;
@@ -580,8 +588,11 @@ void act_frame(void) {
         if (j->st.finished) { *link = j->next; job_done(j); free(j); }
         else {
             /* Show the file the copy has just started, under its final name, in the folder that receives it. */
-            if ((j->kind == OPS_COPY || j->kind == OPS_MOVE) && strcmp(j->dir, A.path) == 0 && A.loc == LOC_FOLDER && !A.searching) {
+            if ((j->kind == OPS_COPY || j->kind == OPS_MOVE) && shows_receiving(j) && A.loc == LOC_FOLDER && !A.searching) {
                 double now = cui_time(ui);
+                /* the file starts only after a conflict is answered: list again then */
+                if (j->st.waiting_conflict) j->waited = true;
+                else if (j->waited) { j->waited = false; j->listed[0] = 0; j->listed_t = now; }
                 if (strcmp(j->listed, j->st.current_name) != 0 && now - j->listed_t > 0.4) {
                     snprintf(j->listed, sizeof j->listed, "%s", j->st.current_name);
                     j->listed_t = now; j->again = now + 0.5;
