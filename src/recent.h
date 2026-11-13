@@ -8,5 +8,9 @@
 typedef struct recent_item { char *path; FILETIME modified; } recent_item;
 typedef struct recent_items { recent_item *items; size_t count; } recent_items;
 HRESULT recent_list(recent_items *list);
+/* Deletes all matching shortcuts, never their targets. Blocking; call on a worker. */
+HRESULT recent_remove(const char *const *paths, size_t count);
+/* Called only with --test-state; redirects listing and removal to sandbox .lnk files. */
+void recent_test_source(const char *folder);
 void recent_free(recent_items *list);
 #endif

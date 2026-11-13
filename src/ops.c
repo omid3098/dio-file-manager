@@ -69,6 +69,7 @@ const char *ops_name_error(const char *name) {
     }
     free(w); return error;
 }
+
 struct ops_job {
     CRITICAL_SECTION lock;
     HANDLE thread, answer_event;
@@ -199,6 +200,7 @@ static int copy_node(ops_job *j, const wchar_t *src, const wchar_t *requested, i
         free(dst); dst = copy_name(requested, (a.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);
         if (!dst) { fail(j, requested, ERROR_NOT_ENOUGH_MEMORY); return 0; }
     }
+retry_target:
     target_attrs = GetFileAttributesW(dst);
     if (target_attrs != INVALID_FILE_ATTRIBUTES) {
         int answer = conflict(j, src, dst);
@@ -215,11 +217,16 @@ static int copy_node(ops_job *j, const wchar_t *src, const wchar_t *requested, i
             uint64_t files = 0, bytes = 0; scan(j, dst, &files, &bytes); completed(j, files, bytes); free(dst); return 1;
         }
         error = GetLastError();
+        if (error == ERROR_ALREADY_EXISTS || error == ERROR_FILE_EXISTS) goto retry_target;
         if (error != ERROR_NOT_SAME_DEVICE) { fail(j, dst, error); free(dst); return 0; }
     }
     if (a.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
         wchar_t *pattern; WIN32_FIND_DATAW d; HANDLE h;
-        if (target_attrs == INVALID_FILE_ATTRIBUTES && !CreateDirectoryW(dst, NULL)) { fail(j, dst, GetLastError()); free(dst); return 0; }
+        if (target_attrs == INVALID_FILE_ATTRIBUTES && !CreateDirectoryW(dst, NULL)) {
+            error = GetLastError();
+            if (error == ERROR_ALREADY_EXISTS || error == ERROR_FILE_EXISTS) goto retry_target;
+            fail(j, dst, error); free(dst); return 0;
+        }
         pattern = dfm_join(src, L"*");
         if (!pattern) { fail(j, src, ERROR_NOT_ENOUGH_MEMORY); free(dst); return 0; }
         h = FindFirstFileW(pattern, &d); free(pattern);
@@ -237,10 +244,11 @@ static int copy_node(ops_job *j, const wchar_t *src, const wchar_t *requested, i
         if (ok && !cancelled(j)) completed(j, 1, 0); else ok = 0;
     } else {
         static volatile LONG serial;
+        int skipped = 0;
         size_t n = wcslen(dst) + 64; wchar_t *temp = malloc(n * sizeof(*temp)); HANDLE h = INVALID_HANDLE_VALUE; unsigned attempt;
         if (!temp) { fail(j, dst, ERROR_NOT_ENOUGH_MEMORY); free(dst); return 0; }
         for (attempt = 0; attempt < 100; ++attempt) {
-            _snwprintf_s(temp, n, _TRUNCATE, L"%s.dfm-copy-%lu-%ld.tmp", dst, GetCurrentProcessId(), InterlockedIncrement(&serial));
+            _snwprintf_s(temp, n, _TRUNCATE, L"%.*s.dfm-copy-%lu-%ld.tmp", (int)(dfm_leaf(dst) - dst), dst, GetCurrentProcessId(), InterlockedIncrement(&serial));
             h = CreateFileW(temp, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
             if (h != INVALID_HANDLE_VALUE || GetLastError() != ERROR_FILE_EXISTS) break;
         }
@@ -249,12 +257,28 @@ static int copy_node(ops_job *j, const wchar_t *src, const wchar_t *requested, i
         EnterCriticalSection(&j->lock); j->copy_base = j->state.bytes_done; LeaveCriticalSection(&j->lock);
         ok = CopyFileExW(src, temp, copy_progress, j, NULL, 0);
         error = GetLastError();
-        if (ok && !cancelled(j)) { ok = MoveFileExW(temp, dst, replace ? MOVEFILE_REPLACE_EXISTING : 0); error = GetLastError(); }
+        if (ok && !cancelled(j)) {
+            for (;;) {
+                ok = MoveFileExW(temp, dst, replace ? MOVEFILE_REPLACE_EXISTING : 0); error = GetLastError();
+                if (ok || cancelled(j) || (error != ERROR_ALREADY_EXISTS && error != ERROR_FILE_EXISTS)) break;
+                int answer = conflict(j, src, dst);
+                if (cancelled(j) || answer < 0 || answer == OPS_SKIP) { skipped = 1; break; }
+                if (answer == OPS_REPLACE) {
+                    DWORD attrs = GetFileAttributesW(dst);
+                    if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) { error = ERROR_ALREADY_EXISTS; break; }
+                    replace = 1;
+                } else {
+                    wchar_t *both = copy_name(requested, 0);
+                    if (!both) { error = ERROR_NOT_ENOUGH_MEMORY; break; }
+                    free(dst); dst = both; replace = 0;
+                }
+            }
+        }
         else ok = 0;
         if (!ok) {
             SetFileAttributesW(temp, FILE_ATTRIBUTE_NORMAL); DeleteFileW(temp);
             EnterCriticalSection(&j->lock); j->state.bytes_done = j->copy_base; LeaveCriticalSection(&j->lock);
-            if (!cancelled(j)) fail(j, dst, error);
+            if (!cancelled(j) && !skipped) fail(j, dst, error);
         } else completed(j, 1, 0);
         free(temp);
     }

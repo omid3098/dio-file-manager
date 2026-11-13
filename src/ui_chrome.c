@@ -1,4 +1,5 @@
 /* The window's chrome: sidebar, content header with the path bar, search bar, empty and error states, status pill. */
+#include <windows.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -45,8 +46,62 @@ static bool place_row(const char *label, const char *icon, bool selected) {
     return cui_nav_item(A.ui, label, .icon = icon, .selected = selected, .group = selected ? label : "places");
 }
 
+static struct {
+    HANDLE thread;
+    volatile LONG done;
+    DWORD error;
+    char root[4];
+    cui_rect buttons[26];
+} eject;
+
+static void paint_eject(cui_ctx *ui, cui_rect r, void *unused) {
+    (void)unused;
+    float x = r.x + r.w / 2, y = r.y + r.h / 2;
+    cui_color c = cui_color_of(ui, CUI_COLOR_TEXT_SECONDARY);
+    cui_vec2 triangle[3] = { {x, y - 6}, {x + 6, y + 1}, {x - 6, y + 1} };
+    cui_draw_polygon(ui, triangle, 3, c);
+    cui_draw_line(ui, (cui_vec2){x - 6, y + 5}, (cui_vec2){x + 6, y + 5}, 1.75f, c);
+}
+
+static DWORD WINAPI eject_proc(LPVOID unused) {
+    (void)unused;
+    eject.error = fs_eject(eject.root);
+    InterlockedExchange(&eject.done, 1);
+    return 0;
+}
+
+void ui_sidebar_shutdown(void) {
+    if (eject.thread) { WaitForSingleObject(eject.thread, INFINITE); CloseHandle(eject.thread); eject.thread = NULL; }
+}
+
+void ui_sidebar_snapshot(FILE *f) {
+    fprintf(f, ",\"drives\":[");
+    for (int i = 0; i < A.drive_n; i++) {
+        cui_rect r = eject.buttons[i];
+        fprintf(f, "%s{\"root\":\"%c:\\\\\",\"type\":%d,\"eject\":[%.2f,%.2f,%.2f,%.2f]}",
+                i ? "," : "", A.drives[i].root[0], A.drives[i].type, r.x, r.y, r.w, r.h);
+    }
+    fprintf(f, "]");
+}
+
 void ui_sidebar_places(void) {
     cui_ctx *ui = A.ui;
+    if (eject.thread) {
+        cui_request_wakeup(ui, .05f);
+        if (InterlockedCompareExchange(&eject.done, 0, 0)) {
+            ui_sidebar_shutdown(); InterlockedExchange(&eject.done, 0);
+            if (eject.error) {
+                cui_toast(ui, "Could not eject drive", .description = "The drive may be in use. Close its files and try again.", .tone = CUI_TONE_DANGER);
+            } else {
+                for (int i = 0; i < A.drive_n; i++) if (!strcmp(A.drives[i].root, eject.root)) {
+                    memmove(&A.drives[i], &A.drives[i + 1], (A.drive_n - i - 1) * sizeof A.drives[0]); A.drive_n--; break;
+                }
+                if (A.loc == LOC_FOLDER && !_strnicmp(A.path, eject.root, 3)) app_navigate(A.places[0]);
+                cui_toast(ui, "Drive ejected");
+            }
+        }
+    }
+    memset(eject.buttons, 0, sizeof eject.buttons);
     cui_column(ui, .id = "places", .width = CUI_FILL, .height = CUI_FILL, .pad_x = 8, .pad_bottom = 8, .gap = 2, .scroll_y = true) {
         if (place_row("Recent", CUI_ICON_CLOCK, A.loc == LOC_RECENT)) app_navigate("@1");
         if (place_row("Starred", CUI_ICON_STAR, A.loc == LOC_STARRED)) app_navigate("@2");
@@ -63,7 +118,22 @@ void ui_sidebar_places(void) {
         for (int i = 0; i < A.drive_n; i++) {
             bool here = A.loc == LOC_FOLDER && same_path(A.path, A.drives[i].root);
             cui_push_id_int(ui, i);
-            if (place_row(A.drives[i].name, CUI_ICON_SERVER, here)) app_navigate(A.drives[i].root);
+            cui_row(ui, .width = CUI_FILL, .gap = 0) {
+                if (place_row(A.drives[i].name, CUI_ICON_SERVER, here)) app_navigate(A.drives[i].root);
+                if (A.drives[i].type == DRIVE_REMOVABLE) {
+                    cui_box(ui, .dir = CUI_STACK, .width = CUI_PX(36), .height = CUI_PX(36)) {
+                        bool clicked = cui_icon_button(ui, "", .tooltip = "Eject Drive", .disabled = eject.thread != NULL);
+                        eject.buttons[i] = cui_last_rect(ui);
+                        cui_canvas_result icon = cui_canvas(ui, "ejecticon", CUI_FILL, CUI_FILL, paint_eject, NULL, 0);
+                        if ((clicked || icon.clicked) && !eject.thread) {
+                            snprintf(eject.root, sizeof eject.root, "%s", A.drives[i].root);
+                            eject.thread = CreateThread(NULL, 0, eject_proc, NULL, 0, NULL);
+                            if (!eject.thread) cui_toast(ui, "Could not eject drive", .tone = CUI_TONE_DANGER);
+                        }
+                    }
+
+                }
+            }
             cui_pop_id(ui);
         }
         if (place_row("Other Locations", CUI_ICON_PLUS, A.loc == LOC_OTHER)) app_navigate("@4");

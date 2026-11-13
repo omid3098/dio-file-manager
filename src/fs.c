@@ -1,6 +1,9 @@
 #include <windows.h>
 #include <shlobj.h>
 #include <process.h>
+#include <winioctl.h>
+#include <setupapi.h>
+#include <cfgmgr32.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -294,7 +297,26 @@ bool fs_known(int which, char *out, size_t cap) {
     return ok;
 }
 
+static char *test_drives, *test_eject_log;
+static DWORD test_ejected;
+void fs_test_drives(const char *list, const char *log) {
+    test_drives = list ? _strdup(list) : NULL;
+    test_eject_log = log ? _strdup(log) : NULL;
+}
+
 int fs_drives(fs_drive *out, int max) {
+    if (test_drives) {
+        FILE *f = fopen(test_drives, "r");
+        int n = 0, type; char letter, label[80];
+        if (!f) return 0;
+        while (n < max && fscanf(f, " %c %d %79[^\n]", &letter, &type, label) == 3) {
+            if (letter < 'A' || letter > 'Z' || (test_ejected & (1u << (letter - 'A')))) continue;
+            fs_drive *d = &out[n++]; memset(d, 0, sizeof *d);
+            snprintf(d->root, sizeof d->root, "%c:\\", letter);
+            snprintf(d->name, sizeof d->name, "%s (%c:)", label, letter); d->type = type;
+        }
+        fclose(f); return n;
+    }
     UINT old = SetErrorMode(SEM_FAILCRITICALERRORS);
     DWORD mask = GetLogicalDrives();
     int n = 0;
@@ -321,6 +343,60 @@ int fs_drives(fs_drive *out, int max) {
     }
     SetErrorMode(old);
     return n;
+}
+
+/* PnP performs the safe-removal negotiation, including vetoes from open files. */
+unsigned long fs_eject(const char *root) {
+    if (!root || strlen(root) != 3 || root[0] < 'A' || root[0] > 'Z' || root[1] != ':' || root[2] != '\\') return ERROR_INVALID_PARAMETER;
+    if (test_drives) {
+        fs_drive drives[26]; int n = fs_drives(drives, 26), i;
+        for (i = 0; i < n; i++) if (!strcmp(root, drives[i].root)) break;
+        if (i == n || drives[i].type != DRIVE_REMOVABLE) return ERROR_NOT_SUPPORTED;
+        if (!test_eject_log) return ERROR_ACCESS_DENIED;
+        FILE *f = fopen(test_eject_log, "a");
+        if (!f) return ERROR_WRITE_FAULT;
+        int ok = fprintf(f, "%s\n", root) > 0;
+        if (fclose(f)) ok = 0;
+        if (ok) test_ejected |= 1u << (root[0] - 'A');
+        return ok ? ERROR_SUCCESS : ERROR_WRITE_FAULT;
+    }
+    wchar_t wr[4], volume[] = L"\\\\.\\X:";
+    fs_u8_to_w(root, wr, 4);
+    if (GetDriveTypeW(wr) != DRIVE_REMOVABLE) return ERROR_NOT_SUPPORTED;
+    volume[4] = wr[0];
+    HANDLE h = CreateFileW(volume, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    if (h == INVALID_HANDLE_VALUE) return GetLastError();
+    STORAGE_DEVICE_NUMBER wanted; DWORD bytes;
+    BOOL ok = DeviceIoControl(h, IOCTL_STORAGE_GET_DEVICE_NUMBER, NULL, 0, &wanted, sizeof wanted, &bytes, NULL);
+    DWORD error = ok ? ERROR_NOT_FOUND : GetLastError();
+    CloseHandle(h); if (!ok) return error;
+    static const GUID disk = {0x53f56307,0xb6bf,0x11d0,{0x94,0xf2,0x00,0xa0,0xc9,0x1e,0xfb,0x8b}};
+    HDEVINFO devices = SetupDiGetClassDevsW(&disk, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+    if (devices == INVALID_HANDLE_VALUE) return GetLastError();
+    SP_DEVICE_INTERFACE_DATA iface = { sizeof iface };
+    for (DWORD i = 0; SetupDiEnumDeviceInterfaces(devices, NULL, &disk, i, &iface); i++) {
+        DWORD need = 0;
+        SetupDiGetDeviceInterfaceDetailW(devices, &iface, NULL, 0, &need, NULL);
+        if (!need) continue;
+        SP_DEVICE_INTERFACE_DETAIL_DATA_W *detail = malloc(need);
+        if (!detail) { error = ERROR_NOT_ENOUGH_MEMORY; break; }
+        detail->cbSize = sizeof *detail;
+        SP_DEVINFO_DATA dev = { sizeof dev };
+        ok = SetupDiGetDeviceInterfaceDetailW(devices, &iface, detail, need, NULL, &dev);
+        h = ok ? CreateFileW(detail->DevicePath, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL) : INVALID_HANDLE_VALUE;
+        free(detail);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        STORAGE_DEVICE_NUMBER got;
+        ok = DeviceIoControl(h, IOCTL_STORAGE_GET_DEVICE_NUMBER, NULL, 0, &got, sizeof got, &bytes, NULL);
+        CloseHandle(h);
+        if (!ok || got.DeviceType != wanted.DeviceType || got.DeviceNumber != wanted.DeviceNumber) continue;
+        PNP_VETO_TYPE veto; wchar_t name[MAX_PATH];
+        CONFIGRET cr = CM_Request_Device_EjectW(dev.DevInst, &veto, name, MAX_PATH, 0);
+        error = cr == CR_SUCCESS ? ERROR_SUCCESS : cr == CR_REMOVE_VETOED ? ERROR_BUSY : CM_MapCrToWin32Err(cr, ERROR_GEN_FAILURE);
+        break;
+    }
+    SetupDiDestroyDeviceInfoList(devices);
+    return error;
 }
 
 bool fs_is_dir(const char *path) {

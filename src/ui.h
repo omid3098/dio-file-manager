@@ -87,6 +87,10 @@ void app_set_search_open(bool open);
 bool app_at_place(int which);              /* is the sidebar place 0..6 (Home..Videos) the current folder */
 
 /* ui_actions.c */
+void act_jobs_snapshot(FILE *f);
+void act_shutdown(void);
+void ui_sidebar_snapshot(FILE *f);
+void ui_sidebar_shutdown(void);
 void act_pre_frame(void);
 void act_keys(void);                        /* F2, Ctrl+Shift+N, Ctrl+C/X/V, Delete, Shift+Delete, Alt+Enter */
 void act_job_button(void);                  /* header: running-job ring and its popover */

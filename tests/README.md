@@ -27,6 +27,7 @@ and removes a `dio-file-manager-test-<pid>` folder on a second fixed drive.
 Clipboard tests snapshot the prior clipboard formats and restore them afterward.
 The console checks do not open shell windows. The real-input action checks below
 exercise the shell entries on a private desktop. Empty Trash is never run by tests.
+The jobs input suite uses an isolated Recent source.
 
 The main build adds `dfm-ops-tests` when this directory exists. Run that executable
 hidden with a bounded runner. `run.py` builds the same test directly with MSVC
@@ -115,3 +116,24 @@ cannot acquire the mutex during preservation, including nested guards.
 
 The queue uses the safe mode names so baseline probes refuse old helpers
 that could run brokered file-opening checks.
+
+## Concurrent jobs, Recent and eject
+
+`tests/use/jobs_smoke.py` imports the real-input driver from `input_smoke.py` and
+runs five checks on the private desktop: two 128 MiB copies making progress together
+with both popover rows visible; cancelling one while the other continues; same-name
+concurrent copies resolved with Keep Both and both payloads verified; removing a
+sandbox Recent entry (including duplicate shortcuts) while retaining its file and an
+unrelated entry; and removable-only eject controls with the right root sent to the
+stand-in and its row removed. Clipboard formats are saved and restored in each check.
+No real Recent shortcut or physical device is changed. Real safe removal still needs
+a USB stick or SD card plugged in.
+
+Use `DFM_EXE` for the MinSizeRel executable and `DFM_USE_WORK` for artifacts below
+`.agent-work/jobs-v2/`; set `TEMP` and `TMP` to that task's `tmp` folder. The same run
+must also pass `input_smoke.py` and `search_smoke.py`, each using its own work folder.
+
+All clipboard checks acquire the Windows named mutex
+`Local\DioFileManagerClipboardTest` before saving clipboard formats and release it
+only after restoration. `input_smoke.clipboard_test_lock` waits up to 15 minutes;
+`clipboard_guard.preserved_clipboard` always takes it, including nested checks.

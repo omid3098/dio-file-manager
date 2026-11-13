@@ -11,18 +11,31 @@
 #include "shell.h"
 #include "starred.h"
 #include "views.h"
+#include "recent.h"
 
 enum { POP_NONE = 0, POP_RENAME, POP_NEWDIR };
 
-static struct {
+typedef struct file_job {
+    struct file_job *next;
     ops_job *job;
-    ops_state *st;
+    ops_state st;
     ops_kind kind;
     char title[320], dir[FS_PATH_MAX], first[260];
-    int n;
-    bool conflict_open, apply_all;
-    bool job_pop_open;
-    cui_rect job_button, job_cancel, conflict_buttons[3], delete_buttons[2];
+    int n, id;
+    DWORD clipboard_sequence;
+    cui_rect cancel_rect;
+} file_job;
+
+static struct {
+    file_job *jobs, *conflict;
+    int serial;
+    bool conflict_open, apply_all, job_pop_open;
+    cui_rect job_rect, conflict_buttons[3], delete_buttons[2];
+    HANDLE recent_thread;
+    char **recent_paths;
+    size_t recent_n;
+    HRESULT recent_hr;
+    volatile LONG recent_done;
 
     int pop;                       /* POP_* currently shown */
     int want_pop;                  /* POP_* to open at the next anchor */
@@ -113,17 +126,20 @@ static bool exists_path(const char *dir, const char *name) {
 /* ---- jobs ---- */
 
 static bool start_job(ops_kind kind, char **paths, size_t n, const char *dest, const char *name, const char *title) {
-    if (G.job) { cui_toast(A.ui, "Another operation is still running", .tone = CUI_TONE_WARNING); return false; }
-    G.job = ops_start(kind, (const char *const *)paths, n, dest, name);
-    if (!G.job) { toast_error(title, GetLastError(), n ? paths[0] : name); return false; }
-    if (!G.st) G.st = calloc(1, sizeof *G.st);
-    G.kind = kind;
-    G.n = (int)n;
-    snprintf(G.title, sizeof G.title, "%s", title);
-    snprintf(G.dir, sizeof G.dir, "%s", A.path);
-    G.first[0] = 0;
-    if (n) name_of(paths[0], G.first, sizeof G.first);
-    G.conflict_open = false;
+    file_job *j = calloc(1, sizeof *j);
+    if (!j) { toast_error(title, ERROR_NOT_ENOUGH_MEMORY, NULL); return false; }
+    j->job = ops_start(kind, (const char *const *)paths, n, dest, name);
+    if (!j->job) { free(j); toast_error(title, GetLastError(), n ? paths[0] : name); return false; }
+    j->kind = kind;
+    j->clipboard_sequence = GetClipboardSequenceNumber();
+    j->n = (int)n;
+    j->id = ++G.serial;
+    snprintf(j->title, sizeof j->title, "%s", title);
+    snprintf(j->dir, sizeof j->dir, "%s", A.path);
+    if (n) name_of(paths[0], j->first, sizeof j->first);
+    file_job **tail = &G.jobs;
+    while (*tail) tail = &(*tail)->next;
+    *tail = j;
     return true;
 }
 
@@ -142,29 +158,28 @@ static void clear_cut_clipboard(void) {
     if (OpenClipboard(hwnd())) { EmptyClipboard(); CloseClipboard(); }
 }
 
-static void job_done(void) {
-    unsigned errors = G.st->errors;
-    DWORD code = G.st->error_code;
+static void job_done(file_job *j) {
+    unsigned errors = j->st.errors;
+    DWORD code = j->st.error_code;
     char epath[FS_PATH_MAX];
-    snprintf(epath, sizeof epath, "%s", G.st->error_path);
-    bool cancelled = G.st->cancelled;
-    ops_kind kind = G.kind;
-    ops_free(G.job);
-    G.job = NULL;
-    G.conflict_open = false; G.job_pop_open = false;
+    snprintf(epath, sizeof epath, "%s", j->st.error_path);
+    bool cancelled = j->st.cancelled;
+    ops_kind kind = j->kind;
+    ops_free(j->job);
+    if (G.conflict == j) { G.conflict = NULL; G.conflict_open = false; }
     if (errors) {
         char t[400];
-        snprintf(t, sizeof t, errors > 1 ? "%s: %u problems" : "%s failed", G.title, errors);
+        snprintf(t, sizeof t, errors > 1 ? "%s: %u problems" : "%s failed", j->title, errors);
         toast_error(t, code, epath);
     }
-    if (kind == OPS_MOVE && !errors && !cancelled) clear_cut_clipboard();
+    if (kind == OPS_MOVE && !errors && !cancelled && GetClipboardSequenceNumber() == j->clipboard_sequence) clear_cut_clipboard();
     if (kind == OPS_TRASH && !errors && !cancelled) {
         char t[400];
-        if (G.n == 1) snprintf(t, sizeof t, "\xE2\x80\x9C%s\xE2\x80\x9D moved to Trash", G.first);
-        else snprintf(t, sizeof t, "%d items moved to Trash", G.n);
+        if (j->n == 1) snprintf(t, sizeof t, "\xE2\x80\x9C%s\xE2\x80\x9D moved to Trash", j->first);
+        else snprintf(t, sizeof t, "%d items moved to Trash", j->n);
         G.undo_toast = cui_toast(A.ui, t, .action = "Undo", .show_timer = true, .duration = 8);
     }
-    if (strcmp(G.dir, A.path) == 0 && A.loc != LOC_OTHER) {
+    if (strcmp(j->dir, A.path) == 0 && A.loc != LOC_OTHER) {
         if (A.searching && kind == OPS_TRASH) fsearch_refresh(); else app_reload();
     }
     A.trash_check_t = -100;
@@ -191,6 +206,27 @@ static void do_paste(void) {
         toast_error("Could not paste", e, NULL);
     }
     clip_free(&f);
+}
+
+static DWORD WINAPI remove_recent_proc(LPVOID unused) {
+    (void)unused;
+    G.recent_hr = recent_remove((const char *const *)G.recent_paths, G.recent_n);
+    InterlockedExchange(&G.recent_done, 1);
+    return 0;
+}
+
+static void remove_recent(void) {
+    if (G.recent_thread || A.loc != LOC_RECENT || !A.sel_n) return;
+    G.recent_paths = selected_paths(&G.recent_n);
+    if (!G.recent_paths || G.recent_n != (size_t)A.sel_n) {
+        free_paths(G.recent_paths, G.recent_n); G.recent_paths = NULL;
+        toast_error("Could not remove from Recent", ERROR_NOT_ENOUGH_MEMORY, NULL); return;
+    }
+    G.recent_thread = CreateThread(NULL, 0, remove_recent_proc, NULL, 0, NULL);
+    if (!G.recent_thread) {
+        toast_error("Could not remove from Recent", GetLastError(), NULL);
+        free_paths(G.recent_paths, G.recent_n); G.recent_paths = NULL;
+    }
 }
 
 static void do_trash(void) {
@@ -318,6 +354,7 @@ static void menu_items(void) {
         cui_menu_separator(ui);
         if (!virt && cui_menu_item(ui, "Rename\xE2\x80\xA6", .icon = CUI_ICON_PENCIL, .shortcut = "F2", .disabled = !one)) act_rename();
         if (A.loc != LOC_RECENT && cui_menu_item(ui, "Move to Trash", .icon = CUI_ICON_TRASH_2, .shortcut = "Delete")) do_trash();
+        if (A.loc == LOC_RECENT && cui_menu_item(ui, "Remove from Recent", .icon = CUI_ICON_X)) remove_recent();
         cui_menu_separator(ui);
         if (cui_menu_item(ui, app_selection_all_starred() ? "Unstar" : "Star", .icon = CUI_ICON_STAR)) app_star_toggle_selection();
         if (cui_menu_item(ui, "Copy Path", .icon = CUI_ICON_LINK, .disabled = !one)) copy_path();
@@ -415,10 +452,10 @@ static void name_popover(void) {
 
 static void conflict_dialog(void) {
     cui_ctx *ui = A.ui;
-    if (!G.conflict_open || !G.job) return;
+    if (!G.conflict_open || !G.conflict) return;
     char nm[260], dir[FS_PATH_MAX], t[400], d[700];
-    name_of(G.st->conflict_target, nm, sizeof nm);
-    if (!fs_parent(G.st->conflict_target, dir, sizeof dir)) dir[0] = 0;
+    name_of(G.conflict->st.conflict_target, nm, sizeof nm);
+    if (!fs_parent(G.conflict->st.conflict_target, dir, sizeof dir)) dir[0] = 0;
     const char *dn = strrchr(dir, '\\');
     snprintf(t, sizeof t, "Replace \xE2\x80\x9C%s\xE2\x80\x9D?", nm);
     snprintf(d, sizeof d, "Another file with the same name already exists in \xE2\x80\x9C%s\xE2\x80\x9D.", dn && dn[1] ? dn + 1 : dir);
@@ -435,7 +472,7 @@ static void conflict_dialog(void) {
         G.conflict_buttons[2] = cui_last_rect(ui);
         cui_dialog_footer_end(ui);
         cui_dialog_end(ui);
-        if ((int)ans >= 0) { ops_resolve(G.job, ans, G.apply_all); G.conflict_open = false; }
+        if ((int)ans >= 0) { ops_resolve(G.conflict->job, ans, G.apply_all); G.conflict_open = false; G.conflict = NULL; }
     }
 }
 
@@ -458,7 +495,7 @@ static void delete_dialog(void) {
     if (!open) { G.delete_open = false; free_paths(G.delete_paths, G.delete_n); G.delete_paths = NULL; G.delete_n = 0; }
 }
 
-/* The small progress ring in the header; a popover shows the job and cancels it. */
+/* The header ring keeps main's painted arc and click target. */
 static void paint_job_ring(cui_ctx *ui, cui_rect r, void *user) {
     float v = *(float *)user;
     cui_vec2 center = {r.x + r.w * .5f, r.y + r.h * .5f};
@@ -466,31 +503,51 @@ static void paint_job_ring(cui_ctx *ui, cui_rect r, void *user) {
     cui_draw_arc(ui, center, 9, -1.5707963f, -1.5707963f + 6.2831853f * v, 2.5f, cui_color_of(ui, CUI_COLOR_ACCENT));
 }
 
+static float job_progress(const ops_state *s) {
+    return s->bytes_total ? (float)((double)s->bytes_done / s->bytes_total)
+        : s->files_total ? (float)((double)s->files_done / s->files_total) : 0;
+}
+
+/* The header summarizes all active jobs; each row owns its cancel action. */
 void act_job_button(void) {
     cui_ctx *ui = A.ui;
-    if (!G.job || !G.st) return;
-    float v = G.st->bytes_total ? (float)((double)G.st->bytes_done / (double)G.st->bytes_total)
-                                : (G.st->files_total ? (float)((double)G.st->files_done / (double)G.st->files_total) : 0.0f);
-    if (v < 0.04f) v = 0.04f;
+    if (!G.jobs) return;
+    uint64_t done = 0, total = 0;
+    int count = 0;
+    for (file_job *j = G.jobs; j; j = j->next) {
+        done += j->st.bytes_total ? j->st.bytes_done : j->st.files_done;
+        total += j->st.bytes_total ? j->st.bytes_total : j->st.files_total;
+        count++;
+    }
+    float v = total ? (float)((double)done / total) : 0;
+    if (v < .04f) v = .04f;
     if (v > 1) v = 1;
     bool clicked = false;
     cui_box(ui, .dir = CUI_STACK, .width = CUI_PX(36), .height = CUI_PX(36)) {
-        clicked = cui_icon_button(ui, "", .tooltip = G.title, .selected = G.job_pop_open);
+        clicked = cui_icon_button(ui, "", .tooltip = "File Operations", .selected = G.job_pop_open);
         cui_canvas_result ring = cui_canvas(ui, "job-ring", CUI_PX(36), CUI_PX(36), paint_job_ring, &v, sizeof v);
-        G.job_button = ring.rect;
+        G.job_rect = ring.rect;
         clicked |= ring.clicked;
-        cui_tooltip(ui, G.title);
+        cui_tooltip(ui, "File Operations");
     }
     if (clicked) G.job_pop_open = !G.job_pop_open;
     if (G.job_pop_open) cui_popover_open(ui, "jobpop");
-    if (cui_popover_begin(ui, "jobpop", &(cui_popover_opts){ .placement = CUI_PLACE_BOTTOM_END, .width = 300, .pad = 14 })) {
-        cui_column(ui, .width = CUI_FILL, .gap = 8) {
-            cui_text(ui, G.title, .font = CUI_FONT_MEDIUM);
-            if (G.st->current_name[0]) cui_text(ui, G.st->current_name, .nowrap = true, .size = 12, .color = CUI_COLOR_TEXT_SECONDARY);
-            cui_progress(ui, v, .width = CUI_FILL);
-            cui_row(ui, .width = CUI_FILL, .justify = CUI_JUSTIFY_END) {
-                if (cui_button(ui, "Cancel", .size = CUI_SIZE_SM)) ops_cancel(G.job);
-                G.job_cancel = cui_last_rect(ui);
+    if (cui_popover_begin(ui, "jobpop", &(cui_popover_opts){ .placement = CUI_PLACE_BOTTOM_END, .width = 340, .pad = 16 })) {
+        cui_column(ui, .width = CUI_FILL, .height = count > 4 ? CUI_PX(400) : CUI_FIT, .gap = 16, .scroll_y = true) {
+            for (file_job *j = G.jobs; j; j = j->next) {
+                cui_push_id_int(ui, j->id);
+                cui_column(ui, .width = CUI_FILL, .gap = 8) {
+                    cui_row(ui, .width = CUI_FILL, .gap = 8) {
+                        cui_text(ui, j->title, .font = CUI_FONT_MEDIUM);
+                        cui_spacer(ui);
+                        if (cui_icon_button(ui, CUI_ICON_X, .tooltip = "Cancel Operation")) ops_cancel(j->job);
+                        j->cancel_rect = cui_last_rect(ui);
+                    }
+                    cui_text(ui, j->st.waiting_conflict ? "Waiting for a decision" : j->st.current_name[0] ? j->st.current_name : j->first,
+                             .nowrap = true, .size = 12, .color = CUI_COLOR_TEXT_SECONDARY);
+                    cui_progress(ui, job_progress(&j->st), .width = CUI_FILL);
+                }
+                cui_pop_id(ui);
             }
         }
         cui_popover_end(ui);
@@ -498,14 +555,44 @@ void act_job_button(void) {
     if (!cui_popover_is_open(ui, "jobpop")) G.job_pop_open = false;
 }
 
+/* Observation only: input still goes through the window. */
+void act_jobs_snapshot(FILE *f) {
+    fprintf(f, ",\"job_button\":[%.2f,%.2f,%.2f,%.2f],\"job_pop\":%d,\"jobs\":[", G.job_rect.x, G.job_rect.y, G.job_rect.w, G.job_rect.h, G.job_pop_open);
+    bool comma = false;
+    for (file_job *j = G.jobs; j; j = j->next) {
+        fprintf(f, "%s{\"id\":%d,\"done\":%llu,\"total\":%llu,\"waiting\":%d,\"cancel\":[%.2f,%.2f,%.2f,%.2f]}",
+                comma ? "," : "", j->id, (unsigned long long)j->st.bytes_done, (unsigned long long)j->st.bytes_total,
+                j->st.waiting_conflict, j->cancel_rect.x, j->cancel_rect.y, j->cancel_rect.w, j->cancel_rect.h);
+        comma = true;
+    }
+    fprintf(f, "],\"conflict_keep\":[%.2f,%.2f,%.2f,%.2f]", G.conflict_buttons[1].x, G.conflict_buttons[1].y, G.conflict_buttons[1].w, G.conflict_buttons[1].h);
+}
+
 /* Runs every frame, inside the content stack: it owns the anchor of the popovers. */
 void act_frame(void) {
     cui_ctx *ui = A.ui;
-    if (G.job) {
-        ops_poll(G.job, G.st);
-        if (G.st->waiting_conflict && !G.conflict_open) { G.conflict_open = true; G.apply_all = false; }
-        else if (!G.st->waiting_conflict) G.conflict_open = false;
-        if (G.st->finished) job_done(); else cui_request_wakeup(ui, 0.05f);
+    file_job **link = &G.jobs;
+    while (*link) {
+        file_job *j = *link;
+        ops_poll(j->job, &j->st);
+        if (j->st.finished) { *link = j->next; job_done(j); free(j); }
+        else {
+            if (j->st.waiting_conflict && !G.conflict) { G.conflict = j; G.conflict_open = true; G.apply_all = false; }
+            link = &j->next;
+            cui_request_wakeup(ui, 0.05f);
+        }
+    }
+    if (!G.jobs) { G.job_pop_open = false; cui_popover_close(ui, "jobpop"); }
+    if (G.recent_thread) {
+        cui_request_wakeup(ui, .05f);
+        if (InterlockedCompareExchange(&G.recent_done, 0, 0)) {
+            WaitForSingleObject(G.recent_thread, INFINITE); CloseHandle(G.recent_thread); G.recent_thread = NULL;
+            InterlockedExchange(&G.recent_done, 0);
+            free_paths(G.recent_paths, G.recent_n); G.recent_paths = NULL;
+            if (FAILED(G.recent_hr)) toast_error("Could not remove from Recent", G.recent_hr, NULL);
+            else cui_toast(ui, "Removed from Recent");
+            if (A.loc == LOC_RECENT) app_reload();
+        }
     }
     if (G.undo_toast >= 0 && cui_toast_action_clicked(ui, G.undo_toast)) {
         G.undo_toast = -1;
@@ -558,13 +645,23 @@ void act_list_ready(void) {
 }
 
 int act_state(void) {
-    return (G.pop != POP_NONE ? 1 : 0) | (G.job ? 2 : 0) | (G.delete_open ? 4 : 0) | (G.conflict_open ? 8 : 0) | (G.undo_state ? 16 : 0) | (views_state() << 5);
+    return (G.pop != POP_NONE ? 1 : 0) | (G.jobs ? 2 : 0) | (G.delete_open ? 4 : 0) | (G.conflict_open ? 8 : 0) | (G.undo_state ? 16 : 0) | (views_state() << 5);
+}
+
+void act_shutdown(void) {
+    for (file_job *j = G.jobs; j; j = j->next) ops_cancel(j->job);
+    while (G.jobs) { file_job *j = G.jobs; G.jobs = j->next; ops_free(j->job); free(j); }
+    if (G.recent_thread) { WaitForSingleObject(G.recent_thread, INFINITE); CloseHandle(G.recent_thread); free_paths(G.recent_paths, G.recent_n); }
+    if (G.undo_thread) { WaitForSingleObject(G.undo_thread, INFINITE); CloseHandle(G.undo_thread); }
 }
 
 void act_test_snapshot(FILE *f) {
-    cui_rect rects[] = { G.job_button, G.job_cancel, G.conflict_buttons[0], G.conflict_buttons[1], G.conflict_buttons[2], G.delete_buttons[0], G.delete_buttons[1] };
+    cui_rect cancel = G.jobs ? G.jobs->cancel_rect : (cui_rect){0};
+    uint64_t done = 0, total = 0;
+    for (file_job *j = G.jobs; j; j = j->next) { done += j->st.bytes_done; total += j->st.bytes_total; }
+    cui_rect rects[] = { G.job_rect, cancel, G.conflict_buttons[0], G.conflict_buttons[1], G.conflict_buttons[2], G.delete_buttons[0], G.delete_buttons[1] };
     fprintf(f, ",\"job\":{\"active\":%d,\"popover\":%d,\"done\":%llu,\"total\":%llu},\"action_rects\":[",
-            G.job != NULL, G.job_pop_open, G.st ? G.st->bytes_done : 0, G.st ? G.st->bytes_total : 0);
+            G.jobs != NULL, G.job_pop_open, (unsigned long long)done, (unsigned long long)total);
     for (int i = 0; i < 7; i++) fprintf(f, "%s[%.2f,%.2f,%.2f,%.2f]", i ? "," : "", rects[i].x, rects[i].y, rects[i].w, rects[i].h);
     fprintf(f, "]");
 }

@@ -7,7 +7,7 @@ FetchContent. All text is UTF-8 inside the app; convert to UTF-16 only at Win32 
 
 | Files | What |
 |---|---|
-| `CMakeLists.txt` | Build. Compiles every `src/*.c` (a glob), links CUI and `shell32 ole32 oleaut32 uuid shlwapi propsys comctl32`, adds `tests/` when it exists, and fails a Release or MinSizeRel build whose exe is over the size budget (`docs/design.md`). |
+| `CMakeLists.txt` | Build. Compiles every `src/*.c` (a glob), links CUI and `shell32 ole32 oleaut32 uuid shlwapi propsys comctl32 dwmapi setupapi cfgmgr32`, adds `tests/` when it exists, and fails a Release or MinSizeRel build whose exe is over the size budget (`docs/design.md`). |
 | `src/main.c`, `src/ui_*.c`, `src/theme.c` | The window: header rows, sidebar, grid and list views, menus, popovers, toasts. |
 | `src/fs.c`, `src/fs.h` | Reading folders, the places (known folders) and the drives. |
 | `src/ops.c`, `src/ops.h` | File work on worker threads: copy, move, trash, delete, rename, new folder, conflicts. |
@@ -80,3 +80,31 @@ is not covered by this automated check. It captures each held-size frame and che
 its dimensions and right-edge fill. Clipboard checks use the shared Windows mutex
 `Local\DioFileManagerClipboardTest`, with a 15-minute wait, from saving all formats
 until restoration finishes (including nested checks and exception paths).
+
+## Jobs, Recent and removable drives
+
+Each paste starts an independent operation. The header ring summarizes active jobs by
+bytes (item counts for jobs without a byte total). Its popover lists each job with its
+own progress and Cancel action. Conflicts are answered one job at a time; other jobs
+continue. A destination created by another job while a copy is in flight also raises
+the conflict dialog, before the temporary copy can replace it. Closing the window
+cancels and joins active file workers, removing incomplete copies.
+
+Recent's item menu offers **Remove from Recent**. A worker removes every Windows
+Recent shortcut pointing at the selected targets, including duplicate shortcuts.
+The targets are never deleted. This action has no Undo.
+
+Only `DRIVE_REMOVABLE` sidebar rows have an **Eject Drive** button. A worker rechecks
+the drive type, finds its disk device by its Windows storage device number and asks
+Plug and Play for safe removal (`CM_Request_Device_EjectW`). Windows can refuse a busy
+device; the app leaves its row visible and shows an error. A successful request removes
+the row and leaves a folder on that drive. Fixed and network drives are refused by the
+backend as well as excluded from the UI. No network disconnect API is used.
+
+The input harness can opt into sandbox sources only with `--test-state`:
+`DFM_TEST_RECENT` names a folder of sandbox `.lnk` files; `DFM_TEST_DRIVES` names a
+text file with `letter drive-type label` rows (for example `Y 2 Sandbox USB`);
+`DFM_TEST_EJECT_LOG` replaces the physical eject with a log of requested drive roots.
+A sandbox drive list always disables physical eject, even if its log is missing.
+The copy checks use the existing `DFM_TEST_COPY_DELAY_MS` callback delay (at most 100 ms)
+for observable concurrent progress on fast disks. Recent and drive overrides require `--test-state`.

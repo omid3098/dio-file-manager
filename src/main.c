@@ -11,6 +11,8 @@
 #include "ui.h"
 #include "shell.h"
 #include "starred.h"
+#include "recent.h"
+#include "ops.h"
 
 /* dwmapi.h imports visual-style macros that collide with our LOC_* enum. */
 __declspec(dllimport) HRESULT WINAPI DwmSetWindowAttribute(HWND, DWORD, LPCVOID, DWORD);
@@ -185,6 +187,7 @@ static void poll_list(void) {
 static void load_entry(const char *entry) {
     fsearch_end();
     if (A.list) { fs_list_release(A.list); A.list = NULL; }
+    A.last_click_idx = -1;
     A.list_seen = false; A.vis_n = 0; A.sel_n = 0; A.cursor = A.anchor = -1; A.reset_scroll = true;
     A.search[0] = 0; A.search_open = false; A.sidebar_open = false;
     if (entry[0] == '@') {
@@ -472,6 +475,8 @@ static void test_snapshot(const char *base) {
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));
     json_text(f, A.drive_n ? A.drives[0].root : "");
     act_test_snapshot(f);
+    act_jobs_snapshot(f);
+    ui_sidebar_snapshot(f);
     fprintf(f, "}"); fclose(f);
     snprintf(output, sizeof output, "%s.png", base);
     ui_window_screenshot(g_app, output);
@@ -526,6 +531,8 @@ int main(void) {
         static char opened[FS_PATH_MAX + 16];
         snprintf(opened, sizeof opened, "%s.opened", o.test_state);
         shell_test_log(opened);
+        recent_test_source(getenv("DFM_TEST_RECENT"));
+        fs_test_drives(getenv("DFM_TEST_DRIVES"), getenv("DFM_TEST_EJECT_LOG"));
     }
     if (!shot)
         test_window_proc = (WNDPROC)SetWindowLongPtrW((HWND)cui_app_native_window(g_app), GWLP_WNDPROC, (LONG_PTR)test_input_proc);
@@ -572,6 +579,8 @@ int main(void) {
         }
         if (shot && frames > 600) { rc = 3; break; }
     }
+    act_shutdown();
+    ui_sidebar_shutdown();
     cui_app_destroy(g_app);
     return rc;
 }

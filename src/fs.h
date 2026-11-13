@@ -70,6 +70,10 @@ typedef struct fs_drive {
 } fs_drive;
 bool fs_known(int which, char *out, size_t cap);   /* 0 home, 1 desktop, 2 documents, 3 downloads, 4 music, 5 pictures, 6 videos */
 int fs_drives(fs_drive *out, int max);
+/* Safe PnP removal. Fixed/network roots are refused even when called directly. Blocking. */
+unsigned long fs_eject(const char *root);
+/* Only main's --test-state path enables the sandbox list and eject stand-in. */
+void fs_test_drives(const char *list, const char *eject_log);
 bool fs_is_dir(const char *path);
 bool fs_parent(const char *path, char *out, size_t cap);   /* false at a drive root */
 int fs_subdirs(const char *path, char names[][128], int max);  /* a few child folders, for path bar menus */
