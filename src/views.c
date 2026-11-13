@@ -74,23 +74,33 @@ long views_fill(fs_list *l) {
 
 static volatile LONG count_busy;
 static volatile LONG64 trash_count;
+static HANDLE count_event;
 
 static unsigned __stdcall count_trash(void *unused) {
     (void)unused;
     HRESULT init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
-    SHQUERYRBINFO q = { sizeof q };
-    if (SUCCEEDED(SHQueryRecycleBinW(NULL, &q))) InterlockedExchange64(&trash_count, q.i64NumItems);
+    /* Keep the shell's per-thread cache: rebuilding it on every poll costs CPU. */
+    while (WaitForSingleObject(count_event, INFINITE) == WAIT_OBJECT_0) {
+        SHQUERYRBINFO q = { sizeof q };
+        if (SUCCEEDED(SHQueryRecycleBinW(NULL, &q))) InterlockedExchange64(&trash_count, q.i64NumItems);
+        InterlockedExchange(&count_busy, 0);
+    }
     if (SUCCEEDED(init)) CoUninitialize();
-    InterlockedExchange(&count_busy, 0);
     return 0;
 }
 
 long long views_trash_count(void) {
-    /* Shell queries can wait on a drive; the sidebar uses the last completed count. */
-    if (InterlockedCompareExchange(&count_busy, 1, 0) == 0) {
-        HANDLE th = (HANDLE)_beginthreadex(NULL, 0, count_trash, NULL, 0, NULL);
-        if (th) CloseHandle(th); else InterlockedExchange(&count_busy, 0);
+    /* This read-only worker and its event live until the process exits. */
+    if (!count_event) {
+        count_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+        if (count_event) {
+            HANDLE th = (HANDLE)_beginthreadex(NULL, 0, count_trash, NULL, 0, NULL);
+            if (th) CloseHandle(th);
+            else { CloseHandle(count_event); count_event = NULL; }
+        }
     }
+    if (count_event && InterlockedCompareExchange(&count_busy, 1, 0) == 0)
+        if (!SetEvent(count_event)) InterlockedExchange(&count_busy, 0);
     return InterlockedCompareExchange64(&trash_count, 0, 0);
 }
 

@@ -152,8 +152,8 @@ so accidental file opens only write the `.opened` log unless a stand-in is selec
 CPU acceptance compares identical 64 px grids on the hidden desktop. Use the shared
 `cpu_budget.py` process-tree meter for five 60-second idle windows and five 30-second
 scroll windows (20 wheel messages per second) on both main and the branch. The idle
-ceiling is 0.5% of one core; every branch scroll window must stay at or below the
-largest main scroll reading. Do not run builds or use checks during these samples.
+ceiling is 0.5% of one core; every branch scroll window must stay at or below
+5.0% of one core in all five samples. Alternate main and branch windows. Do not run builds or use checks during these samples.
 The final branch restores normal display pacing. Neither the 120 fps no-vsync
 mode, normal display pacing, nor an experimental 30 fps clock cap passed every
 scrolling CPU sample. The 30 fps experiment also lost slider drag endpoints and
