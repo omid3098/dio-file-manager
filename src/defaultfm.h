@@ -5,6 +5,7 @@
  * The registered command runs a launcher copy of this exe; see docs/architecture.md. */
 #include <windows.h>
 #include <stdbool.h>
+#include "fs.h"
 
 enum { REQ_HOME, REQ_FOLDER, REQ_PLACE, REQ_FALLBACK };
 enum { DFM_REQ_PATH = 520 };
@@ -12,8 +13,8 @@ enum { DFM_REQ_PATH = 520 };
 typedef struct dfm_request {
     int kind;                     /* REQ_* */
     int loc;                      /* LOC_* for REQ_PLACE */
-    char path[DFM_REQ_PATH];      /* the folder for REQ_FOLDER (UTF-8) */
-    char select[DFM_REQ_PATH];    /* the name to select in it, or empty */
+    char path[FS_PATH_MAX];       /* the folder for REQ_FOLDER (UTF-8) */
+    char select[FS_PATH_MAX];     /* the name to select in it, or empty */
 } dfm_request;
 
 /* Test hooks (only with --test-state): a redirected registry root, a launcher folder and an Explorer stand-in

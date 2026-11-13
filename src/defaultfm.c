@@ -82,16 +82,19 @@ static bool copy_values(HKEY from, HKEY to) {
     return ok;
 }
 
-static void clear_values(HKEY k) {
+static bool clear_values(HKEY k) {
     DWORD names;
-    if (RegQueryInfoKeyW(k, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &names, NULL, NULL, NULL)) return;
+    if (RegQueryInfoKeyW(k, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &names, NULL, NULL, NULL)) return false;
     wchar_t *name = malloc((names + 2) * sizeof *name);
-    while (name) {
+    bool ok = name != NULL;
+    while (ok) {
         DWORD nl = names + 1;
-        if (RegEnumValueW(k, 0, name, &nl, NULL, NULL, NULL, NULL)) break;
-        if (RegDeleteValueW(k, name)) break;
+        LONG r = RegEnumValueW(k, 0, name, &nl, NULL, NULL, NULL, NULL);
+        if (r == ERROR_NO_MORE_ITEMS) break;
+        ok = !r && !RegDeleteValueW(k, name);
     }
     free(name);
+    return ok;
 }
 
 static bool key_exists(const wchar_t *path) {
@@ -99,6 +102,15 @@ static bool key_exists(const wchar_t *path) {
     if (RegOpenKeyExW(HKEY_CURRENT_USER, path, 0, KEY_READ, &k)) return false;
     RegCloseKey(k);
     return true;
+}
+
+static bool key_empty(const wchar_t *path) {
+    HKEY k;
+    DWORD subkeys = 1, values = 1;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, path, 0, KEY_READ, &k)) return false;
+    RegQueryInfoKeyW(k, NULL, NULL, NULL, &subkeys, NULL, NULL, &values, NULL, NULL, NULL, NULL);
+    RegCloseKey(k);
+    return !subkeys && !values;
 }
 
 static bool get_string(HKEY root, const wchar_t *path, const wchar_t *name, wchar_t *out, DWORD cap) {
@@ -161,38 +173,55 @@ static bool save_target(HKEY saved, int i) {
     return ok;
 }
 
-static void restore_target(HKEY saved, int i) {
-    wchar_t name[16], path[520], top[520], full[520];
-    _snwprintf_s(name, 16, _TRUNCATE, L"%d", i);
+/* Remove one registered command that carries the launcher's name; false when it is there and cannot be removed. */
+static bool remove_ours(int i) {
+    wchar_t p[520], c[1200];
+    sub(p, classes_base, TARGET[i].path);
+    if (!get_string(HKEY_CURRENT_USER, p, L"", c, 1200) || !is_ours(c)) return true;
+    return !RegDeleteTreeW(HKEY_CURRENT_USER, p);
+}
+
+/* Put one target back. A target that did not exist loses only the keys the registration made: its own key, then
+ * each parent down to Top while it is empty, so another program's entries beside ours stay. */
+static bool restore_target(HKEY saved, int i) {
+    wchar_t name[16], rel[520], top[520], full[520];
     HKEY k;
     DWORD existed = 0, n = sizeof existed;
-    if (!RegOpenKeyExW(saved, name, 0, KEY_READ, &k)) {
-        RegQueryValueExW(k, L"Existed", NULL, NULL, (BYTE *)&existed, &n);
-        DWORD tn = sizeof top, tt;
-        if (RegQueryValueExW(k, L"Top", NULL, &tt, (BYTE *)top, &tn) || tt != REG_SZ) top[0] = 0;
-        sub(path, classes_base, TARGET[i].path);
-        if (existed) {
-            HKEY leaf, v;
-            if (!RegCreateKeyExW(HKEY_CURRENT_USER, path, 0, NULL, 0, KEY_READ | KEY_WRITE, NULL, &leaf, NULL)) {
-                clear_values(leaf);
-                if (!RegOpenKeyExW(k, L"Values", 0, KEY_READ, &v)) { copy_values(v, leaf); RegCloseKey(v); }
-                RegCloseKey(leaf);
-            }
-        } else {
-            sub(full, classes_base, top[0] ? top : TARGET[i].path);
-            RegDeleteTreeW(HKEY_CURRENT_USER, full);
+    _snwprintf_s(name, 16, _TRUNCATE, L"%d", i);
+    if (RegOpenKeyExW(saved, name, 0, KEY_READ, &k)) return remove_ours(i);     /* no record of this target */
+    RegQueryValueExW(k, L"Existed", NULL, NULL, (BYTE *)&existed, &n);
+    DWORD tn = sizeof top, tt;
+    if (RegQueryValueExW(k, L"Top", NULL, &tt, (BYTE *)top, &tn) || tt != REG_SZ) top[0] = 0;
+    wcscpy_s(rel, 520, TARGET[i].path);
+    sub(full, classes_base, rel);
+    bool ok = true;
+    if (existed) {
+        HKEY leaf, v;
+        ok = !RegCreateKeyExW(HKEY_CURRENT_USER, full, 0, NULL, 0, KEY_READ | KEY_WRITE, NULL, &leaf, NULL);
+        if (ok) {
+            ok = clear_values(leaf) && !RegOpenKeyExW(k, L"Values", 0, KEY_READ, &v);
+            if (ok) { ok = copy_values(v, leaf); RegCloseKey(v); }
+            RegCloseKey(leaf);
         }
-        RegCloseKey(k);
+    } else {
+        LONG r = RegDeleteTreeW(HKEY_CURRENT_USER, full);
+        ok = !r || r == ERROR_FILE_NOT_FOUND;
+        for (wchar_t *cut; ok && wcslen(rel) > wcslen(top) && (cut = wcsrchr(rel, L'\\')); ) {
+            *cut = 0;
+            sub(full, classes_base, rel);
+            if (key_empty(full)) ok = !RegDeleteKeyW(HKEY_CURRENT_USER, full);
+            else break;
+        }
     }
+    RegCloseKey(k);
+    return ok;
 }
 
 /* Without a record, remove only what carries the launcher's name. */
-static void remove_ours_without_record(void) {
-    for (int i = 0; i < TARGETS; i++) {
-        wchar_t p[520], c[1200];
-        sub(p, classes_base, TARGET[i].path);
-        if (get_string(HKEY_CURRENT_USER, p, L"", c, 1200) && is_ours(c)) RegDeleteTreeW(HKEY_CURRENT_USER, p);
-    }
+static bool remove_all_ours(void) {
+    bool ok = true;
+    for (int i = 0; i < TARGETS; i++) ok = remove_ours(i) && ok;
+    return ok;
 }
 
 static void quoted_command(wchar_t *out, const wchar_t *launcher, const wchar_t *extra, bool folder) {
@@ -260,27 +289,30 @@ bool defaultfm_enable(const wchar_t *extra_args) {
     return ok;
 }
 
+/* Nothing is thrown away until every target is back: a failed restore keeps the record and the launcher the
+ * registered commands point to, and the next turn-off tries again. */
 bool defaultfm_disable(void) {
     HKEY state, saved;
     wchar_t launcher[MAX_PATH] = L"";
+    bool ok = true;
     paths();
-    if (get_string(HKEY_CURRENT_USER, state_base, L"Launcher", launcher, MAX_PATH)) {   /* the copy goes too; a running one stays */
-        const wchar_t *base = wcsrchr(launcher, L'\\');
-        if (base && !_wcsicmp(base + 1, LAUNCHER_NAME) && !defaultfm_is_launcher() && DeleteFileW(launcher)) {
-            launcher[base - launcher] = 0;
-            RemoveDirectoryW(launcher);                  /* only when nothing else is in it */
-        }
-    }
+    get_string(HKEY_CURRENT_USER, state_base, L"Launcher", launcher, MAX_PATH);
     if (!RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_READ, &state)) {
         if (!RegOpenKeyExW(state, L"Saved", 0, KEY_READ, &saved)) {
-            for (int i = TARGETS - 1; i >= 0; i--) restore_target(saved, i);
+            for (int i = TARGETS - 1; i >= 0; i--) ok = restore_target(saved, i) && ok;
             RegCloseKey(saved);
-        } else remove_ours_without_record();
+        } else ok = remove_all_ours();
         RegCloseKey(state);
-        RegDeleteTreeW(HKEY_CURRENT_USER, state_base);
-        if (!wcscmp(state_base, L"Software\\Dio File Manager\\DefaultFileManager")) RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\Dio File Manager");
-    } else remove_ours_without_record();
-    return !defaultfm_enabled();
+    } else ok = remove_all_ours();
+    if (!ok || defaultfm_enabled()) return false;
+    const wchar_t *base = wcsrchr(launcher, L'\\');      /* the copy goes too; a running one stays */
+    if (base && !_wcsicmp(base + 1, LAUNCHER_NAME) && !defaultfm_is_launcher() && DeleteFileW(launcher)) {
+        launcher[base - launcher] = 0;
+        RemoveDirectoryW(launcher);                  /* only when nothing else is in it */
+    }
+    RegDeleteTreeW(HKEY_CURRENT_USER, state_base);
+    if (!wcscmp(state_base, L"Software\\Dio File Manager\\DefaultFileManager")) RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\Dio File Manager");
+    return true;
 }
 
 void defaultfm_sync(void) {
@@ -346,6 +378,15 @@ static bool known_place_path(const wchar_t *s, wchar_t *out) {
     return ok;
 }
 
+/* The request is a folder, and a name in it to select, when both fit the UTF-8 fields; otherwise Explorer gets it. */
+static void folder_request(dfm_request *out, const wchar_t *folder, const wchar_t *select) {
+    out->kind = REQ_FOLDER;
+    if (!fs_w_to_u8(folder, out->path, FS_PATH_MAX) || (select && !fs_w_to_u8(select, out->select, FS_PATH_MAX))) {
+        memset(out, 0, sizeof *out);
+        out->kind = REQ_FALLBACK;
+    }
+}
+
 void defaultfm_request(wchar_t **args, int n, dfm_request *out) {
     wchar_t target[DFM_REQ_PATH] = L"", select[DFM_REQ_PATH] = L"", full[DFM_REQ_PATH];
     bool select_wanted = false, have_target = false;
@@ -383,22 +424,20 @@ void defaultfm_request(wchar_t **args, int n, dfm_request *out) {
         size_t l = wcslen(full);
         while (l > 3 && full[l - 1] == L'\\') full[--l] = 0;
         wchar_t *slash = wcsrchr(full, L'\\');
-        if (l <= 3 || !slash) { out->kind = REQ_FOLDER; fs_w_to_u8(full, out->path, DFM_REQ_PATH); return; }   /* a drive root */
+        if (l <= 3 || !slash) { folder_request(out, full, NULL); return; }   /* a drive root */
         wcsncpy_s(select, DFM_REQ_PATH, slash + 1, _TRUNCATE);
         if (slash == full + 2) full[3] = 0; else *slash = 0;        /* a file in a drive root is selected in that root */
-        out->kind = REQ_FOLDER;
-        fs_w_to_u8(full, out->path, DFM_REQ_PATH);
-        fs_w_to_u8(select, out->select, DFM_REQ_PATH);
+        folder_request(out, full, select);
         return;
     }
     int loc;
     if (is_home(target)) { out->kind = REQ_HOME; return; }
     if (place_of(target, &loc)) { out->kind = REQ_PLACE; out->loc = loc; return; }
     if (!_wcsnicmp(target, L"shell:", 6) || !wcsncmp(target, L"::{", 3)) {
-        if (known_place_path(target, full)) { out->kind = REQ_FOLDER; fs_w_to_u8(full, out->path, DFM_REQ_PATH); }
+        if (known_place_path(target, full)) folder_request(out, full, NULL);
         return;
     }
-    if (full_path(target, full) && dir_exists(full)) { out->kind = REQ_FOLDER; fs_w_to_u8(full, out->path, DFM_REQ_PATH); }
+    if (full_path(target, full) && dir_exists(full)) folder_request(out, full, NULL);
 }
 
 void defaultfm_arrival(const dfm_request *r) {

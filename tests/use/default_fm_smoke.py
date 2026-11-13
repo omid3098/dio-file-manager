@@ -148,7 +148,10 @@ def registered_prefix():
 
 
 def lines():
-    return OPENED.read_text(encoding='utf-8', errors='replace').splitlines() if OPENED.exists() else []
+    try:
+        return OPENED.read_text(encoding='utf-8', errors='replace').splitlines() if OPENED.exists() else []
+    except PermissionError:   # the app is writing it right now: the next look sees it
+        return []
 
 
 def standin_lines():
@@ -432,6 +435,73 @@ def inside():
             a.close()
             exe_run(['--default-fm', 'off', '--test-state', str(BASE)])
 
+    def failed_restore_keeps_recovery():
+        """A key that cannot be written back must keep the record and the launcher, and turning off must say so."""
+        seed_rich()
+        before = dump()
+        assert on() == 0
+        launcher = LOCAL / 'dio-file-manager-launcher.exe'
+        acl = ("$k=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('%s\\%s','ReadWriteSubTree','ChangePermissions,ReadPermissions'); "
+               "$a=$k.GetAccessControl(); $r=New-Object System.Security.AccessControl.RegistryAccessRule("
+               "[System.Security.Principal.WindowsIdentity]::GetCurrent().Name,'SetValue','Deny'); " % (CLASSES, FOLDER_OPEN))
+        ps = lambda tail: subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', acl + tail],
+                                         capture_output=True, timeout=60, creationflags=NO_WINDOW).returncode
+        assert ps('$a.AddAccessRule($r); $k.SetAccessControl($a); $k.Close()') == 0, 'Could not deny writes to the command key'
+        try:
+            assert off() != 0, 'Turning off said it worked while a key could not be restored'
+            assert launcher.exists(), 'The launcher the commands still point to was deleted'
+            assert state_value('App') is not None, 'The record of the old values was deleted'
+            assert status() == 0 and 'launcher' in command_of(FOLDER_OPEN), 'The command no longer points at the launcher'
+        finally:
+            ps('$a.RemoveAccessRule($r) | Out-Null; $k.SetAccessControl($a); $k.Close()')
+        assert off() == 0, 'Turning off failed once the key could be written again'
+        assert dump() == before, 'Keys differ from before after the retry'
+        assert not launcher.exists() and state_value('App') is None, 'The launcher or the record was left behind'
+
+    def other_programs_entries_survive():
+        """A class another program registers while the switch is on stays when it goes off."""
+        seed_clean()
+        before = dump()
+        assert on() == 0
+        other = CLASSES + r'\CLSID\{00000000-0000-0000-0000-000000000099}'
+        with winreg.CreateKeyEx(HIVE, other, 0, winreg.KEY_WRITE) as k:
+            winreg.SetValueEx(k, 'Name', 0, winreg.REG_SZ, 'registered later')
+        assert off() == 0, 'Turning off failed'
+        assert command_of(WIN_E_CMD) is None and not [r for r in dump() if WIN_E in r[0]], 'The Win+E keys were left behind'
+        with winreg.OpenKey(HIVE, other) as k:
+            assert winreg.QueryValueEx(k, 'Name')[0] == 'registered later', 'The other program\'s class was erased'
+        winreg.DeleteKey(HIVE, other)
+        winreg.DeleteKey(HIVE, CLASSES + r'\CLSID')
+        assert dump() == before, 'Keys differ from before'
+
+    def long_names():
+        """Unicode names that fit Windows' limits open the folder, and a long file name is selected in the window."""
+        import input_smoke as base
+        deep = sandbox / ('目' * 150)
+        deep.mkdir(exist_ok=True)
+        longname = '文' * 90 + '.txt'
+        (sandbox / longname).write_text('x', encoding='utf-8')
+        seed_rich()
+        assert on() == 0
+        reset_case()
+        fire(registered_prefix() + ' "%s"' % deep)
+        got = arrival()
+        assert len(got) == 1 and got[0].startswith('arrive-folder\t' + str(sandbox)), \
+            f'The long folder did not arrive as a folder: {got!r}'   # the log is ANSI: it ends at the first CJK letter
+        assert off() == 0
+        real = base.subprocess.Popen
+        base.EXE = APP_EXE
+        base.subprocess.Popen = lambda cmd, **kw: real([cmd[0], '--view', cmd[4], '--test-state', cmd[6], '--theme', cmd[8],
+                                                         '/select,' + str(sandbox / longname)], **kw)
+        try:
+            a = base.App('default-fm-long', sandbox, 'grid', 'light')
+        finally:
+            base.subprocess.Popen = real
+        try:
+            a.until('The long file name was not selected', lambda: a.snap()['selected'] == 1, seconds=10)
+        finally:
+            a.close()
+
     try:
         check('1-on-off-restores-values', on_off(seed_rich, 'rich'))
         check('2-on-off-on-clean-keys', on_off(seed_clean, 'clean'))
@@ -440,6 +510,9 @@ def inside():
         check('5-app-gone-restores-and-hands-over', exe_gone)
         check('6-exe-moved-is-followed', exe_moved)
         check('7-switch-in-main-menu', switch_in_menu)
+        check('8-failed-restore-keeps-recovery', failed_restore_keeps_recovery)
+        check('9-other-programs-entries-survive', other_programs_entries_survive)
+        check('10-long-unicode-names', long_names)
     finally:
         exe_run(['--default-fm', 'off', '--test-state', str(BASE)])
         wipe()

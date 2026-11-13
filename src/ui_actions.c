@@ -56,7 +56,7 @@ static struct {
     volatile LONG undo_state;      /* 0 idle, 1 running, 2 done */
     HRESULT undo_hr;
 
-    char reselect[260];
+    char reselect[1024];     /* a listed name: as long as the listing allows */
 
     bool ctx_item;                 /* the open context menu is the item menu */
 } G = { .undo_toast = -1 };

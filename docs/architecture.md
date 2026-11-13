@@ -107,8 +107,10 @@ until restoration finishes (including nested checks and exception paths).
   `"<launcher>" "%1"` (Win+E: `"<launcher>"`) and `DelegateExecute` = empty string.
 - Saved state: `HKCU\Software\Dio File Manager\DefaultFileManager` with `App`, `Launcher`, `Args` and
   `Saved\<i>` for each key: `Path`, `Existed`, `Top` (the first key the registration created) and `Values`
-  (a copy of every value with its type). Turning off restores the values or removes the keys it created,
-  then deletes this key; it also deletes the launcher copy and its folder when empty.
+  (a copy of every value with its type). Turning off restores the values, or removes the keys it created (each
+  key from the leaf up to `Top`, and a parent only while it is empty, so another program's entries beside ours stay).
+  Only when every key is back does it delete this key, the launcher copy and its folder (when empty); if a key
+  cannot be restored, turning off reports failure and keeps both, and the next try starts from the same record.
 - The launcher is a copy of the exe named `dio-file-manager-launcher.exe` in `%LOCALAPPDATA%\dio-file-manager`.
   `main()` checks its own file name first: with the app present it starts it with the same arguments and exits
   (no window); with the app gone it restores the keys, hands the request to Explorer and deletes itself.
