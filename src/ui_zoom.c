@@ -44,6 +44,7 @@ void app_set_zoom(int stop) {
     if (stop < 0) stop = 0;
     if (stop >= Z_COUNT) stop = Z_COUNT - 1;
     if (stop == A.zoom) return;
+    ui_band_cancel();
     A.zoom = stop;
     A.view = stop == Z_DETAILS ? VIEW_LIST : VIEW_GRID;
     if (stop >= Z_SMALL) A.last_icon = stop;

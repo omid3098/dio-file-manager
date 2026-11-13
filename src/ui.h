@@ -144,6 +144,9 @@ void ui_view_options_surface(void);
 void ui_columns_begin(int *rows, int *first, int *last);
 void ui_columns_end(void);
 void ui_columns_reveal(int column);
+void ui_band_begin(void);                  /* inside the file view's scroll container, before its rows */
+void ui_band_cancel(void);
+bool ui_band_dragging(void);
 
 /* ui_search.c: the Location column text of a search result */
 void search_location_text(int vis, char *out, size_t cap);

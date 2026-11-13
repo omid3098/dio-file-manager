@@ -73,6 +73,13 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 - **Selection:** the icon gets a rounded `selected` fill; the name gets an accent pill with
   `accent-fg` text. Click selects, Ctrl+click toggles, Shift+click selects a range, dragging on
   the empty background draws a rubber band.
+  A background drag replaces the selection live with every cell or row the box touches;
+  Ctrl or Shift adds to the selection saved at press time. Shrinking the box removes
+  items outside it again. The box has an 18% accent fill and a one-device-pixel accent
+  border in both themes. Holding it within 32 px of the top or bottom scrolls vertically;
+  List uses the left and right edges. Its anchor stays in the document while scrolling.
+  A background click clears the selection; item presses and right clicks keep their
+  normal actions. The same selection works at every scale, in search and special places.
 - **Details stop:** columns Name (16 px icon and name), Size, Modified, Type; sortable headers;
   folders first. Rows 36 px.
 - **Floating status pill:** bottom right of the content pane, over the files, only while something

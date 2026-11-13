@@ -6,6 +6,8 @@
 #include <platform/cui_platform.h>
 #include <stdlib.h>
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
 #include "ui.h"
 
 /* A geometry-only popover anchor must not cover the selected row's hit target. */
@@ -130,4 +132,101 @@ void ui_columns_reveal(int column) {
     float x = column * 240.0f;
     if (x < st->tx) st->tx = x;
     else if (x + 240 > st->tx + st->view_w) st->tx = x + 240 - st->view_w;
+}
+
+/* The anchor and item rectangles are in document coordinates, including virtual rows. */
+static struct {
+    bool pending, dragging;
+    bool *saved;
+    cui_vec2 anchor, press;
+    cui_rect box;
+    cui_id owner;
+} band;
+
+bool ui_band_dragging(void) { return band.dragging; }
+
+void ui_band_cancel(void) {
+    if (A.ui && A.ui->active == band.owner) A.ui->active = 0;
+    free(band.saved);
+    memset(&band, 0, sizeof band);
+}
+
+static cui_rect band_item(int i, float width) {
+    if (A.zoom == Z_DETAILS) return (cui_rect){0, 40 + i * 36.0f, width, 36};
+    if (A.zoom == Z_LIST) return (cui_rect){(i / A.column_rows) * 240.0f, 16 + (i % A.column_rows) * 32.0f, 240, 32};
+    float w = (width - 32) / A.cols;
+    return (cui_rect){16 + (i % A.cols) * w, (i / A.cols) * A.cell_h, w, A.cell_h};
+}
+
+static void paint_band(cui_ctx *ui, cui_node *n, void *data) {
+    if (A.zoom == Z_LIST) paint_columns_bar(ui, n, data);
+    if (!band.dragging) return;
+    cui_rect clip = n->rect, box = band.box;
+    if (A.zoom == Z_DETAILS) { clip.y += 40; clip.h -= 40; }
+    box.x += n->rect.x - n->scroll_x;
+    box.y += n->rect.y - n->scroll_y;
+    cui_color accent = cui_color_of(ui, CUI_COLOR_ACCENT);
+    cui_push_clip(ui, clip);
+    cui_draw_rect_border(ui, box, CUI_CORNERS(0), cui_alpha(accent, .18f), accent, 1.0f / ui->scale);
+    cui_pop_clip(ui);
+}
+
+void ui_band_begin(void) {
+    cui_ctx *ui = A.ui;
+    int scroll = cui__current(ui);
+    while (scroll >= 0 && !(ui->nodes[scroll].flags & CUI_NF_SCROLL_Y)) scroll = ui->nodes[scroll].parent;
+    if (scroll < 0) return;
+    cui_node *n = &ui->nodes[scroll];
+    cui_rect view = cui__prev_rect(ui, n->id), clip = view;
+    if (view.w <= 0 || view.h <= 0) return;
+    if (A.zoom == Z_DETAILS) { clip.y += 40; clip.h -= 40; }
+    bool blocked = act_modal_open() || views_modal_open() || ctxmenu_is_open(ui) || ui_view_options_open() || A.sidebar_open;
+    if (blocked || cui_key_pressed(ui, CUI_KEY_ESCAPE) || (band.pending && !ui->mdown[0] && !ui->mreleased[0])) {
+        ui_band_cancel(); return;
+    }
+    cui_vec2 p = { ui->mx - view.x + n->scroll_x, ui->my - view.y + n->scroll_y };
+    if (ui->mpressed[0] && cui__rect_contains(clip, ui->mx, ui->my)) {
+        bool item = false;
+        for (int i = 0; i < A.vis_n; i++)
+            if (cui__rect_contains(band_item(i, view.w), p.x, p.y)) { item = true; break; }
+        /* Scrollbar and floating controls keep their own press, even over empty space. */
+        bool bar = (A.zoom == Z_LIST && ui->my >= view.y + view.h - 12) ||
+                   (A.zoom != Z_LIST && ui->mx >= view.x + view.w - 12);
+        if (!item && !bar && (!ui->hot_layer) && (!ui->active || ui->hot == n->id || A.zoom == Z_DETAILS)) {
+            ui_band_cancel();
+            band.saved = calloc((size_t)A.vis_n, sizeof *band.saved);
+            if (!band.saved) return;
+            if (ui->mods & (CUI_MOD_CTRL | CUI_MOD_SHIFT)) memcpy(band.saved, A.sel, (size_t)A.vis_n * sizeof *A.sel);
+            else app_clear_selection();
+            band.pending = true; band.anchor = p; band.press = (cui_vec2){ui->mx, ui->my};
+            band.owner = n->id ^ 0xBA4Du;
+            ui->active = band.owner; ui->focus = 0; A.last_click_idx = -1;
+        }
+    }
+    if (!band.pending) return;
+    if (fabsf(ui->mx - band.press.x) >= 4 || fabsf(ui->my - band.press.y) >= 4) band.dragging = true;
+    if (band.dragging) {
+        p.x = cui__clampf(ui->mx, clip.x, clip.x + clip.w) - view.x + n->scroll_x;
+        p.y = cui__clampf(ui->my, clip.y, clip.y + clip.h) - view.y + n->scroll_y;
+        band.box = (cui_rect){ CUI_MIN(p.x, band.anchor.x), CUI_MIN(p.y, band.anchor.y), fabsf(p.x-band.anchor.x), fabsf(p.y-band.anchor.y) };
+        for (int i = 0; i < A.vis_n; i++) {
+            cui_rect r = band_item(i, view.w), b = band.box;
+            A.sel[i] = band.saved[i] || (b.x <= r.x+r.w && b.x+b.w >= r.x && b.y <= r.y+r.h && b.y+b.h >= r.y);
+        }
+        if (ui->mdown[0]) {
+            cui_scroll_state *st = cui_state(ui, n->id, sizeof *st);
+            float edge = A.zoom == Z_LIST ? ui->mx : ui->my;
+            float low = A.zoom == Z_LIST ? clip.x : clip.y;
+            float high = low + (A.zoom == Z_LIST ? clip.w : clip.h);
+            float speed = edge < low+32 ? -cui__clampf((low+32-edge)/32, 0, 1) :
+                          edge > high-32 ? cui__clampf((edge-high+32)/32, 0, 1) : 0;
+            float dt = CUI_MIN(ui->dt, .05f);
+            if (A.zoom == Z_LIST) st->tx = cui__clampf(st->tx + speed*720*dt, 0, CUI_MAX(0, st->content_w-st->view_w));
+            else st->ty = cui__clampf(st->ty + speed*720*dt, 0, CUI_MAX(0, st->content_h-st->view_h));
+            cui_request_wakeup(ui, 1.0f/60);
+        }
+        n->paint = paint_band;
+        n->flags |= CUI_NF_PAINT_AFTER;
+    }
+    if (ui->mreleased[0]) ui_band_cancel();
 }

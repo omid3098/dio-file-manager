@@ -66,6 +66,7 @@ void ui_list_view(void) {
     if (cui_data_grid_begin(ui, "list", cs.cols, cs.n, A.vis_n, &first, &last, .row_height = 36, .selected = A.sel,
                             .hide_checkboxes = true, .sort = &sort, .cursor = &A.cursor, .anchor = &A.anchor)) {
         A.first_row = first; A.last_row = last;
+        ui_band_begin();
         for (int r = first; r < last; r++) {
             const fs_entry *e = app_item(r);
             if (cui_data_grid_row(ui, r)) {

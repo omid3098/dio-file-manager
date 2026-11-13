@@ -211,6 +211,7 @@ void ui_grid_view(void) {
     ui_thumb_begin();
     cui_virtual_list_begin(ui, "grid", rows, A.cell_h, CUI_FILL, &first, &last);
     A.first_row = first; A.last_row = last;
+    ui_band_begin();
     for (int r = first; r < last; r++) {
         int open_idx = -1;
         cui_push_id_int(ui, r);
@@ -236,6 +237,7 @@ void ui_column_view(void) {
     ui_columns_begin(&rows, &first, &last);
     A.column_rows = rows; A.cols = 1; A.cell_h = 32;
     A.first_row = first; A.last_row = last; A.hover = -1;
+    ui_band_begin();
     ui_thumb_begin();
     for (int col = first; col < last; col++) {
         cui_push_id_int(ui, col);

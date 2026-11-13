@@ -158,6 +158,7 @@ static bool contains_nocase(const char *hay, const char *needle) {
 }
 
 void app_rebuild_view(void) {
+    ui_band_cancel();
     A.vis_n = 0;
     if (A.list && fs_list_state(A.list) == FS_DONE) {
         if (A.list->count > A.vis_cap) {
@@ -199,6 +200,7 @@ static void poll_list(void) {
 /* ---- navigation ---- */
 
 static void load_entry(const char *entry) {
+    ui_band_cancel();
     fsearch_end();
     if (A.list) { fs_list_release(A.list); A.list = NULL; }
     A.last_click_idx = -1;
@@ -481,7 +483,7 @@ static void test_snapshot(const char *base) {
         if (comma) fputc(',', f);
         json_text(f, app_item_name(i)); comma = true;
     }
-    fprintf(f, "],\"zoom\":%d,\"icon\":%d,\"column_rows\":%d,\"slider\":[%.2f,%.2f,%.2f,%.2f],\"query\":", A.zoom, A.last_icon, A.column_rows, A.zoom_rect.x, A.zoom_rect.y, A.zoom_rect.w, A.zoom_rect.h); json_text(f, A.search);
+    fprintf(f, "],\"band\":%d,\"zoom\":%d,\"icon\":%d,\"column_rows\":%d,\"slider\":[%.2f,%.2f,%.2f,%.2f],\"query\":", ui_band_dragging(), A.zoom, A.last_icon, A.column_rows, A.zoom_rect.x, A.zoom_rect.y, A.zoom_rect.w, A.zoom_rect.h); json_text(f, A.search);
     fprintf(f, ",\"documents\":"); json_text(f, A.places[2]);
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));
     json_text(f, A.drive_n ? A.drives[0].root : "");
