@@ -44,7 +44,7 @@ def console_checks(build):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=['typecheck', 'changed', 'full', 'console-inside'])
+    parser.add_argument('mode', choices=['typecheck', 'changed-safe', 'full-safe', 'console-inside'])
     parser.add_argument('base', nargs='?')
     parser.add_argument('head', nargs='?')
     args = parser.parse_args()
@@ -70,7 +70,7 @@ def main():
             continue
         os.environ['DFM_USE_WORK'] = str(work / args.mode / smoke.stem)
         run([sys.executable, smoke])
-    if args.mode == 'full':
+    if args.mode == 'full-safe':
         run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_queue_check.py'])
         gaming = Path(r'C:\Users\Omid\.agents\tools\gaming.py')
         code = subprocess.run([sys.executable, str(gaming), 'check'],

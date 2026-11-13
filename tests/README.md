@@ -3,8 +3,8 @@
 ## Merge queue
 
 `queue_check.py typecheck` builds the candidate in MinSizeRel, including the
-800 KB post-build limit. `changed` builds and runs `actions_smoke.py`;
-`full` also runs all CTest console checks on the hidden desktop with clipboard
+800 KB post-build limit. `changed-safe` builds and runs `actions_smoke.py`;
+`full-safe` also runs all CTest console checks on the hidden desktop with clipboard
 preservation and the shared `Local\DioFileManagerClipboardTest` mutex.
 Input and search smoke checks are temporarily excluded: default-file handlers
 can escape the hidden desktop through Windows brokers. The action checks use
@@ -109,3 +109,6 @@ waiting up to 15 minutes, before saving any formats. It releases the mutex only
 after restoring them. Use a 22-minute runner cap when other workers may be using
 the clipboard. The clipboard roundtrip check also asserts that another thread
 cannot acquire the mutex during preservation, including nested guards.
+
+The queue uses the safe mode names so baseline probes refuse old helpers
+that could run brokered file-opening checks.
