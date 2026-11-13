@@ -26,12 +26,21 @@ static WNDPROC test_window_proc;
 static bool test_mode;
 static wchar_t typed[16];       /* letters typed while no field has the keyboard; they open the search */
 static int typed_n;
+static float zoom_wheel;
+
+float app_zoom_wheel(void) { float dy = zoom_wheel; zoom_wheel = 0; return dy; }
 
 static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_MOUSELEAVE && test_mode) return 0;
     if (m == WM_SETTINGCHANGE && A.ui && A.theme_pref == 0) {
         app_set_theme(0);
         cui_request_redraw(A.ui);
+    }
+    /* Preserve Ctrl at event time, even if it is released before the next frame. */
+    if (m == WM_MOUSEWHEEL && (LOWORD(w) & MK_CONTROL) && A.ui) {
+        zoom_wheel += (float)(short)HIWORD(w) / WHEEL_DELTA;
+        cui_request_redraw(A.ui);
+        return 0;
     }
     if (m == WM_CHAR && w > 0x20 && w != 0x7F && typed_n < 15 &&
         !(GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000)) typed[typed_n++] = (wchar_t)w;
@@ -88,6 +97,7 @@ void app_copy_text(const char *utf8) {
 }
 
 void app_set_search_open(bool open) {
+    if (open) A.search_focus = true;
     A.search_open = open;
     if (!open) {
         bool was = A.searching || A.search[0];
@@ -525,7 +535,7 @@ int main(void) {
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     bool shot = o.shot[0] != 0;
     g_app = cui_app_create(&(cui_app_desc){ .title = "Dio File Manager", .width = o.w, .height = o.h, .min_width = 360, .min_height = 280,
-                                            .hidden = shot, .continuous = shot });
+                                            .hidden = shot, .continuous = shot, .no_vsync = true });
     if (!g_app) return 1;
     test_mode = o.test_state[0] != 0;
     if (test_mode) {   /* checks never start another app on the owner's desktop; they read what would open */

@@ -56,13 +56,15 @@ void app_set_view(int view) { app_set_zoom(view == VIEW_LIST ? Z_DETAILS : A.las
 
 void ui_zoom_keys(void) {
     cui_ctx *ui = A.ui;
-    if (cui_wants_keyboard(ui) || act_modal_open() || ctxmenu_is_open(ui) || ui_view_options_open()) return;
-    if (!(cui_key_mods(ui) & CUI_MOD_CTRL)) return;
-    if (cui_key_pressed(ui, CUI_KEY_EQUAL)) app_set_zoom(A.zoom + 1);
-    if (cui_key_pressed(ui, CUI_KEY_MINUS)) app_set_zoom(A.zoom - 1);
-    if (cui_key_pressed(ui, CUI_KEY_0)) app_set_zoom(Z_MEDIUM);
     static float wheel;
-    wheel += ui_zoom_wheel(ui);
+    float dy = app_zoom_wheel();
+    if (cui_wants_keyboard(ui) || act_modal_open() || ctxmenu_is_open(ui) || ui_view_options_open()) { wheel = 0; return; }
+    if (cui_key_mods(ui) & CUI_MOD_CTRL) {
+        if (cui_key_pressed(ui, CUI_KEY_EQUAL)) app_set_zoom(A.zoom + 1);
+        if (cui_key_pressed(ui, CUI_KEY_MINUS)) app_set_zoom(A.zoom - 1);
+        if (cui_key_pressed(ui, CUI_KEY_0)) app_set_zoom(Z_MEDIUM);
+    }
+    wheel += dy;
     while (wheel >= 1) { app_set_zoom(A.zoom + 1); wheel--; }
     while (wheel <= -1) { app_set_zoom(A.zoom - 1); wheel++; }
 }

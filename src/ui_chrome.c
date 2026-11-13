@@ -194,15 +194,25 @@ static int build_segments(bool *home_first) {
 
 bool ui_view_options_open(void) { return cui_popover_is_open(A.ui, "view-options"); }
 
+static void paint_zoom_ticks(cui_ctx *ui, cui_rect r, void *user) {
+    (void)user;
+    for (int i = 0; i < Z_COUNT; i++) {
+        float x = r.x + 9 + (r.w - 18) * i / (Z_COUNT - 1);
+        cui_draw_rect(ui, (cui_rect){ x - 1, r.y, 2, 4 }, CUI_CORNERS(1), CUI_COLOR_TEXT_MUTED);
+    }
+}
+
 static void view_options_menu(void) {
     cui_ctx *ui = A.ui;
     static const char *const KEYS[4] = { "Name", "Size", "Modified", "Type" };
     static const char *const names[Z_COUNT] = { "Details", "List", "Small icons", "Medium icons", "Large icons", "Extra large icons" };
     if (cui_icon_button(ui, CUI_ICON_SLIDERS_HORIZONTAL, .tooltip = "View options", .selected = ui_view_options_open())) cui_popover_toggle(ui, "view-options");
     if (!cui_popover_begin(ui, "view-options", &(cui_popover_opts){ .placement = CUI_PLACE_BOTTOM_END, .width = 300, .pad = 12, .gap = 4 })) return;
+    ui_view_options_surface();
     float stop = (float)A.zoom;
     if (cui_slider(ui, "View size", &stop, 0, Z_COUNT - 1, .step = 1, .width = CUI_FILL)) app_set_zoom((int)(stop + 0.5f));
     A.zoom_rect = cui_last_rect(ui);
+    cui_canvas(ui, "zoom-ticks", CUI_FILL, CUI_PX(4), paint_zoom_ticks, NULL, 0);
     cui_text(ui, names[A.zoom], .width = CUI_FILL, .align = CUI_TEXT_CENTER, .size = 13, .color = CUI_COLOR_TEXT_SECONDARY);
     cui_menu_separator(ui);
     cui_menu_label(ui, "Sort by");
@@ -224,6 +234,7 @@ void ui_content_header(void) {
         bool home_first;
         int n = build_segments(&home_first);
         if (A.search_open) {   /* the search field takes the place of the path bar */
+            if (A.search_focus) { ui_search_focus(); A.search_focus = false; }
             int f = cui_search(ui, "searchfield", A.search, sizeof A.search, .placeholder = "Search Current Folder", .width = CUI_FILL, .autofocus = true, .clearable = true);
             if (f & CUI_CHANGED) fsearch_changed();
             if (fsearch_running()) cui_spinner(ui, 18);
@@ -260,8 +271,8 @@ void ui_content_header(void) {
         cui_gap(ui, 4);
         act_job_button();
         if (cui_icon_button(ui, CUI_ICON_SEARCH, .tooltip = "Search", .shortcut = "Ctrl F", .selected = A.search_open)) app_set_search_open(!A.search_open);
-        if (cui_icon_button(ui, CUI_ICON_GRID_3X3, .tooltip = "Grid view", .shortcut = "Ctrl 1", .selected = A.view == VIEW_GRID)) app_set_view(VIEW_GRID);
-        if (cui_icon_button(ui, CUI_ICON_LIST, .tooltip = "List view", .shortcut = "Ctrl 2", .selected = A.view == VIEW_LIST)) app_set_view(VIEW_LIST);
+        if (cui_icon_button(ui, CUI_ICON_GRID_3X3, .tooltip = "Grid view", .shortcut = "Ctrl 1", .selected = A.zoom >= Z_SMALL)) app_set_view(VIEW_GRID);
+        if (cui_icon_button(ui, CUI_ICON_LIST, .tooltip = "List view", .shortcut = "Ctrl 2", .selected = A.zoom <= Z_LIST)) app_set_view(VIEW_LIST);
         view_options_menu();
     }
 }

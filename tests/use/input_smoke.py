@@ -234,7 +234,8 @@ def inside():
             time.sleep(.03)
         time.sleep(.5)
         after = a.snap('wheel-'+str(before['view'])+'-after')
-        assert after['first'] > before['first'], f'Wheel did not move: {before["first"]} -> {after["first"]}'
+        # A tall icon row can remain in the virtual list's overscan after scrolling.
+        assert after['first'] > before['first'] or after['row'][1] < before['row'][1], f'Wheel did not move: {before["row"]} -> {after["row"]}'
         # Reload and probe the queue while the worker lists 20,000 files.
         a.msg(0x100,116,1)
         a.msg(0x101,116,0xC0000001)

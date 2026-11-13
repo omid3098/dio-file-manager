@@ -72,9 +72,31 @@ long views_fill(fs_list *l) {
     return FS_FAILED;
 }
 
-long long views_trash_count(void) {
+static volatile LONG count_busy;
+static volatile LONG64 trash_count;
+
+static unsigned __stdcall count_trash(void *unused) {
+    (void)unused;
+    HRESULT init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     SHQUERYRBINFO q = { sizeof q };
-    return SUCCEEDED(SHQueryRecycleBinW(NULL, &q)) ? (long long)q.i64NumItems : 0;
+    if (SUCCEEDED(SHQueryRecycleBinW(NULL, &q))) InterlockedExchange64(&trash_count, q.i64NumItems);
+    if (SUCCEEDED(init)) CoUninitialize();
+    InterlockedExchange(&count_busy, 0);
+    return 0;
+}
+
+long long views_trash_count(void) {
+    /* Shell queries can wait on a drive; the sidebar uses the last completed count. */
+    if (InterlockedCompareExchange(&count_busy, 1, 0) == 0) {
+        HANDLE th = (HANDLE)_beginthreadex(NULL, 0, count_trash, NULL, 0, NULL);
+        if (th) CloseHandle(th); else InterlockedExchange(&count_busy, 0);
+    }
+    return InterlockedCompareExchange64(&trash_count, 0, 0);
+}
+
+bool views_trash_count_poll(int *count) {
+    *count = (int)InterlockedCompareExchange64(&trash_count, 0, 0);
+    return InterlockedCompareExchange(&count_busy, 0, 0) != 0;
 }
 
 /* ---- Recycle Bin tasks: one at a time on a worker ---- */

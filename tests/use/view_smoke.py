@@ -159,6 +159,14 @@ def inside():
         assert 240 <= x < 1080 and 46 < y < 720, f'Last item offscreen: {x,y}'
         a.click(x,y)
         assert a.snap()['selection'] == ['file-00199.txt'], 'Last item not clickable'
+        # The bottom bar remains available before hover and supports direct dragging.
+        a.msg(0x200, 0, a.point(1000, 714))
+        a.msg(0x201, 1, a.point(1000, 714))
+        time.sleep(.08)
+        a.msg(0x200, 1, a.point(250, 714))
+        time.sleep(.08)
+        a.msg(0x202, 0, a.point(250, 714))
+        a.until('Horizontal scrollbar did not reveal first column', lambda: a.snap()['first'] == 0)
         a.key(36); time.sleep(.3)
         x,y=cell_xy(a,0); a.click(x,y)
         assert a.snap()['cursor'] == 0, 'Home did not reveal first column'
@@ -190,6 +198,7 @@ def inside():
                 a.key(37,(18,))
             assert a.wait_ready()['path'] == str(WORK/'views'), 'History did not return to the fixture'
             a.key(70,(17,))
+            assert a.snap()['typing'], 'Reopened search did not take the keyboard'
             for char in 'file-0000':
                 a.msg(0x102,ord(char)); time.sleep(.01)
             a.until('Search not ready', lambda: a.snap()['searching'] and a.snap()['count'] == 10)

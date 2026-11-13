@@ -63,31 +63,53 @@ bool ctxmenu_is_open(cui_ctx *ui) {
     return p && p->open;
 }
 
-/* Keep the pinned CUI internals here: consume zoom before a scroll area sees it. */
-float ui_zoom_wheel(cui_ctx *ui) {
-    if (ui->hot_layer != 0) return 0;
-    float dy = ui->scroll_dy;
-    ui->scroll_dy = 0;
-    return dy;
+void ui_search_focus(void) { A.ui->focus = cui_make_id(A.ui, "searchfield"); }
+
+void ui_view_options_surface(void) {
+    cui_node *n = &A.ui->nodes[cui__current(A.ui)];
+    n->opacity = 1; n->scale = 1; n->ty = 0;
+}
+
+static void paint_columns_bar(cui_ctx *ui, cui_node *n, void *data) {
+    (void)data;
+    cui_scroll_state *st = cui_state(ui, n->id, sizeof *st);
+    cui_rect r = n->rect;
+    float max = st->content_w - r.w;
+    if (max <= 0) return;
+    float w = CUI_MAX(28.0f, r.w * r.w / st->content_w);
+    float x = r.x + 3 + cui__clampf(st->x / max, 0, 1) * (r.w - w - 6);
+    cui_draw_rect(ui, (cui_rect){x, r.y + r.h - 9, w, 6}, CUI_CORNERS(3), cui_alpha(cui_color_of(ui, CUI_COLOR_FOREGROUND), .26f));
+    cui__paint_add_hit(ui, n->id ^ 0x48534352u, (cui_rect){r.x, r.y + r.h - 12, r.w, 12}, CUI_NF_INTERACTIVE);
+    st->bar_t = 0; /* This bar stays visible; suppress CUI's fading duplicate. */
 }
 
 void ui_columns_begin(int *rows, int *first, int *last) {
     cui_ctx *ui = A.ui;
     cui_id id = cui_make_id(ui, "columns");
     cui_scroll_state *st = cui_state(ui, id, sizeof *st);
-    *rows = (int)((st->view_h > 32 ? st->view_h : A.content_h) - 16) / 32;
+    *rows = (int)((st->view_h > 32 ? st->view_h : A.content_h) - 32) / 32;
     if (*rows < 1) *rows = 1;
     int count = (A.vis_n + *rows - 1) / *rows;
     if (A.reset_scroll) { st->x = st->tx = 0; A.reset_scroll = false; }
     if (ui->scroll_target == id) { ui->scroll_dx += ui->scroll_dy * 3; ui->scroll_dy = 0; }
     cui_box box = { .width = CUI_FILL, .height = CUI_FILL };
     int node = cui__scroll_begin_ex(ui, id, &box, true);
+    cui_interact bar = cui__interact(ui, id ^ 0x48534352u, CUI_IF_DRAG | CUI_IF_KEEP_FOCUS);
+    if (bar.active && ui->mdown[0] && st->content_w > st->view_w) {
+        float thumb = CUI_MAX(28.0f, st->view_w * st->view_w / st->content_w);
+        float track = st->view_w - thumb - 6;
+        cui_rect pr = cui__prev_rect(ui, id);
+        st->x = st->tx = cui__clampf((ui->mx - pr.x - 3 - thumb / 2) / CUI_MAX(1, track), 0, 1) * (st->content_w - st->view_w);
+        ui->nodes[node].scroll_x = st->x;
+    }
+    ui->nodes[node].paint = paint_columns_bar;
+    ui->nodes[node].flags |= CUI_NF_PAINT_AFTER;
     float x = ui->nodes[node].scroll_x;
     *first = (int)floorf(x / 240);
     *last = (int)ceilf((x + A.content_w) / 240) + 1;
     if (*first > count) *first = count;
     if (*last > count) *last = count;
-    cui_box_begin(ui, &(cui_box){ .dir = CUI_ROW, .width = CUI_PX(count * 240.0f), .height = CUI_FILL });
+    cui_box_begin(ui, &(cui_box){ .dir = CUI_ROW, .width = CUI_PX(count * 240.0f), .height = CUI_FILL, .pad_y = 16 });
     if (*first) cui__leaf(ui, 0, CUI_PX(*first * 240.0f), CUI_PX(1));
 }
 

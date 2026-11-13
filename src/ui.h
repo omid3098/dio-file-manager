@@ -33,7 +33,7 @@ typedef struct app_t {
     int view, zoom, last_icon;       /* zoom is the six-stop scale; view keeps the header shortcuts */
     int sort_key;
     bool sort_desc, show_hidden;
-    bool search_open, searching;     /* searching: A.list is the list of search results */
+    bool search_open, searching, search_focus; /* focus again when reopening the cached field */
     char search[256], search_applied[256];
     int theme_pref;                  /* 0 system, 1 light, 2 dark */
     bool dark;
@@ -85,6 +85,7 @@ void app_set_view(int view);
 void app_set_zoom(int stop);
 void app_load_view(void);
 void ui_zoom_keys(void);
+float app_zoom_wheel(void);
 bool ui_view_options_open(void);
 void app_path_of(int vis_index, char *out, size_t cap);
 bool app_is_narrow(void);
@@ -137,7 +138,8 @@ bool ctxmenu_row_hovered(cui_ctx *ui);       /* call immediately after cui_data_
 bool ctxmenu_begin(cui_ctx *ui, const char *id, bool open_here);
 void ctxmenu_end(cui_ctx *ui);
 bool ctxmenu_is_open(cui_ctx *ui);
-float ui_zoom_wheel(cui_ctx *ui);
+void ui_search_focus(void);
+void ui_view_options_surface(void);
 void ui_columns_begin(int *rows, int *first, int *last);
 void ui_columns_end(void);
 void ui_columns_reveal(int column);

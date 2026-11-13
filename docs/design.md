@@ -41,7 +41,8 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   (grid or list) and a view-options menu (sort by name, size, modified or type; reversed order;
   show hidden files). Its first control is a six-stop view slider: Details at the left, then List,
   Small icons, Medium icons, Large icons and Extra large icons at the right. The current stop is
-  named under the slider.
+  named under the slider. Six ticks mark its discrete positions; the thumb snaps to each stop.
+  The view-options surface is opaque, including while opening over file icons.
 - **Sidebar rows:** Recent, Starred, Home, Desktop, Documents, Downloads, Music, Pictures, Videos,
   Trash; a hairline; each drive by its label and letter ("Local Disk (C:)"), with an eject button
   for removable drives; "Other Locations" last (all drives with their used and free space).
@@ -58,11 +59,17 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   96 and 144 px icons; Medium (64 px) is the default. Small puts the name beside the icon.
   Thumbnail requests match the displayed edge, including the display scale.
 - **List stop:** 16 px icons and names in 240 px columns, filled top to bottom then left to right.
-  The wheel scrolls sideways. Only visible columns are built.
+  The wheel scrolls sideways. Only visible columns are built. A persistent 6 px horizontal
+  scrollbar at the bottom uses the vertical scrollbar's colour and rounded ends, and can be dragged.
+  Columns have 16 px top and bottom space. The header's list button is active in List and Details;
+  the grid button is active at the four icon stops.
 - **View shortcuts:** Ctrl+wheel and Ctrl+plus/minus move one stop; Ctrl+0 returns to Medium.
+  Wheel events retain their modifier state even when Ctrl is released before the next frame.
   The grid button (Ctrl+1) returns to the last icon stop; the list button (Ctrl+2) opens Details.
   The current and last icon stops survive restarts in `%APPDATA%\dio-file-manager\view.txt`.
   Search, Recent, Starred and Trash share this scale.
+  Presentation uses CUI's clock pacing without a blocking vertical-sync swap, so input is not
+  held behind the display driver. Recycle Bin badge queries run on a worker and return the last count.
 - **Selection:** the icon gets a rounded `selected` fill; the name gets an accent pill with
   `accent-fg` text. Click selects, Ctrl+click toggles, Shift+click selects a range, dragging on
   the empty background draws a rubber band.
@@ -83,6 +90,7 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 - Ctrl+L types a path; Ctrl+F searches below the current folder; typing a letter in the view
   starts the search as well (only while the file view has the keyboard: not in the path field, the
   rename or new-folder popover, the search field or an open menu); Esc ends it and returns to the folder.
+  Opening search again restores keyboard focus to its field, including after visiting special places.
   The search field takes the place of the path bar; the search runs 0.25 s after the last key, below
   the folder, at most 10,000 results. Results list in the grid or the list; the list adds a Location
   column with the folder of the result relative to the searched folder. No match shows "No Results

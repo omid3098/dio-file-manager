@@ -187,6 +187,7 @@ void views_frame(void) {
         A.trash_check_t = cui_time(ui);
         cui_request_wakeup(ui, 2.5f);
     }
+    if (views_trash_count_poll(&A.trash_n)) cui_request_wakeup(ui, 0.05f);
     if (V.delete_open) {
         bool open = true;
         if (cui_dialog_begin(ui, V.title, &open, &(cui_dialog_opts){ .description = "If you delete an item, it will be permanently lost.", .width = 440 })) {
