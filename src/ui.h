@@ -73,6 +73,10 @@ void app_count_selection(void);
 void app_set_view(int view);
 void app_path_of(int vis_index, char *out, size_t cap);
 bool app_is_narrow(void);
+void app_copy_text(const char *utf8);       /* to the Windows clipboard */
+void app_set_theme(int pref);              /* 0 system, 1 light, 2 dark */
+void app_set_search_open(bool open);
+bool app_at_place(int which);              /* is the sidebar place 0..6 (Home..Videos) the current folder */
 
 /* theme.c */
 void theme_apply(cui_ctx *ui, bool dark);

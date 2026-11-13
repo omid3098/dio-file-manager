@@ -85,7 +85,7 @@ static void paint_row(cui_ctx *ui, cui_rect r, void *user) {
         bool sel = A.sel[i], hov = A.hover == i;
         float box = icon + 16;
         cui_rect ib = { cx - box * 0.5f, top, box, box };
-        if (sel) cui_draw_rect(ui, ib, CUI_CORNERS(14), CUI_COLOR_ACTIVE);
+        if (sel) cui_draw_rect(ui, ib, CUI_CORNERS(14), CUI_TOKEN_COLOR(CUI_TOKEN_ACTIVE));
         else if (hov) cui_draw_rect(ui, ib, CUI_CORNERS(14), CUI_COLOR_HOVER);
         float icy = top + box * 0.5f;
         if (e->flags & FS_DIR) ui_draw_folder(ui, cx, icy, icon);
@@ -174,7 +174,7 @@ void ui_grid_view(void) {
             if (cui_menu_item(ui, "Copy Path", .icon = CUI_ICON_COPY, .disabled = !any)) {
                 char p[FS_PATH_MAX];
                 app_path_of(A.cursor >= 0 ? A.cursor : 0, p, sizeof p);
-                cui_set_clipboard_text(ui, p);
+                app_copy_text(p);
             }
             cui_menu_separator(ui);
             if (cui_menu_item(ui, "Select All", .shortcut = "Ctrl A")) app_select_all();
