@@ -464,7 +464,8 @@ static void json_text(FILE *f, const char *s) {
     fputc('"', f);
 }
 
-/* Test actions arrive through the real Win32 window; this only captures state. */
+/* Test actions arrive through the real Win32 window; this only captures state.
+   A listing counts as finished only once the window has applied it, so state and count agree. */
 static void test_snapshot(const char *base) {
     char request[FS_PATH_MAX + 16], output[FS_PATH_MAX + 16];
     snprintf(request, sizeof request, "%s.request", base);
@@ -478,7 +479,7 @@ static void test_snapshot(const char *base) {
     fprintf(f, ",\"view\":%d,\"state\":%d,\"count\":%d,\"selected\":%d,\"cursor\":%d,"
                "\"first\":%d,\"last\":%d,\"cols\":%d,\"hidden\":%d,\"narrow\":%d,\"overlay\":%d,"
                "\"typing\":%d,\"ctx\":%d,\"search\":%d,\"searching\":%d,\"act\":%d,\"row\":[%.2f,%.2f,%.2f,%.2f],\"selection\":[",
-            A.view, A.list ? fs_list_state(A.list) : -1, A.vis_n, A.sel_n, A.cursor,
+            A.view, A.list ? (A.list_seen ? fs_list_state(A.list) : FS_LOADING) : -1, A.vis_n, A.sel_n, A.cursor,
             A.first_row, A.last_row, A.cols, A.show_hidden, app_is_narrow(), A.sidebar_open,
             cui_wants_keyboard(A.ui), ctxmenu_is_open(A.ui), A.search_open, A.searching, act_state(), A.first_rect.x, A.first_rect.y, A.first_rect.w, A.first_rect.h);
     bool comma = false;
