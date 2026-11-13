@@ -6,3 +6,10 @@ target_compile_definitions(dfm-ops-tests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND
 target_compile_options(dfm-ops-tests PRIVATE /W4 /utf-8)
 target_link_libraries(dfm-ops-tests PRIVATE user32 shell32 ole32 oleaut32 uuid shlwapi propsys)
 add_test(NAME dfm-ops COMMAND dfm-ops-tests)
+
+add_executable(dfm-thumbs-tests test_thumbs.c ../src/thumbs.c)
+target_include_directories(dfm-thumbs-tests PRIVATE ../src)
+target_compile_definitions(dfm-thumbs-tests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(dfm-thumbs-tests PRIVATE /W4 /WX /utf-8)
+target_link_libraries(dfm-thumbs-tests PRIVATE shell32 ole32 uuid gdi32 windowscodecs)
+add_test(NAME dfm-thumbs COMMAND dfm-thumbs-tests)
