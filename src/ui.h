@@ -88,6 +88,8 @@ void app_flush_view(void);
 void ui_zoom_keys(void);
 float app_zoom_wheel(void);
 bool ui_view_options_open(void);
+void ui_popup_tooltips(cui_ctx *ui);
+void ui_popup_snapshot(FILE *f);
 void app_path_of(int vis_index, char *out, size_t cap);
 bool app_is_narrow(void);
 void app_copy_text(const char *utf8);       /* to the Windows clipboard */

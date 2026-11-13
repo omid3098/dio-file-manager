@@ -12,7 +12,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-os.environ.setdefault('DFM_USE_WORK', str(ROOT / '.agent-work/search-v2/use'))
+os.environ.setdefault('DFM_USE_WORK', str(ROOT / '.agent-work/use-checks' / Path(__file__).stem))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import input_smoke as base  # noqa: E402
 

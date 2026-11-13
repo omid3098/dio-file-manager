@@ -10,7 +10,7 @@ import time
 os.environ.setdefault('DFM_SELECT_ID', str(time.time_ns()))
 
 ROOT = Path(__file__).resolve().parents[2]
-os.environ.setdefault('DFM_USE_WORK', r'E:\w\dio-file-manager\.agent-work\rubberband-v1')
+os.environ.setdefault('DFM_USE_WORK', str(ROOT / '.agent-work/use-checks' / Path(__file__).stem))
 import input_smoke as base
 from view_smoke import set_stop, cell_xy
 

@@ -417,6 +417,7 @@ static void frame(void) {
     }
     typed_letters();
     field_keys = cui_wants_keyboard(ui) || path_key;
+    ui_popup_tooltips(ui);
 }
 
 /* ---- start ---- */
@@ -468,6 +469,8 @@ static void test_snapshot(const char *base) {
     char request[FS_PATH_MAX + 16], output[FS_PATH_MAX + 16];
     snprintf(request, sizeof request, "%s.request", base);
     if (GetFileAttributesA(request) == INVALID_FILE_ATTRIBUTES) return;
+    snprintf(output, sizeof output, "%s.png", base);
+    ui_window_screenshot(g_app, output);
     snprintf(output, sizeof output, "%s.json", base);
     FILE *f = fopen(output, "w");
     if (!f) return;
@@ -490,9 +493,8 @@ static void test_snapshot(const char *base) {
     act_test_snapshot(f);
     act_jobs_snapshot(f);
     ui_sidebar_snapshot(f);
+    ui_popup_snapshot(f);
     fprintf(f, "}"); fclose(f);
-    snprintf(output, sizeof output, "%s.png", base);
-    ui_window_screenshot(g_app, output);
     DeleteFileA(request);
 }
 

@@ -14,7 +14,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-WORK = Path(os.environ.get('DFM_USE_WORK', ROOT / '.agent-work/use-v1'))
+WORK = Path(os.environ.get('DFM_USE_WORK', ROOT / '.agent-work/use-checks' / Path(__file__).stem))
 EXE = Path(os.environ.get('DFM_EXE', ROOT / 'build/MinSizeRel/dio-file-manager.exe'))
 sys.pycache_prefix = str(WORK/'tmp/pycache')
 from clipboard_guard import clipboard_test_lock, preserved_clipboard  # shared by every clipboard check

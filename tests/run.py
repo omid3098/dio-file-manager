@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 project = Path(__file__).resolve().parent.parent
-task = project / '.agent-work' / 'ops-v1'
+task = Path(os.environ.get('DFM_USE_WORK', project / '.agent-work/use-checks' / Path(__file__).stem))
 build = task / 'build'
 build.mkdir(parents=True, exist_ok=True)
 (task / 'tmp').mkdir(parents=True, exist_ok=True)
@@ -16,6 +16,7 @@ sources = [project / 'tests' / 'test_ops.c']
 sources += [project / 'src' / f'{name}.c' for name in ['ops', 'clip', 'trash', 'search', 'recent', 'shell']]
 args = ['cl', '/nologo', '/std:c17', '/W4', '/WX', '/utf-8', '/O1', '/MD',
         '/DUNICODE', '/D_UNICODE', '/DWIN32_LEAN_AND_MEAN', '/DNOMINMAX',
+        '/DDFM_TEST_WORK="' + task.as_posix() + '"',
         '/I' + str(project / 'src'), *map(str, sources), '/Fe:ops-tests.exe', '/link',
         'user32.lib', 'shell32.lib', 'ole32.lib', 'oleaut32.lib', 'uuid.lib', 'shlwapi.lib', 'propsys.lib']
 script = build / 'run.cmd'

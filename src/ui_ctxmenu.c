@@ -9,6 +9,29 @@
 #include <string.h>
 #include "ui.h"
 
+/* CUI 1.4.0 keeps a tooltip's fade state when its header popup opens. */
+void ui_popup_tooltips(cui_ctx *ui) {
+    if (ui->hot_layer) return; /* Controls inside the popup keep their own tooltips. */
+    for (int i = 0; i < ui->popup_count; i++) if (ui->popups[i].open) {
+        cui_state_entry *tip = cui__state_entry(ui, 0x7001717u);
+        if (tip->data) memset(tip->data, 0, tip->size);
+        ui->tooltip_id = 0;
+        break;
+    }
+}
+
+/* Inspect the rendered tooltip surface, including any fading tooltip. */
+void ui_popup_snapshot(FILE *f) {
+    cui_ctx *ui = A.ui;
+    int open = 0, tooltip = 0;
+    for (int i = 0; i < ui->popup_count; i++) open += ui->popups[i].open;
+    for (int i = 0; i < ui->float_count; i++) {
+        cui_node *n = &ui->nodes[ui->float_roots[i]];
+        if (n->id == 0x7001718u && n->opacity > 0) tooltip = 1;
+    }
+    fprintf(f, ",\"popups\":%d,\"tooltip\":%d", open, tooltip);
+}
+
 /* A geometry-only popover anchor must not cover the selected row's hit target. */
 void ui_anchor_passthrough(cui_ctx *ui) {
     ui->nodes[ui->node_count - 1].flags &= ~(CUI_NF_INTERACTIVE | CUI_NF_HIT_OPAQUE);

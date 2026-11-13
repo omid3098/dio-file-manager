@@ -12,6 +12,8 @@ import subprocess
 import sys
 import time
 
+ROOT = Path(__file__).resolve().parents[2]
+os.environ.setdefault('DFM_USE_WORK', str(ROOT / '.agent-work/use-checks' / Path(__file__).stem))
 from input_smoke import App, ROOT, WORK, SAND, U, K, ENUM, fresh, preserved_clipboard
 
 U.GetClassNameW.argtypes = [W.HWND, W.LPWSTR, C.c_int]

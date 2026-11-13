@@ -8,7 +8,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-os.environ.setdefault('DFM_USE_WORK', r'E:\w\dio-file-manager\.agent-work\viewzoom-v1')
+os.environ.setdefault('DFM_USE_WORK', str(ROOT / '.agent-work/use-checks' / Path(__file__).stem))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import input_smoke as base
 
@@ -68,12 +68,12 @@ def picture(a, name):
 def inside():
     results = []
 
-    def check(name, folder, fn, view='grid'):
+    def check(name, folder, fn, view='grid', theme='light'):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
         a = None
         try:
-            a = base.App(name, folder, view)
+            a = base.App(name, folder, view, theme)
             fn(a)
             results.append(dict(check=name, result='passed'))
         except Exception as e:
@@ -107,6 +107,27 @@ def inside():
         a.click(1048, 23)
         picture(a, 'popover')
         a.key(27)
+
+    def popup_tooltips(a):
+        for name, x in (('view-options', 1048), ('main-menu', 212)):
+            a.msg(0x200, 0, a.point(x, 23))
+            a.until(name + ': hover tooltip never appeared', lambda: a.snap()['tooltip'])
+            a.click(x, 23)
+            s = a.snap()
+            assert s['popups'] and not s['tooltip'], f'{name}: tooltip survived click: {s}'
+            time.sleep(.8)
+            assert not a.snap()['tooltip'], name + ': tooltip returned over popup'
+            a.msg(0x200, 0, a.point(700, 400))
+            a.msg(0x200, 0, a.point(x, 23))
+            time.sleep(.8)
+            s = a.snap()
+            assert s['popups'] and not s['tooltip'], name + ': rehover showed tooltip'
+            picture(a, 'dark-' + name + '-hover')
+            a.key(27)
+            a.until(name + ': Esc left popup open', lambda: not a.snap()['popups'])
+            a.until(name + ': tooltip did not return after closing', lambda: a.snap()['tooltip'])
+            a.msg(0x200, 0, a.point(700, 400))
+            time.sleep(.4)
 
     def keys(a):
         set_stop(a, 0)
@@ -212,6 +233,7 @@ def inside():
     check('3-restart', WORK/'views', persistence)
     check('4-column-order-scroll', WORK/'views', columns)
     check('5-special-search', WORK/'views', special)
+    check('7-popup-tooltips', WORK/'views', popup_tooltips, theme='dark')
     for stop in range(6):
         check('6-performance-'+NAMES[stop], WORK/'big', lambda a, stop=stop: performance(a,stop))
     (WORK/'view-results.json').write_text(json.dumps(results,indent=2),encoding='utf-8')

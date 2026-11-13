@@ -80,6 +80,10 @@ formats in memory; when wrapping console tests, preserve the clipboard around th
 process as well so a failed assertion cannot leave test data behind.
 Set `TEMP` and `TMP` below the task folder before each runner call.
 
+Each standalone smoke script defaults to `<repo root>/.agent-work/use-checks/<script stem>`
+(for example, `use-checks/input_smoke`). `run.py` uses `use-checks/run`.
+`DFM_USE_WORK` overrides that folder, including the standalone console sandbox.
+
 ## Action checks
 
 `tests/use/actions_smoke.py` imports the input suite's helpers and has 7 checks:
@@ -134,7 +138,7 @@ No real Recent shortcut or physical device is changed. Real safe removal still n
 a USB stick or SD card plugged in.
 
 Use `DFM_EXE` for the MinSizeRel executable and `DFM_USE_WORK` for artifacts below
-`.agent-work/jobs-v2/`; set `TEMP` and `TMP` to that task's `tmp` folder. The same run
+the current task folder; set `TEMP` and `TMP` to that task's `tmp` folder. The same run
 must also pass `input_smoke.py` and `search_smoke.py`, each using its own work folder.
 
 All clipboard checks acquire the Windows named mutex

@@ -11,7 +11,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-os.environ.setdefault('DFM_USE_WORK', r'E:\w\dio-file-manager\.agent-work\jobs-v2\use')
+os.environ.setdefault('DFM_USE_WORK', str(ROOT / '.agent-work/use-checks' / Path(__file__).stem))
 import input_smoke as base
 from clipboard_guard import preserved_clipboard
 
@@ -63,9 +63,15 @@ def paste(a, folder):
 
 
 def show_jobs(a):
-    a.click(*center(a.snap()['job_button']))
+    x, y = center(a.snap()['job_button'])
+    a.msg(0x200, 0, a.point(x, y))
+    a.until('File Operations tooltip never appeared', lambda: a.snap()['tooltip'])
+    a.click(x, y)
     a.until('Progress popover did not show both jobs', lambda: a.snap()['job_pop'] and len(a.snap()['jobs']) == 2)
     s = a.snap('two-jobs-popover')
+    assert not s['tooltip'], 'File Operations tooltip survived click'
+    time.sleep(.8)
+    assert not a.snap()['tooltip'], 'File Operations tooltip returned over popup'
     assert all(j['total'] == 128 * 1024 * 1024 for j in s['jobs']), s
     assert all(j['cancel'][2] > 0 for j in s['jobs']), 'Each job needs its own Cancel'
     assert s['count'] == 0, 'Incomplete internal copy files leaked into the view'
