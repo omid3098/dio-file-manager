@@ -13,6 +13,7 @@
 #include "starred.h"
 #include "recent.h"
 #include "ops.h"
+#include "defaultfm.h"
 
 /* dwmapi.h imports visual-style macros that collide with our LOC_* enum. */
 __declspec(dllimport) HRESULT WINAPI DwmSetWindowAttribute(HWND, DWORD, LPCVOID, DWORD);
@@ -477,6 +478,9 @@ static void frame(void) {
 typedef struct options {
     char shot[FS_PATH_MAX], path[FS_PATH_MAX], select[260], search[256];
     char test_state[FS_PATH_MAX];
+    wchar_t *req[8];               /* what Explorer would get: a path, a shell: place, /select,file ... */
+    int req_n;
+    char default_fm[8];            /* --default-fm on|off|status */
     int loc;                       /* 0 folder, else LOC_* for --loc */
     int view, theme, w, h;
     int act;                       /* 0 none, 1 item menu, 2 background menu, 3 rename popover, 4 new-folder popover, 5 and 6 the same two menus in the list view */
@@ -498,12 +502,30 @@ static void parse_args(options *o) {
         else if (!wcscmp(a, L"--loc") && more) { ++i; o->loc = !wcscmp(argv[i], L"recent") ? LOC_RECENT : !wcscmp(argv[i], L"starred") ? LOC_STARRED : !wcscmp(argv[i], L"trash") ? LOC_TRASH : !wcscmp(argv[i], L"other") ? LOC_OTHER : 0; }
         else if (!wcscmp(a, L"--select") && more) arg_u8(argv[++i], o->select, sizeof o->select);
         else if (!wcscmp(a, L"--search") && more) arg_u8(argv[++i], o->search, sizeof o->search);
-        else if (!wcscmp(a, L"--act") && more) { ++i; o->act = !wcscmp(argv[i], L"menu") ? 1 : !wcscmp(argv[i], L"bgmenu") ? 2 : !wcscmp(argv[i], L"rename") ? 3 : !wcscmp(argv[i], L"newdir") ? 4 : !wcscmp(argv[i], L"listmenu") ? 5 : !wcscmp(argv[i], L"listbg") ? 6 : 0; }
+        else if (!wcscmp(a, L"--act") && more) { ++i; o->act = !wcscmp(argv[i], L"menu") ? 1 : !wcscmp(argv[i], L"bgmenu") ? 2 : !wcscmp(argv[i], L"rename") ? 3 : !wcscmp(argv[i], L"newdir") ? 4 : !wcscmp(argv[i], L"listmenu") ? 5 : !wcscmp(argv[i], L"listbg") ? 6 : !wcscmp(argv[i], L"mainmenu") ? 7 : 0; }
         else if (!wcscmp(a, L"--view") && more) { ++i; o->view = !wcscmp(argv[i], L"list") ? VIEW_LIST : !wcscmp(argv[i], L"grid") ? VIEW_GRID : -1; }
         else if (!wcscmp(a, L"--theme") && more) { ++i; o->theme = !wcscmp(argv[i], L"dark") ? 2 : !wcscmp(argv[i], L"light") ? 1 : 0; }
         else if (!wcscmp(a, L"--size") && more) { ++i; int w, h; if (swscanf_s(argv[i], L"%dx%d", &w, &h) == 2) { o->w = w; o->h = h; } }
-        else if (a[0] != L'-' && !o->path[0]) arg_u8(a, o->path, sizeof o->path);
+        else if (!wcscmp(a, L"--default-fm") && more) arg_u8(argv[++i], o->default_fm, sizeof o->default_fm);
+        else if (wcsncmp(a, L"--", 2) && o->req_n < 8) o->req[o->req_n++] = _wcsdup(a);
     }
+}
+
+/* ---- default file manager ---- */
+
+static wchar_t test_base[FS_PATH_MAX];       /* --test-state, wide: the registered commands carry it in checks */
+
+bool app_default_fm(void) { return defaultfm_enabled(); }
+
+void app_toggle_default_fm(void) {
+    bool want = !defaultfm_enabled(), ok;
+    wchar_t extra[FS_PATH_MAX + 32] = L"";
+    if (want && test_base[0]) _snwprintf_s(extra, FS_PATH_MAX + 32, _TRUNCATE, L"--test-state \"%s\"", test_base);
+    ok = want ? defaultfm_enable(extra) : defaultfm_disable();
+    if (!ok) cui_toast(A.ui, want ? "Could not turn on the default file manager" : "Could not turn off the default file manager",
+                       .description = "Windows refused the change.", .tone = CUI_TONE_DANGER);
+    else if (want) cui_toast(A.ui, "Dio File Manager is now the default", .description = "Folders and Win+E open here.", .tone = CUI_TONE_SUCCESS);
+    else cui_toast(A.ui, "Windows Explorer is the default again", .tone = CUI_TONE_SUCCESS);
 }
 
 static void json_text(FILE *f, const char *s) {
@@ -555,6 +577,7 @@ static void test_snapshot(const char *base) {
     act_jobs_snapshot(f);
     ui_sidebar_snapshot(f);
     ui_popup_snapshot(f);
+    ui_default_fm_snapshot(f);
     fprintf(f, "}"); fclose(f);
     DeleteFileA(request);
 }
@@ -589,14 +612,42 @@ static void shot_action(const options *o, int k) {
     if ((o->act == 1 || o->act == 2) && k == 3) SendMessageW(w, WM_MOUSEMOVE, 0, at);
     if ((o->act == 1 || o->act == 2) && k == 6) SendMessageW(w, WM_RBUTTONDOWN, MK_RBUTTON, at);
     if ((o->act == 1 || o->act == 2) && k == 7) SendMessageW(w, WM_RBUTTONUP, 0, at);
+    if (o->act == 7) {   /* the main menu: the real click on its button */
+        float bx, by;
+        ui_default_fm_button(&bx, &by);
+        at = (LPARAM)((int)(bx * scale) | ((int)(by * scale) << 16));
+        if (k == 3) SendMessageW(w, WM_MOUSEMOVE, 0, at);
+        if (k == 6) SendMessageW(w, WM_LBUTTONDOWN, MK_LBUTTON, at);
+        if (k == 7) SendMessageW(w, WM_LBUTTONUP, 0, at);
+    }
     if (o->act == 3 && k == 3) act_rename();
     if (o->act == 4 && k == 3) act_new_folder();
 }
 
 int main(void) {
     options o;
+    dfm_request rq;
+    memset(&rq, 0, sizeof rq);
+    if (defaultfm_is_launcher()) return defaultfm_launcher_main();   /* the registered command: no window, no CUI */
     memset(&o, 0, sizeof o);
     parse_args(&o);
+    if (o.test_state[0]) { fs_u8_to_w(o.test_state, test_base, FS_PATH_MAX); defaultfm_test_mode(test_base); }
+    if (o.default_fm[0]) {
+        if (!strcmp(o.default_fm, "on")) {
+            wchar_t extra[FS_PATH_MAX + 32] = L"";
+            if (test_base[0]) _snwprintf_s(extra, FS_PATH_MAX + 32, _TRUNCATE, L"--test-state \"%s\"", test_base);
+            return defaultfm_enable(extra) ? 0 : 1;
+        }
+        if (!strcmp(o.default_fm, "off")) return defaultfm_disable() ? 0 : 1;
+        return defaultfm_enabled() ? 0 : 10;
+    }
+    if (!o.path[0] && o.req_n) {   /* started in Explorer's place: open the same place, or hand it to the real Explorer */
+        defaultfm_request(o.req, o.req_n, &rq);
+        if (rq.kind == REQ_FALLBACK) return defaultfm_fallback(o.req, o.req_n) ? 0 : 4;
+        if (rq.kind == REQ_FOLDER) snprintf(o.path, sizeof o.path, "%s", rq.path);
+        if (rq.kind == REQ_PLACE) o.loc = rq.loc;
+        defaultfm_arrival(&rq);
+    } else if (!o.path[0] && test_base[0]) { memset(&rq, 0, sizeof rq); rq.kind = REQ_HOME; defaultfm_arrival(&rq); }
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     bool shot = o.shot[0] != 0;
     g_app = cui_app_create(&(cui_app_desc){ .title = "Dio File Manager", .width = o.w, .height = o.h, .min_width = 360, .min_height = 280,
@@ -627,6 +678,8 @@ int main(void) {
     app_set_theme(o.theme);
     const char *start = o.path[0] ? o.path : A.places[0];
     if (!start[0] || !fs_is_dir(start)) start = A.drive_n ? A.drives[0].root : "C:\\";
+    if (rq.kind == REQ_FOLDER && rq.select[0]) act_reselect(rq.select);   /* "show in folder": open the folder, select the file */
+    defaultfm_sync();
     app_navigate(start);
     if (o.loc) { char e[3] = { '@', (char)('0' + o.loc), 0 }; app_navigate(e); }
     ui_window_callback(g_app, window_frame, o.test_state);

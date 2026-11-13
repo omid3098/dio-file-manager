@@ -22,11 +22,33 @@ bool app_at_place(int which) { return A.loc == LOC_FOLDER && A.places[which][0] 
 
 /* ---- sidebar ---- */
 
+/* The "Use as Default File Manager" switch lives in the main menu. Its rectangles are kept for real-input checks. */
+static struct { bool on, was_open; cui_rect button, item; } dfm_menu;
+
+void ui_default_fm_button(float *x, float *y) { *x = dfm_menu.button.x + dfm_menu.button.w / 2; *y = dfm_menu.button.y + dfm_menu.button.h / 2; }
+
+void ui_default_fm_snapshot(FILE *f) {
+    fprintf(f, ",\"default_fm\":%d,\"menu_button\":[%.2f,%.2f,%.2f,%.2f],\"dfm_item\":[%.2f,%.2f,%.2f,%.2f]", app_default_fm(),
+            dfm_menu.button.x, dfm_menu.button.y, dfm_menu.button.w, dfm_menu.button.h,
+            dfm_menu.item.x, dfm_menu.item.y, dfm_menu.item.w, dfm_menu.item.h);
+}
+
+/* A small switch at the right end of the menu row, in the accent colour when on. */
+static void paint_switch(cui_ctx *ui, cui_rect row, bool on) {
+    const float w = 30, h = 16;
+    float x = row.x + row.w - 12 - w, y = row.y + (row.h - h) / 2;
+    cui_draw_rect(ui, (cui_rect){ x, y, w, h }, CUI_CORNERS(h / 2), on ? CUI_COLOR_ACCENT : CUI_COLOR_TEXT_MUTED);
+    cui_draw_circle(ui, (cui_vec2){ on ? x + w - h / 2 : x + h / 2, y + h / 2 }, h / 2 - 2.5f, cui_color_of(ui, CUI_COLOR_SURFACE));
+}
+
 void ui_sidebar_header(void) {
     cui_ctx *ui = A.ui;
     cui_row(ui, .width = CUI_FILL, .height = CUI_PX(HEADER_H), .pad_x = 8, .gap = 4) {
         cui_spacer(ui);
-        if (cui_menu_begin(ui, "Main Menu", &(cui_menu_opts){ .icon = CUI_ICON_MENU, .icon_only = true })) {
+        bool menu_open = cui_menu_begin(ui, "Main Menu", &(cui_menu_opts){ .icon = CUI_ICON_MENU, .icon_only = true });
+        dfm_menu.button = cui_last_rect(ui);
+        if (menu_open) {
+            if (!dfm_menu.was_open) dfm_menu.on = app_default_fm();   /* read again each time the menu opens */
             cui_menu_label(ui, "Theme");
             if (cui_menu_item(ui, "System", .icon = CUI_ICON_MONITOR, .checked = A.theme_pref == 0)) app_set_theme(0);
             if (cui_menu_item(ui, "Light", .icon = CUI_ICON_SUN, .checked = A.theme_pref == 1)) app_set_theme(1);
@@ -36,8 +58,17 @@ void ui_sidebar_header(void) {
                 A.show_hidden = !A.show_hidden;
                 app_rebuild_view();
             }
+            cui_menu_separator(ui);
+            /* the blank shortcut keeps room for the switch */
+            if (cui_menu_item(ui, "Use as Default File Manager", .icon = CUI_ICON_FOLDER_OPEN, .shortcut = "        ")) {
+                app_toggle_default_fm();
+                dfm_menu.on = app_default_fm();
+            }
+            dfm_menu.item = cui_last_rect(ui);
+            paint_switch(ui, dfm_menu.item, dfm_menu.on);
             cui_menu_end(ui);
         }
+        dfm_menu.was_open = menu_open;
     }
 }
 
