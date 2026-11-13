@@ -6,6 +6,7 @@
 #include <string.h>
 #include <ctype.h>
 #include "fs.h"
+#include "views.h"
 
 int fs_u8_to_w(const char *s, wchar_t *w, int cap) {
     int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, w, cap);
@@ -55,7 +56,7 @@ const char *fs_kind_name(int kind) {
 }
 
 void fs_format_size(char *out, size_t cap, uint64_t b) {
-    if (b < 1000) snprintf(out, cap, "%llu bytes", (unsigned long long)b);
+    if (b < 1000) snprintf(out, cap, b == 1 ? "1 byte" : "%llu bytes", (unsigned long long)b);
     else if (b < 1000000) snprintf(out, cap, "%.1f kB", b / 1e3);
     else if (b < 1000000000) snprintf(out, cap, "%.1f MB", b / 1e6);
     else snprintf(out, cap, "%.1f GB", b / 1e9);
@@ -113,7 +114,7 @@ static int cmp_entries(const void *pa, const void *pb) {
     const fs_entry *a = pa, *b = pb;
     fs_list *l = sort_list;
     bool da = (a->flags & FS_DIR) != 0, db = (b->flags & FS_DIR) != 0;
-    if (da != db) return da ? -1 : 1;
+    if (da != db && !l->mixed) return da ? -1 : 1;
     int c = 0;
     switch (l->sort_key) {
     case FS_SORT_SIZE: if (!da) c = a->size < b->size ? -1 : a->size > b->size; break;
@@ -151,7 +152,7 @@ void fs_list_sort(fs_list *l, int key, bool desc) {
 const char *fs_name(const fs_list *l, int i) { return l->names + l->items[i].name_off; }
 int fs_list_state(const fs_list *l) { return (int)InterlockedCompareExchange((volatile LONG *)&l->state, 0, 0); }
 
-static void list_free(fs_list *l) { free(l->items); free(l->names); free(l); }
+static void list_free(fs_list *l) { free(l->items); free(l->names); free(l->extra); free(l); }
 
 void fs_list_release(fs_list *l) {
     if (!l) return;
@@ -159,9 +160,30 @@ void fs_list_release(fs_list *l) {
     if (InterlockedDecrement(&l->owner) == 0) list_free(l);
 }
 
-static bool add_entry(fs_list *l, const WIN32_FIND_DATAW *f) {
-    char name[1024];
-    if (!fs_w_to_u8(f->cFileName, name, sizeof name)) return false;
+static uint32_t extra_add(fs_list *l, const char *s) {
+    if (!s || !s[0]) return 0;
+    size_t len = strlen(s) + 1;
+    if (!l->extra) {
+        l->extra = calloc(1, 4096);
+        if (!l->extra) return 0;
+        l->extra_cap = 4096; l->extra_len = 1;
+    }
+    if (l->extra_len + len > l->extra_cap) {
+        size_t nc = l->extra_cap * 2;
+        while (nc < l->extra_len + len) nc *= 2;
+        char *nn = realloc(l->extra, nc);
+        if (!nn) return 0;
+        l->extra = nn; l->extra_cap = nc;
+    }
+    uint32_t off = (uint32_t)l->extra_len;
+    memcpy(l->extra + off, s, len);
+    l->extra_len += len;
+    return off;
+}
+
+const char *fs_extra(const fs_list *l, uint32_t off) { return l->extra && off < l->extra_len ? l->extra + off : ""; }
+
+bool fs_list_add(fs_list *l, const char *name, uint32_t flags, uint64_t size, uint64_t mtime, const char *path, const char *id) {
     size_t len = strlen(name) + 1;
     if (l->count == l->cap) {
         int nc = l->cap ? l->cap * 2 : 1024;
@@ -180,18 +202,35 @@ static bool add_entry(fs_list *l, const WIN32_FIND_DATAW *f) {
     e->name_off = (uint32_t)l->names_len;
     memcpy(l->names + l->names_len, name, len);
     l->names_len += len;
-    e->flags = 0;
-    if (f->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) e->flags |= FS_DIR;
-    if ((f->dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) || name[0] == '.') e->flags |= FS_HIDDEN;
-    if (f->dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) e->flags |= FS_LINK;
-    e->size = ((uint64_t)f->nFileSizeHigh << 32) | f->nFileSizeLow;
-    e->mtime = ((uint64_t)f->ftLastWriteTime.dwHighDateTime << 32) | f->ftLastWriteTime.dwLowDateTime;
-    e->kind = (e->flags & FS_DIR) ? FS_KIND_FOLDER : kind_of(name);
+    e->flags = flags;
+    e->size = size;
+    e->mtime = mtime;
+    e->kind = (flags & FS_DIR) ? FS_KIND_FOLDER : kind_of(name);
+    e->path_off = extra_add(l, path);
+    e->id_off = extra_add(l, id);
     return true;
+}
+
+static bool add_entry(fs_list *l, const WIN32_FIND_DATAW *f) {
+    char name[1024];
+    if (!fs_w_to_u8(f->cFileName, name, sizeof name)) return false;
+    uint32_t flags = 0;
+    if (f->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) flags |= FS_DIR;
+    if ((f->dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) || name[0] == '.') flags |= FS_HIDDEN;
+    if (f->dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) flags |= FS_LINK;
+    return fs_list_add(l, name, flags, ((uint64_t)f->nFileSizeHigh << 32) | f->nFileSizeLow,
+                       ((uint64_t)f->ftLastWriteTime.dwHighDateTime << 32) | f->ftLastWriteTime.dwLowDateTime, NULL, NULL);
 }
 
 static unsigned __stdcall list_thread(void *arg) {
     fs_list *l = arg;
+    if (l->vkind) {
+        long r = views_fill(l);
+        if (!l->abandoned) fs_list_sort(l, l->sort_key, l->sort_desc);
+        InterlockedExchange(&l->state, r);
+        if (InterlockedDecrement(&l->owner) == 0) list_free(l);
+        return 0;
+    }
     wchar_t wpath[FS_PATH_MAX + 4];
     fs_u8_to_w(l->path, wpath, FS_PATH_MAX);
     size_t n = wcslen(wpath);
@@ -222,6 +261,18 @@ fs_list *fs_list_start(const char *path, int sort_key, bool desc) {
     fs_list *l = calloc(1, sizeof *l);
     if (!l) return NULL;
     snprintf(l->path, sizeof l->path, "%s", path);
+    l->sort_key = sort_key; l->sort_desc = desc;
+    l->owner = 2;
+    uintptr_t t = _beginthreadex(NULL, 0, list_thread, l, 0, NULL);
+    if (!t) { l->state = FS_FAILED; l->error = -1; l->owner = 1; return l; }
+    CloseHandle((HANDLE)t);
+    return l;
+}
+
+fs_list *fs_list_start_virtual(int vkind, int sort_key, bool desc) {
+    fs_list *l = calloc(1, sizeof *l);
+    if (!l) return NULL;
+    l->vkind = vkind; l->mixed = true;
     l->sort_key = sort_key; l->sort_desc = desc;
     l->owner = 2;
     uintptr_t t = _beginthreadex(NULL, 0, list_thread, l, 0, NULL);

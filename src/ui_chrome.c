@@ -53,7 +53,9 @@ void ui_sidebar_places(void) {
             if (!A.places[i][0]) continue;
             if (place_row(PLACE_LABEL[i], PLACE_ICON[i], app_at_place(i))) app_navigate(A.places[i]);
         }
-        if (place_row("Trash", CUI_ICON_TRASH_2, A.loc == LOC_TRASH)) app_navigate("@3");
+        char tb[16];
+        snprintf(tb, sizeof tb, "%d", A.trash_n);
+        if (cui_nav_item(ui, "Trash", .icon = CUI_ICON_TRASH_2, .selected = A.loc == LOC_TRASH, .group = "places", .badge = A.trash_n > 0 ? tb : NULL)) app_navigate("@3");
         cui_gap(ui, 6);
         cui_separator(ui);
         cui_gap(ui, 6);

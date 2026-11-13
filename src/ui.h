@@ -53,6 +53,10 @@ typedef struct app_t {
     cui_rect first_rect;             /* first built grid row, for the input smoke test */
     bool ctx_item;                   /* the last right click was on an item */
     void *hwnd;                      /* the native window, for shell calls */
+    int trash_n;                     /* items in the Recycle Bin, for the sidebar */
+    double trash_check_t;
+    bool sort_swapped, saved_desc;   /* Recent and Trash open sorted by date; the folders' sort comes back after */
+    int saved_key;
 } app_t;
 
 extern app_t A;
@@ -94,6 +98,25 @@ void act_new_folder(void);
 void act_open_terminal(void);
 bool act_modal_open(void);
 int act_state(void);                        /* bit 0 popover, 1 job, 2 delete dialog, 3 conflict dialog, 4 undo */
+
+/* ui_views.c */
+void ui_draw_star(cui_ctx *ui, float cx, float cy, float r, cui_color c);
+bool app_is_starred(int vis_index);
+void app_star_toggle_row(int vis_index);
+void app_star_toggle_selection(void);
+bool app_selection_all_starred(void);
+void view_location_text(int vis_index, char *out, size_t cap);
+void views_open_location(void);
+void views_restore_selection(void);
+void views_ask_delete(void);
+void views_ask_empty(void);
+void views_trash_menu(void);
+void views_frame(void);
+bool views_modal_open(void);
+int views_state(void);
+void ui_trash_bar(void);
+void ui_other_locations(void);
+void act_reselect(const char *name);
 
 /* theme.c */
 void theme_apply(cui_ctx *ui, bool dark);

@@ -9,6 +9,8 @@
 #include "clip.h"
 #include "trash.h"
 #include "shell.h"
+#include "starred.h"
+#include "views.h"
 
 enum { POP_NONE = 0, POP_RENAME, POP_NEWDIR };
 
@@ -63,6 +65,8 @@ static void toast_error(const char *title, DWORD code, const char *path) {
     cui_toast(A.ui, title, .description = d, .tone = CUI_TONE_DANGER, .duration = 7);
 }
 
+static bool files_view(void) { return A.loc != LOC_OTHER && A.loc != LOC_TRASH && A.list && fs_list_state(A.list) == FS_DONE; }
+void act_reselect(const char *name) { snprintf(G.reselect, sizeof G.reselect, "%s", name); }
 static bool in_folder(void) { return A.loc == LOC_FOLDER && A.list && fs_list_state(A.list) == FS_DONE; }
 
 static int first_selected(void) {
@@ -157,13 +161,14 @@ static void job_done(void) {
         else snprintf(t, sizeof t, "%d items moved to Trash", G.n);
         G.undo_toast = cui_toast(A.ui, t, .action = "Undo", .show_timer = true, .duration = 8);
     }
-    if (strcmp(G.dir, A.path) == 0 && A.loc == LOC_FOLDER) app_reload();
+    if (strcmp(G.dir, A.path) == 0 && A.loc != LOC_OTHER) app_reload();
+    A.trash_check_t = -100;
 }
 
 /* ---- commands ---- */
 
 static void do_copy(bool cut) {
-    if (!in_folder() || A.sel_n == 0) return;
+    if (!files_view() || A.sel_n == 0) return;
     size_t n;
     char **p = selected_paths(&n);
     DWORD e = p ? clip_write(hwnd(), (const char *const *)p, n, cut) : ERROR_NOT_ENOUGH_MEMORY;
@@ -184,7 +189,8 @@ static void do_paste(void) {
 }
 
 static void do_trash(void) {
-    if (!in_folder() || A.sel_n == 0) return;
+    if (A.loc == LOC_TRASH) { views_ask_delete(); return; }
+    if (!files_view() || A.sel_n == 0 || A.loc == LOC_RECENT) return;
     size_t n;
     char **p = selected_paths(&n);
     if (p && n) start_job(OPS_TRASH, p, n, NULL, NULL, "Moving to Trash");
@@ -192,7 +198,8 @@ static void do_trash(void) {
 }
 
 static void ask_delete_forever(void) {
-    if (!in_folder() || A.sel_n == 0) return;
+    if (A.loc == LOC_TRASH) { views_ask_delete(); return; }
+    if (!files_view() || A.sel_n == 0 || A.loc == LOC_RECENT) return;
     free_paths(G.delete_paths, G.delete_n);
     G.delete_paths = selected_paths(&G.delete_n);
     if (G.delete_n == 1) {
@@ -268,7 +275,7 @@ void act_open_terminal(void) {
 /* ---- keys and menus ---- */
 
 bool act_modal_open(void) {
-    return G.pop != POP_NONE || G.want_pop != POP_NONE || G.delete_open || G.conflict_open;
+    return G.pop != POP_NONE || G.want_pop != POP_NONE || G.delete_open || G.conflict_open || views_modal_open();
 }
 
 void act_keys(void) {
@@ -292,21 +299,27 @@ void act_pre_frame(void) {
 
 void act_context_menu(void) {
     cui_ctx *ui = A.ui;
-    if (A.loc != LOC_FOLDER || !cui_context_menu_begin(ui, "ctx")) return;
+    if (A.loc == LOC_OTHER || !cui_context_menu_begin(ui, "ctx")) return;
+    if (A.loc == LOC_TRASH) { views_trash_menu(); cui_context_menu_end(ui); return; }
     bool folder_ok = in_folder();
+    bool virt = A.loc != LOC_FOLDER;   /* Recent or Starred: items from many folders */
     if (A.ctx_item && A.sel_n > 0) {
         bool one = A.sel_n == 1;
         if (cui_menu_item(ui, "Open", .icon = CUI_ICON_FOLDER_OPEN, .shortcut = "Enter")) open_selected();
         if (cui_menu_item(ui, "Open With\xE2\x80\xA6", .icon = CUI_ICON_EXTERNAL_LINK, .disabled = !one)) open_with();
+        if (virt && cui_menu_item(ui, "Open Item Location", .icon = CUI_ICON_MAP_PIN, .disabled = !one)) views_open_location();
         cui_menu_separator(ui);
-        if (cui_menu_item(ui, "Cut", .icon = CUI_ICON_SCISSORS, .shortcut = "Ctrl X")) do_copy(true);
+        if (!virt && cui_menu_item(ui, "Cut", .icon = CUI_ICON_SCISSORS, .shortcut = "Ctrl X")) do_copy(true);
         if (cui_menu_item(ui, "Copy", .icon = CUI_ICON_COPY, .shortcut = "Ctrl C")) do_copy(false);
         cui_menu_separator(ui);
-        if (cui_menu_item(ui, "Rename\xE2\x80\xA6", .icon = CUI_ICON_PENCIL, .shortcut = "F2", .disabled = !one)) act_rename();
-        if (cui_menu_item(ui, "Move to Trash", .icon = CUI_ICON_TRASH_2, .shortcut = "Delete")) do_trash();
+        if (!virt && cui_menu_item(ui, "Rename\xE2\x80\xA6", .icon = CUI_ICON_PENCIL, .shortcut = "F2", .disabled = !one)) act_rename();
+        if (A.loc != LOC_RECENT && cui_menu_item(ui, "Move to Trash", .icon = CUI_ICON_TRASH_2, .shortcut = "Delete")) do_trash();
         cui_menu_separator(ui);
+        if (cui_menu_item(ui, app_selection_all_starred() ? "Unstar" : "Star", .icon = CUI_ICON_STAR)) app_star_toggle_selection();
         if (cui_menu_item(ui, "Copy Path", .icon = CUI_ICON_LINK, .disabled = !one)) copy_path();
         if (cui_menu_item(ui, "Properties", .icon = CUI_ICON_INFO, .shortcut = "Alt Enter", .disabled = !one)) properties(true);
+    } else if (virt) {
+        if (cui_menu_item(ui, "Select All", .icon = CUI_ICON_CHECK_CHECK, .shortcut = "Ctrl A", .disabled = A.vis_n == 0)) app_select_all();
     } else {
         bool can_paste = folder_ok && IsClipboardFormatAvailable(CF_HDROP);
         if (cui_menu_item(ui, "New Folder", .icon = CUI_ICON_PLUS, .shortcut = "Ctrl Shift N", .disabled = !folder_ok)) act_new_folder();
@@ -471,7 +484,8 @@ void act_frame(void) {
         G.undo_thread = NULL;
         InterlockedExchange(&G.undo_state, 0);
         if (FAILED(G.undo_hr)) toast_error("Could not undo", (DWORD)G.undo_hr, NULL);
-        if (A.loc == LOC_FOLDER) app_reload();
+        if (A.loc != LOC_OTHER) app_reload();
+        A.trash_check_t = -100;
     }
     /* the anchor of the popovers: a hairline just under the row of the selected item */
     float below = 0;
@@ -499,5 +513,5 @@ void act_list_ready(void) {
 }
 
 int act_state(void) {
-    return (G.pop != POP_NONE ? 1 : 0) | (G.job ? 2 : 0) | (G.delete_open ? 4 : 0) | (G.conflict_open ? 8 : 0) | (G.undo_state ? 16 : 0);
+    return (G.pop != POP_NONE ? 1 : 0) | (G.job ? 2 : 0) | (G.delete_open ? 4 : 0) | (G.conflict_open ? 8 : 0) | (G.undo_state ? 16 : 0) | (views_state() << 5);
 }

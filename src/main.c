@@ -10,6 +10,7 @@
 #include <cui/cui_render.h>
 #include "ui.h"
 #include "shell.h"
+#include "starred.h"
 
 app_t A;
 static cui_app *g_app;
@@ -30,6 +31,7 @@ const fs_entry *app_item(int i) { return &A.list->items[A.vis[i]]; }
 const char *app_item_name(int i) { return fs_name(A.list, A.vis[i]); }
 
 void app_path_of(int i, char *out, size_t cap) {
+    if (A.loc != LOC_FOLDER) { snprintf(out, cap, "%s", fs_extra(A.list, app_item(i)->path_off)); return; }
     size_t bl = strlen(A.path);
     snprintf(out, cap, "%s%s%s", A.path, (bl && A.path[bl - 1] == '\\') ? "" : "\\", app_item_name(i));
 }
@@ -168,6 +170,20 @@ static void load_entry(const char *entry) {
         A.path[0] = 0;
     } else {
         A.loc = LOC_FOLDER;
+    }
+    bool by_date = A.loc == LOC_RECENT || A.loc == LOC_TRASH;
+    if (by_date && !A.sort_swapped) {
+        A.saved_key = A.sort_key; A.saved_desc = A.sort_desc; A.sort_swapped = true;
+        A.sort_key = FS_SORT_MODIFIED; A.sort_desc = true;
+    } else if (!by_date && A.sort_swapped) {
+        A.sort_key = A.saved_key; A.sort_desc = A.saved_desc; A.sort_swapped = false;
+    }
+    if (A.loc == LOC_RECENT) A.list = fs_list_start_virtual(FS_V_RECENT, A.sort_key, A.sort_desc);
+    else if (A.loc == LOC_STARRED) A.list = fs_list_start_virtual(FS_V_STARRED, A.sort_key, A.sort_desc);
+    else if (A.loc == LOC_TRASH) A.list = fs_list_start_virtual(FS_V_TRASH, A.sort_key, A.sort_desc);
+    else if (A.loc == LOC_OTHER) A.drive_n = fs_drives(A.drives, 26);
+    else {
+        A.loc = LOC_FOLDER;
         snprintf(A.path, sizeof A.path, "%s", entry);
         A.list = fs_list_start(A.path, A.sort_key, A.sort_desc);
     }
@@ -206,7 +222,10 @@ static void go_hist(int pos) {
 
 void app_back(void) { go_hist(A.hist_pos - 1); }
 void app_forward(void) { go_hist(A.hist_pos + 1); }
-void app_reload(void) { if (A.loc == LOC_FOLDER) load_entry(A.path); }
+void app_reload(void) {
+    if (A.loc == LOC_FOLDER) load_entry(A.path);
+    else if (A.loc != LOC_OTHER) { char e[3] = { '@', (char)('0' + A.loc), 0 }; load_entry(e); }
+}
 
 void app_up(void) {
     char p[FS_PATH_MAX];
@@ -214,7 +233,7 @@ void app_up(void) {
 }
 
 void app_open_vis(int i) {
-    if (i < 0 || i >= A.vis_n) return;
+    if (i < 0 || i >= A.vis_n || A.loc == LOC_TRASH) return;
     char p[FS_PATH_MAX];
     app_path_of(i, p, sizeof p);
     if (app_item(i)->flags & FS_DIR) { app_navigate(p); return; }
@@ -258,41 +277,10 @@ static void global_keys(void) {
 
 /* ---- the frame ---- */
 
-static void other_locations(void) {
-    cui_ctx *ui = A.ui;
-    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad = 24, .gap = 10, .scroll_y = true) {
-        cui_text(ui, "Other Locations", .font = CUI_FONT_MEDIUM, .size = 18);
-        for (int i = 0; i < A.drive_n; i++) {
-            cui_push_id_int(ui, i);
-            char sub[96] = "";
-            if (A.drives[i].total) {
-                char f[48], t[48];
-                fs_format_size(f, sizeof f, A.drives[i].free);
-                fs_format_size(t, sizeof t, A.drives[i].total);
-                snprintf(sub, sizeof sub, "%s free of %s", f, t);
-            }
-            cui_row(ui, .width = CUI_FILL, .max_width = 560, .pad = 12, .gap = 12, .bg = CUI_COLOR_SURFACE_RAISED,
-                    .radius = 14, .border = 1) {
-                cui_icon(ui, CUI_ICON_SERVER, 28, CUI_COLOR_ACCENT);
-                cui_column(ui, .width = CUI_FILL, .gap = 2) {
-                    cui_text(ui, A.drives[i].name, .nowrap = true);
-                    cui_text(ui, sub, .color = CUI_COLOR_TEXT_SECONDARY, .size = 12);
-                }
-                if (cui_button(ui, "Open", .size = CUI_SIZE_SM)) app_navigate(A.drives[i].root);
-            }
-            cui_pop_id(ui);
-        }
-    }
-}
-
-static void content_body(void) {
-    cui_ctx *ui = A.ui;
-    if (A.loc == LOC_RECENT) { ui_state_view(CUI_ICON_CLOCK, "No Recent Files", "Files you open will show up here."); return; }
-    if (A.loc == LOC_STARRED) { ui_state_view(CUI_ICON_STAR, "No Starred Files", "Star a file or folder to find it quickly."); return; }
-    if (A.loc == LOC_TRASH) { ui_state_view(CUI_ICON_TRASH_2, "Trash is Empty", NULL); return; }
-    if (A.loc == LOC_OTHER) { other_locations(); return; }
+static void list_body(void) {
     int st = A.list ? fs_list_state(A.list) : FS_FAILED;
     if (st == FS_FAILED) {
+        if (A.loc != LOC_FOLDER) { ui_state_view(CUI_ICON_LOCK, "Unable to load this view", "Try again in a moment."); return; }
         const char *base = strrchr(A.path, '\\');
         char t[300];
         snprintf(t, sizeof t, "Unable to access \xE2\x80\x9C%s\xE2\x80\x9D", (base && base[1]) ? base + 1 : A.path);
@@ -300,14 +288,29 @@ static void content_body(void) {
         return;
     }
     if (st == FS_LOADING) return;
-    if (A.list->count == 0) { act_background(); ui_state_view(CUI_ICON_FOLDER_OPEN, "Folder is Empty", NULL); return; }
+    if (A.list->count == 0) {
+        if (A.loc == LOC_RECENT) ui_state_view(CUI_ICON_CLOCK, "No Recent Files", "Files you open will show up here.");
+        else if (A.loc == LOC_STARRED) ui_state_view(CUI_ICON_STAR, "No Starred Files", "Star a file or folder to find it quickly.");
+        else if (A.loc == LOC_TRASH) ui_state_view(CUI_ICON_TRASH_2, "Trash is Empty", "Items you move to the Trash will show up here.");
+        else { act_background(); ui_state_view(CUI_ICON_FOLDER_OPEN, "Folder is Empty", NULL); }
+        return;
+    }
     if (A.vis_n == 0) {
         ui_state_view(CUI_ICON_SEARCH, A.search[0] ? "No Results" : "Nothing to Show",
                       A.search[0] ? "Try a different search." : "Only hidden items are here. Press Ctrl+H to show them.");
         return;
     }
-    (void)ui;
     if (A.view == VIEW_GRID) ui_grid_view(); else ui_list_view();
+}
+
+static void content_body(void) {
+    cui_ctx *ui = A.ui;
+    if (A.loc == LOC_OTHER) { ui_other_locations(); return; }
+    if (A.loc == LOC_TRASH) {
+        cui_column(ui, .width = CUI_FILL, .height = CUI_FILL) { ui_trash_bar(); list_body(); }
+        return;
+    }
+    list_body();
 }
 
 static void frame(void) {
@@ -339,6 +342,7 @@ static void frame(void) {
                 app_count_selection();
                 ui_status_pill();
                 act_frame();
+                views_frame();
             }
         }
     }
@@ -355,6 +359,7 @@ static void frame(void) {
 typedef struct options {
     char shot[FS_PATH_MAX], path[FS_PATH_MAX], select[260];
     char test_state[FS_PATH_MAX];
+    int loc;                       /* 0 folder, else LOC_* for --loc */
     int view, theme, w, h;
     int act;                       /* 0 none, 1 item menu, 2 background menu, 3 rename popover, 4 new-folder popover */
 } options;
@@ -372,6 +377,7 @@ static void parse_args(options *o) {
         if (!wcscmp(a, L"--shot") && more) arg_u8(argv[++i], o->shot, sizeof o->shot);
         else if (!wcscmp(a, L"--test-state") && more) arg_u8(argv[++i], o->test_state, sizeof o->test_state);
         else if (!wcscmp(a, L"--path") && more) arg_u8(argv[++i], o->path, sizeof o->path);
+        else if (!wcscmp(a, L"--loc") && more) { ++i; o->loc = !wcscmp(argv[i], L"recent") ? LOC_RECENT : !wcscmp(argv[i], L"starred") ? LOC_STARRED : !wcscmp(argv[i], L"trash") ? LOC_TRASH : !wcscmp(argv[i], L"other") ? LOC_OTHER : 0; }
         else if (!wcscmp(a, L"--select") && more) arg_u8(argv[++i], o->select, sizeof o->select);
         else if (!wcscmp(a, L"--act") && more) { ++i; o->act = !wcscmp(argv[i], L"menu") ? 1 : !wcscmp(argv[i], L"bgmenu") ? 2 : !wcscmp(argv[i], L"rename") ? 3 : !wcscmp(argv[i], L"newdir") ? 4 : 0; }
         else if (!wcscmp(a, L"--view") && more) o->view = !wcscmp(argv[++i], L"list") ? VIEW_LIST : VIEW_GRID;
@@ -408,7 +414,7 @@ static void test_snapshot(const char *base) {
     snprintf(output, sizeof output, "%s.json", base);
     FILE *f = fopen(output, "w");
     if (!f) return;
-    fprintf(f, "{\"path\":"); json_text(f, A.path);
+    fprintf(f, "{\"loc\":%d,\"trash\":%d,\"views\":%d,\"path\":", A.loc, A.trash_n, views_state()); json_text(f, A.path);
     fprintf(f, ",\"view\":%d,\"state\":%d,\"count\":%d,\"selected\":%d,\"cursor\":%d,"
                "\"first\":%d,\"last\":%d,\"cols\":%d,\"hidden\":%d,\"narrow\":%d,\"overlay\":%d,"
                "\"typing\":%d,\"act\":%d,\"row\":[%.2f,%.2f,%.2f,%.2f],\"selection\":[",
@@ -465,6 +471,7 @@ int main(void) {
     A.hwnd = cui_app_native_window(g_app);
     A.view = o.view; A.zoom = 1; A.cursor = A.anchor = -1; A.hover = -1; A.last_click_idx = -1;
     A.sort_key = FS_SORT_NAME;
+    starred_load();
     for (int i = 0; i < 7; i++) fs_known(i, A.places[i], sizeof A.places[i]);
     A.drive_n = fs_drives(A.drives, 26);
     theme_load_fonts(A.ui);
@@ -472,13 +479,14 @@ int main(void) {
     const char *start = o.path[0] ? o.path : A.places[0];
     if (!start[0] || !fs_is_dir(start)) start = A.drive_n ? A.drives[0].root : "C:\\";
     app_navigate(start);
+    if (o.loc) { char e[3] = { '@', (char)('0' + o.loc), 0 }; app_navigate(e); }
 
     int frames = 0, rc = 0, ready = 0;
     while (cui_app_frame(g_app)) {
         frame();
         frames++;
         if (o.test_state[0] && frames > 3) test_snapshot(o.test_state);
-        if (shot && frames > 45 && A.list && fs_list_state(A.list) != FS_LOADING && A.list_seen) {
+        if (shot && frames > 45 && ((A.list && fs_list_state(A.list) != FS_LOADING && A.list_seen) || A.loc == LOC_OTHER)) {
             if (o.select[0] && A.sel_n == 0)
                 for (int i = 0; i < A.vis_n; i++)
                     if (!strcmp(app_item_name(i), o.select)) { app_select_only(i); app_count_selection(); break; }

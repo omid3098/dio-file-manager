@@ -90,6 +90,11 @@ static void paint_row(cui_ctx *ui, cui_rect r, void *user) {
         float icy = top + box * 0.5f;
         if (e->flags & FS_DIR) ui_draw_folder(ui, cx, icy, icon);
         else ui_draw_file(ui, cx, icy, icon, name, e->kind);
+        if (A.loc != LOC_TRASH && app_is_starred(i)) {
+            cui_vec2 sp = { ib.x + ib.w - 8, ib.y + 12 };
+            cui_draw_circle(ui, sp, 10, CUI_COLOR_SURFACE_RAISED);
+            ui_draw_star(ui, sp.x, sp.y + 0.5f, 7.5f, CUI_COLOR_WARNING);
+        }
         name_lines nl;
         layout_name(ui, name, cw - 10, &nl);
         float ty = top + box + 4;

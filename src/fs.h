@@ -21,6 +21,8 @@ typedef struct fs_entry {
     uint64_t size;
     uint64_t mtime;      /* FILETIME */
     uint8_t kind;        /* fs_kind */
+    uint32_t path_off;   /* virtual lists: full path, offset into fs_list.extra (0 = none) */
+    uint32_t id_off;     /* virtual lists: Recycle Bin item id */
 } fs_entry;
 
 /* One folder listing. A worker thread fills it; the window reads it only after fs_list_state() is not FS_LOADING. */
@@ -36,9 +38,17 @@ typedef struct fs_list {
     volatile long state; /* fs_state */
     volatile long owner; /* references held by the window and listing worker */
     volatile long abandoned;
+    char *extra;         /* second string pool for virtual lists; offset 0 is the empty string */
+    size_t extra_len, extra_cap;
+    int vkind;           /* 0 a folder; else FS_V_* (Recent, Starred, Trash) */
+    bool mixed;          /* sort without putting folders first */
 } fs_list;
+enum { FS_V_NONE = 0, FS_V_RECENT = 1, FS_V_STARRED = 2, FS_V_TRASH = 3 };
 
 fs_list *fs_list_start(const char *path, int sort_key, bool sort_desc);  /* returns at once */
+fs_list *fs_list_start_virtual(int vkind, int sort_key, bool sort_desc); /* Recent, Starred or Trash; filled by views_fill */
+bool fs_list_add(fs_list *l, const char *name, uint32_t flags, uint64_t size, uint64_t mtime, const char *path, const char *id);
+const char *fs_extra(const fs_list *l, uint32_t off);
 int fs_list_state(const fs_list *l);
 void fs_list_release(fs_list *l);               /* frees now, or when the worker finishes */
 const char *fs_name(const fs_list *l, int i);
