@@ -24,13 +24,17 @@ static HRESULT scan(recent_items *list, const char *const *remove, size_t count)
     if (FAILED(hr)) goto done;
     hr = CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &IID_IShellLinkW, (void **)&link); if (FAILED(hr)) goto done;
     hr = IShellLinkW_QueryInterface(link, &IID_IPersistFile, (void **)&persist); if (FAILED(hr)) goto done;
-    pattern = dfm_join(folder, L"*.lnk"); if (!pattern) { hr = E_OUTOFMEMORY; goto done; }
+    /* Private-desktop checks parse real shortcuts without changing the owner's Recent folder. */
+    wchar_t test_folder[32768];
+    DWORD test_n = GetEnvironmentVariableW(L"DFM_TEST_RECENT", test_folder, 32768);
+    const wchar_t *source = test_n && test_n < 32768 ? test_folder : folder;
+    pattern = dfm_join(source, L"*.lnk"); if (!pattern) { hr = E_OUTOFMEMORY; goto done; }
     h = FindFirstFileW(pattern, &d);
     if (h == INVALID_HANDLE_VALUE) { DWORD e = GetLastError(); hr = e == ERROR_FILE_NOT_FOUND ? S_OK : HRESULT_FROM_WIN32(e); goto done; }
     do {
         wchar_t target[32768], *shortcut;
         if (d.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-        shortcut = dfm_join(folder, d.cFileName);
+        shortcut = dfm_join(source, d.cFileName);
         if (!shortcut) { hr = E_OUTOFMEMORY; goto done; }
         hr = IPersistFile_Load(persist, shortcut, STGM_READ);
         if (FAILED(hr)) { free(shortcut); continue; }

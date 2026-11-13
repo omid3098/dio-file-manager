@@ -142,7 +142,7 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 | Hairline `line` | #0F172A at 9% | #FFFFFF at 9% | BORDER_SUBTLE, BORDER |
 | Control edge `line-strong` | #0F172A at 16% | #FFFFFF at 16% | BORDER_STRONG |
 | Hover | fg at 6% | fg at 6% | HOVER |
-| Selected | fg at 10% | fg at 10% | (selected fill) |
+| Selected | Accent at 16% over content | Accent at 16% over content | ACTIVE |
 | Accent | #5B63E6 | #8AB4FF | ACCENT |
 | Text on accent | #FFFFFF | #0A0D1A | ACCENT_FOREGROUND |
 | Success, warn, danger, live | #0D9488, #D97706, #E11D48, #0284C7 | #5EEAD4, #FBBF24, #FC909E, #7DD3FC | SUCCESS, WARNING, DANGER, INFO |

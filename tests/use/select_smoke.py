@@ -7,6 +7,8 @@ import subprocess
 import sys
 import time
 
+os.environ.setdefault('DFM_SELECT_ID', str(time.time_ns()))
+
 ROOT = Path(__file__).resolve().parents[2]
 os.environ.setdefault('DFM_USE_WORK', r'E:\w\dio-file-manager\.agent-work\rubberband-v1')
 import input_smoke as base
@@ -35,7 +37,7 @@ def release(a, x, y):
     assert not a.snap()['band'], 'Box remained after release'
 
 
-def band_case(a, stop, picture=None):
+def band_case(a, stop, picture=None, prefix='item-', finish=False, items=None):
     s = set_stop(a, stop)
     x, y, w, h = s['row']
     if stop == 0:
@@ -54,9 +56,18 @@ def band_case(a, stop, picture=None):
         end = (x+16+1.5*cw, y+1.5*h)
         indices = (0, 1, s['cols'], s['cols']+1)
         keep = s['count']-1
-    expected = sorted(f'item-{i:03}.txt' for i in indices if i < s['count'])
+    expected = sorted((items[i] if items else f'{prefix}{i:03}.txt') for i in indices if i < s['count'])
     # Starting with everything selected proves a plain band replaces it.
     a.key(65, (17,))
+    if finish:
+        press(a, *start)
+        move(a, *end)
+        assert a.snap()['band'] and sorted(a.snap()['selection']) == expected
+        if picture:
+            shutil.copyfile(str(a.base)+'.png', WORK/'final'/picture)
+        release(a, *end)
+        assert sorted(a.snap()['selection']) == expected
+        return expected
     for mods in ((), (17,), (16,)):
         if mods:
             a.key(36)  # reset scroll after selecting an offscreen item
@@ -113,12 +124,12 @@ def scrolling(a, stop):
 def inside():
     results = []
 
-    def check(name, folder, fn, view='grid'):
+    def check(name, folder, fn, view='grid', theme='light'):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
         a = None
         try:
-            a = base.App(name, folder, view, 'dark' if name == '1-band-0' else 'light')
+            a = base.App(name, folder, view, 'dark' if name == '1-band-0' else theme)
             fn(a)
             results.append(dict(check=name, result='passed'))
         except Exception as e:
@@ -147,6 +158,119 @@ def inside():
             band_case(a, stop)
 
     check('3-search-all-stops', WORK/'few', search)
+
+    def tint(a, stop, theme):
+        from PIL import Image
+        s = set_stop(a, stop)
+        x, y, w, h = s['row']
+        px, py = (x+180, y+12) if stop <= 1 else (x+16+(w-32)/s['cols']/2, y+5)
+        surface = (16, 19, 28) if theme == 'dark' else (247, 248, 252)
+        # CUI mixes in OKLab, rather than interpolating sRGB channels.
+        expected = (33, 41, 58) if theme == 'dark' else (219, 225, 251)
+
+        def color(expected):
+            a.snap()
+            scale = base.U.GetDpiForWindow(a.hwnd)/96
+            with Image.open(str(a.base)+'.png') as image:
+                actual = image.convert('RGB').getpixel((round(px*scale), round(py*scale)))
+            assert all(abs(c-e) <= 2 for c,e in zip(actual, expected)), (theme, stop, actual, expected)
+
+        # Hover is neutral; the same pixel becomes accent tinted by all three selection paths.
+        a.msg(0x200, 0, a.point(*cell_xy(a, 0))); time.sleep(.3)
+        fg = (238, 241, 250) if theme == 'dark' else (14, 20, 36)
+        color(tuple(round(b*.94+c*.06) for b,c in zip(surface, fg)))
+        a.click(*cell_xy(a, 0)); color(expected)
+        a.key(65, (17,)); color(expected)
+        name = ('details', 'list', 'grid')[0 if stop == 0 else 1 if stop == 1 else 2]+'-'+theme
+        a.msg(0x200, 0, a.point(700, 23)); time.sleep(.3)
+        a.snap()
+        shutil.copyfile(str(a.base)+'.png', WORK/'final'/(name+'-selected.png'))
+        band_case(a, stop, name+'-band.png', finish=True)
+        if stop == 0:  # Details selects rows 5..7 rather than the first row.
+            py += 5*36
+        color(expected)
+
+    for theme in ('dark', 'light'):
+        for stop in (0, 1, 3):
+            check(f'5-tint-{theme}-{stop}', WORK/('few' if stop == 0 else 'many'),
+                  lambda a, stop=stop, theme=theme: tint(a, stop, theme), theme=theme)
+
+    def special(a, place, stop):
+        prefix = f'dio-band-{os.environ["DFM_SELECT_ID"]}-{place}-{stop}-'
+        files = [a.folder/f'{prefix}{i:03}.txt' for i in range(8)]
+        saved = WORK/'appdata/dio-file-manager/starred.txt'
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        saved.write_text('', encoding='utf-8')
+        if place == 'recent':
+            shortcuts = a.folder/'shortcuts'
+            shortcuts.mkdir(exist_ok=True)
+            # Real IShellLink files, parsed by recent_list, confined to this task.
+            script = "$w=New-Object -ComObject WScript.Shell; Get-ChildItem -LiteralPath $env:DFM_RECENT_FILES -Filter '*.txt' | ForEach-Object { $s=$w.CreateShortcut((Join-Path $env:DFM_TEST_RECENT ($_.Name+'.lnk'))); $s.TargetPath=$_.FullName; $s.Save() }"
+            os.environ['DFM_TEST_RECENT'] = str(shortcuts)
+            subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
+                           env=dict(os.environ, DFM_RECENT_FILES=str(a.folder)), check=True,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+        a.restart()
+        if place == 'starred':
+            a.key(65, (17,))
+            a.rclick(*cell_xy(a, 0))
+            for _ in range(7):
+                a.key(40)
+            a.key(13)
+            a.until('Star did not save all fixtures', lambda: saved.exists() and len(saved.read_text(encoding='utf-8').splitlines()) == 8)
+        elif place == 'trash':
+            a.key(65, (17,))
+            assert sorted(a.snap()['selection']) == sorted(p.name for p in files)
+            a.key(46)
+            a.until('Fixtures not moved to Trash', lambda: all(not p.exists() for p in files))
+            a.until('Trash job did not finish', lambda: not a.snap()['act'] & 2)
+        a.click(90, {'recent': 62, 'starred': 96, 'trash': 368}[place])
+        a.until('Special place not loaded', lambda: a.snap()['loc'] == {'recent': 1, 'starred': 2, 'trash': 3}[place] and a.snap()['state'] == 1)
+        # Filter the real bin to our fixtures before any selection or action.
+        a.key(70, (17,))
+        for c in prefix:
+            a.msg(0x102, ord(c))
+            time.sleep(.01)
+        a.until('Special fixtures not listed', lambda: a.snap()['count'] == 8)
+        set_stop(a, stop)  # Ctrl+A must reach the files, not the filter field.
+        a.key(65, (17,))
+        items = a.snap()['selection']
+        selected = band_case(a, stop, prefix=prefix, finish=True, items=items)
+        if place == 'recent':
+            a.key(46)
+            assert all(p.exists() for p in files), 'Recent Delete modified a file'
+            assert not a.snap()['act'] and not a.snap()['views'], 'Recent Delete started an action'
+        a.rclick(*cell_xy(a, items.index(selected[0])))
+        assert sorted(a.snap()['selection']) == selected, 'Context click replaced band selection'
+        # Recent: Star. Starred: Unstar. Trash: Restore.
+        for _ in range(5 if place == 'recent' else 6 if place == 'starred' else 1):
+            a.key(40)
+        a.key(13)
+        if place == 'trash':
+            a.until('Restore did not match band', lambda: sorted(p.name for p in files if p.exists()) == selected)
+            a.until('Restore still running', lambda: not a.snap()['views'])
+            # Reloading a special place closes its local filter.
+            a.key(70, (17,))
+            for c in prefix:
+                a.msg(0x102, ord(c))
+                time.sleep(.01)
+            a.until('Trash kept restored fixtures', lambda: a.snap()['count'] == 8-len(selected))
+            set_stop(a, stop)  # move keyboard focus from the filter back to files
+            # Restore the remainder too; never empty the owner's bin.
+            a.key(65, (17,))
+            a.rclick(*cell_xy(a, 0)); a.key(40); a.key(13)
+            a.until('Remaining fixtures not restored', lambda: all(p.exists() for p in files))
+        else:
+            expected = selected if place == 'recent' else sorted(p.name for p in files if p.name not in selected)
+            a.until('Star action did not match band', lambda: sorted(Path(p).name for p in saved.read_text(encoding='utf-8').splitlines()) == expected)
+            assert all(p.exists() for p in files), 'Star action modified a file'
+        assert all(p.read_text(encoding='utf-8') == 'band fixture' for p in files), 'Fixture content changed'
+        os.environ.pop('DFM_TEST_RECENT', None)
+
+    for place in ('recent', 'starred', 'trash'):
+        for stop in (0, 1, 3):
+            folder = WORK/f'{place}-{stop}'
+            check(f'4-{place}-{stop}', folder, lambda a, place=place, stop=stop: special(a, place, stop))
     (WORK/'select-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 
@@ -160,6 +284,14 @@ def main():
     for folder, count in (('few', 8), ('many', 200)):
         for i in range(count):
             (WORK/folder/f'item-{i:03}.txt').touch(exist_ok=True)
+    for place in ('recent', 'starred', 'trash'):
+        for stop in (0, 1, 3):
+            folder = WORK/f'{place}-{stop}'
+            folder.mkdir(exist_ok=True)
+            for fixture in folder.glob('dio-band-*.txt'):
+                fixture.unlink()
+            for i in range(8):
+                (folder/f'dio-band-{os.environ["DFM_SELECT_ID"]}-{place}-{stop}-{i:03}.txt').write_text('band fixture', encoding='utf-8')
     gaming = r'C:\Users\Omid\.agents\tools\gaming.py'
     rc = subprocess.run([sys.executable, gaming, 'check'], creationflags=subprocess.CREATE_NO_WINDOW).returncode
     if rc == 3:
