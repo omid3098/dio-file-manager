@@ -2,6 +2,7 @@
 #define DFM_INTERNAL
 #include "ops.h"
 #include "shell.h"
+#include "clip.h"
 #include <shlobj.h>
 #include <shellapi.h>
 #include <stdio.h>
@@ -98,7 +99,7 @@ HRESULT shell_copy_path(HWND owner, const char *path) {
     p = GlobalLock(data);
     if (!p) { free(w); GlobalFree(data); return E_OUTOFMEMORY; }
     memcpy(p, w, (wcslen(w) + 1) * sizeof(wchar_t)); GlobalUnlock(data); free(w);
-    if (!OpenClipboard(owner)) error = GetLastError();
+    if (!clip_open(owner)) error = GetLastError();
     else {
         if (!EmptyClipboard() || !SetClipboardData(CF_UNICODETEXT, data)) error = GetLastError();
         else data = NULL;

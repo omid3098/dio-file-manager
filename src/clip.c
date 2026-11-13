@@ -11,6 +11,16 @@ void clip_free(clip_files *f) {
     for (i = 0; i < f->count; ++i) free(f->paths[i]);
     free(f->paths); memset(f, 0, sizeof(*f));
 }
+/* Other programs (clipboard history, sync tools, another window) open the clipboard for a few
+   milliseconds after each change. Windows then refuses ours, so retry for up to 300 ms. */
+BOOL clip_open(HWND owner) {
+    ULONGLONG end = GetTickCount64() + 300;
+    for (;;) {
+        if (OpenClipboard(owner)) return TRUE;
+        if (GetLastError() != ERROR_ACCESS_DENIED || GetTickCount64() >= end) return FALSE;
+        Sleep(1);
+    }
+}
 DWORD clip_write(HWND owner, const char *const *paths, size_t count, int cut) {
     size_t i, chars = 1, offset = 0;
     wchar_t **wide;
@@ -38,7 +48,7 @@ DWORD clip_write(HWND owner, const char *const *paths, size_t count, int cut) {
     }
     GlobalUnlock(data);
     { DWORD *p = GlobalLock(effect); if (!p) goto done; *p = cut ? DROPEFFECT_MOVE : DROPEFFECT_COPY; GlobalUnlock(effect); }
-    if (!OpenClipboard(owner)) { error = GetLastError(); goto done; }
+    if (!clip_open(owner)) { error = GetLastError(); goto done; }
     if (!EmptyClipboard()) error = GetLastError();
     else if (!SetClipboardData(CF_HDROP, data)) error = GetLastError();
     else {
@@ -58,7 +68,7 @@ DWORD clip_read(HWND owner, clip_files *f) {
     UINT i, count;
     DWORD error = 0;
     memset(f, 0, sizeof(*f));
-    if (!OpenClipboard(owner)) return GetLastError();
+    if (!clip_open(owner)) return GetLastError();
     drop = GetClipboardData(CF_HDROP);
     if (!drop) { error = ERROR_NOT_FOUND; goto done; }
     count = DragQueryFileW(drop, 0xFFFFFFFF, NULL, 0);

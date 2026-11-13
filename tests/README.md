@@ -188,3 +188,10 @@ key trees, turns the switch on with `--test-state` (so opened places are only lo
 block turns the switch off and compares the keys byte for byte (it imports the backup and retries on a
 difference). The keys stay registered for about 5 seconds, at most 10. It never starts the real Explorer:
 before each call it reads the class's command and does not call when it is not the launcher.
+
+The app itself retries `OpenClipboard` for up to 300 ms (`clip_open` in `src/clip.c`),
+because clipboard history, sync tools and other programs open the clipboard for a few
+milliseconds after every change and Windows refuses a second opener. The mutex above only
+orders the checks; it cannot stop those outside programs. Before this retry, check
+`5-name-conflicts` failed ("No name conflict dialog") whenever such a program was busy: a loop
+that opens the clipboard for 20 ms every 25 ms failed it 3 of 3; with the retry it passed 6 of 6.

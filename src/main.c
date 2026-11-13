@@ -10,6 +10,7 @@
 #include <cui/cui_render.h>
 #include "ui.h"
 #include "shell.h"
+#include "clip.h"
 #include "starred.h"
 #include "recent.h"
 #include "ops.h"
@@ -87,7 +88,7 @@ void app_copy_text(const char *utf8) {
     if (!w || !fs_u8_to_w(utf8, w, (int)strlen(utf8) + 1)) { free(w); return; }
     size_t bytes = (wcslen(w) + 1) * sizeof *w;
     HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (h && OpenClipboard(NULL)) {
+    if (h && clip_open(NULL)) {
         memcpy(GlobalLock(h), w, bytes);
         GlobalUnlock(h);
         EmptyClipboard();

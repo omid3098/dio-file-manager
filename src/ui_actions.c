@@ -158,7 +158,7 @@ static void start_undo(void) {
 }
 
 static void clear_cut_clipboard(void) {
-    if (OpenClipboard(hwnd())) { EmptyClipboard(); CloseClipboard(); }
+    if (clip_open(hwnd())) { EmptyClipboard(); CloseClipboard(); }
 }
 
 /* The shown folder is the one a copy or move pastes into, or a folder inside it (a pasted folder being filled). */

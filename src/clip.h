@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <windows.h>
 typedef struct clip_files { char **paths; size_t count; int cut; } clip_files;
+/* OpenClipboard that retries while another program holds it; TRUE when open. */
+BOOL clip_open(HWND owner);
 DWORD clip_write(HWND owner, const char *const *paths, size_t count, int cut);
 DWORD clip_read(HWND owner, clip_files *files);
 void clip_free(clip_files *files);
