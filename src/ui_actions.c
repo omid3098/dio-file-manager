@@ -473,7 +473,18 @@ void act_frame(void) {
         if (FAILED(G.undo_hr)) toast_error("Could not undo", (DWORD)G.undo_hr, NULL);
         if (A.loc == LOC_FOLDER) app_reload();
     }
-    cui_box(ui, .width = CUI_FILL, .height = CUI_PX(1)) { }
+    /* the anchor of the popovers: a hairline just under the row of the selected item */
+    float below = 0;
+    if (A.cursor >= 0) {
+        int row = A.view == VIEW_GRID && A.cols > 0 ? A.cursor / A.cols : A.cursor + 1;
+        float rh = A.view == VIEW_GRID ? A.cell_h : 36.0f;
+        below = (float)(row - A.first_row + (A.view == VIEW_GRID ? 1 : 0)) * rh;
+        if (below < 0) below = 0;
+        if (below > A.content_h - 150) below = A.content_h - 150;
+    }
+    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad_top = below) {
+        cui_canvas(ui, "popanchor", CUI_FILL, CUI_PX(1), paint_none, NULL, 0);
+    }
     name_popover();
     conflict_dialog();
     delete_dialog();
