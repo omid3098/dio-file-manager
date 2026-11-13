@@ -111,6 +111,10 @@ until restoration finishes (including nested checks and exception paths).
   key from the leaf up to `Top`, and a parent only while it is empty, so another program's entries beside ours stay).
   Only when every key is back does it delete this key, the launcher copy and its folder (when empty); if a key
   cannot be restored, turning off reports failure and keeps both, and the next try starts from the same record.
+  Any registry error other than "not found" while turning off (a saved value that cannot be read, a key that
+  cannot be written) is such a failure; only a record that is really absent means "remove what is ours". While
+  the record is left, or any command is still ours, the switch reads as on, so the next click retries turning
+  off and a turn-on never replaces the record.
 - The launcher is a copy of the exe named `dio-file-manager-launcher.exe` in `%LOCALAPPDATA%\dio-file-manager`.
   `main()` checks its own file name first: with the app present it starts it with the same arguments and exits
   (no window); with the app gone it restores the keys, hands the request to Explorer and deletes itself.

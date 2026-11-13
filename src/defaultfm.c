@@ -124,6 +124,23 @@ static bool get_string(HKEY root, const wchar_t *path, const wchar_t *name, wcha
     return ok;
 }
 
+/* A registry error that means "it is not there"; every other error means "could not look". */
+static bool is_missing(LONG r) { return r == ERROR_FILE_NOT_FOUND || r == ERROR_PATH_NOT_FOUND; }
+
+/* Read a key's default string. 0: read. ERROR_FILE_NOT_FOUND: no key, no value, or not a string (too long counts
+ * too: nothing of ours is that long). Any other code: the registry refused, so nothing is known. */
+static LONG read_default(const wchar_t *path, wchar_t *out, DWORD cap) {
+    HKEY k;
+    DWORD type, n = cap * sizeof *out;
+    LONG r = RegOpenKeyExW(HKEY_CURRENT_USER, path, 0, KEY_QUERY_VALUE, &k);
+    if (r) return is_missing(r) ? ERROR_FILE_NOT_FOUND : r;
+    r = RegQueryValueExW(k, L"", NULL, &type, (BYTE *)out, &n);
+    RegCloseKey(k);
+    if (r == ERROR_MORE_DATA || (!r && type != REG_SZ && type != REG_EXPAND_SZ)) return ERROR_FILE_NOT_FOUND;
+    if (!r) out[cap - 1] = 0;
+    return is_missing(r) ? ERROR_FILE_NOT_FOUND : r;
+}
+
 static bool set_string(HKEY k, const wchar_t *name, const wchar_t *v) {
     return !RegSetValueExW(k, name, 0, REG_SZ, (const BYTE *)v, (DWORD)((wcslen(v) + 1) * sizeof *v));
 }
@@ -135,11 +152,27 @@ static bool is_ours(const wchar_t *command) {
     return wcsstr(low, L"-launcher.exe") != NULL;
 }
 
-bool defaultfm_enabled(void) {
+/* True when a registered command carries the launcher's name. */
+static bool any_ours(void) {
     wchar_t p[520], c[1200];
     paths();
-    sub(p, classes_base, TARGET[0].path);
-    return get_string(HKEY_CURRENT_USER, p, L"", c, 1200) && is_ours(c);
+    for (int i = 0; i < TARGETS; i++) {
+        sub(p, classes_base, TARGET[i].path);
+        if (!read_default(p, c, 1200) && is_ours(c)) return true;
+    }
+    return false;
+}
+
+/* The switch is on while any registered command is ours, and also while a record of the old values is left: a
+ * turn-off that could not finish is still waiting for its retry, and a new turn-on must not replace that record. */
+bool defaultfm_enabled(void) {
+    HKEY k;
+    LONG r;
+    paths();
+    if (any_ours()) return true;
+    r = RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_QUERY_VALUE, &k);
+    if (!r) RegCloseKey(k);
+    return !is_missing(r);
 }
 
 /* Remember how one target looked: whether it existed, the first key that did not, and its values. */
@@ -173,44 +206,63 @@ static bool save_target(HKEY saved, int i) {
     return ok;
 }
 
-/* Remove one registered command that carries the launcher's name; false when it is there and cannot be removed. */
+/* Remove one registered command that carries the launcher's name; false when it is there and cannot be removed,
+ * or when it cannot be read. */
 static bool remove_ours(int i) {
     wchar_t p[520], c[1200];
+    LONG r;
     sub(p, classes_base, TARGET[i].path);
-    if (!get_string(HKEY_CURRENT_USER, p, L"", c, 1200) || !is_ours(c)) return true;
-    return !RegDeleteTreeW(HKEY_CURRENT_USER, p);
+    r = read_default(p, c, 1200);
+    if (r) return r == ERROR_FILE_NOT_FOUND;
+    if (!is_ours(c)) return true;
+    r = RegDeleteTreeW(HKEY_CURRENT_USER, p);
+    return !r || is_missing(r);
 }
 
 /* Put one target back. A target that did not exist loses only the keys the registration made: its own key, then
- * each parent down to Top while it is empty, so another program's entries beside ours stay. */
+ * each parent down to Top while it is empty, so another program's entries beside ours stay. Only a record that is
+ * not there ends in "remove what is ours"; a record that cannot be read or written is a failure. */
 static bool restore_target(HKEY saved, int i) {
-    wchar_t name[16], rel[520], top[520], full[520];
+    wchar_t name[16], rel[520], top[520] = L"", full[520];
     HKEY k;
-    DWORD existed = 0, n = sizeof existed;
+    DWORD existed = 0, n = sizeof existed, type;
+    LONG r;
     _snwprintf_s(name, 16, _TRUNCATE, L"%d", i);
-    if (RegOpenKeyExW(saved, name, 0, KEY_READ, &k)) return remove_ours(i);     /* no record of this target */
-    RegQueryValueExW(k, L"Existed", NULL, NULL, (BYTE *)&existed, &n);
-    DWORD tn = sizeof top, tt;
-    if (RegQueryValueExW(k, L"Top", NULL, &tt, (BYTE *)top, &tn) || tt != REG_SZ) top[0] = 0;
+    r = RegOpenKeyExW(saved, name, 0, KEY_READ, &k);
+    if (is_missing(r)) return remove_ours(i);                   /* no record of this target */
+    if (r) return false;
+    r = RegQueryValueExW(k, L"Existed", NULL, &type, (BYTE *)&existed, &n);
+    bool ok = !r && type == REG_DWORD;
+    if (ok && !existed) {
+        DWORD tn = sizeof top - sizeof *top;
+        r = RegQueryValueExW(k, L"Top", NULL, &type, (BYTE *)top, &tn);
+        if (is_missing(r) || (!r && type != REG_SZ)) top[0] = 0;
+        else ok = !r;
+        top[519] = 0;
+    }
     wcscpy_s(rel, 520, TARGET[i].path);
     sub(full, classes_base, rel);
-    bool ok = true;
-    if (existed) {
+    if (ok && existed) {
         HKEY leaf, v;
-        ok = !RegCreateKeyExW(HKEY_CURRENT_USER, full, 0, NULL, 0, KEY_READ | KEY_WRITE, NULL, &leaf, NULL);
+        ok = !RegOpenKeyExW(k, L"Values", 0, KEY_READ, &v);     /* read the record first: nothing is cleared without it */
         if (ok) {
-            ok = clear_values(leaf) && !RegOpenKeyExW(k, L"Values", 0, KEY_READ, &v);
-            if (ok) { ok = copy_values(v, leaf); RegCloseKey(v); }
-            RegCloseKey(leaf);
+            ok = !RegCreateKeyExW(HKEY_CURRENT_USER, full, 0, NULL, 0, KEY_READ | KEY_WRITE, NULL, &leaf, NULL);
+            if (ok) {
+                ok = clear_values(leaf) && copy_values(v, leaf);
+                RegCloseKey(leaf);
+            }
+            RegCloseKey(v);
         }
-    } else {
-        LONG r = RegDeleteTreeW(HKEY_CURRENT_USER, full);
-        ok = !r || r == ERROR_FILE_NOT_FOUND;
+    } else if (ok) {
+        r = RegDeleteTreeW(HKEY_CURRENT_USER, full);
+        ok = !r || is_missing(r);
         for (wchar_t *cut; ok && wcslen(rel) > wcslen(top) && (cut = wcsrchr(rel, L'\\')); ) {
             *cut = 0;
             sub(full, classes_base, rel);
-            if (key_empty(full)) ok = !RegDeleteKeyW(HKEY_CURRENT_USER, full);
-            else break;
+            if (key_empty(full)) {
+                r = RegDeleteKeyW(HKEY_CURRENT_USER, full);
+                ok = !r || is_missing(r);
+            } else break;
         }
     }
     RegCloseKey(k);
@@ -290,27 +342,34 @@ bool defaultfm_enable(const wchar_t *extra_args) {
 }
 
 /* Nothing is thrown away until every target is back: a failed restore keeps the record and the launcher the
- * registered commands point to, and the next turn-off tries again. */
+ * registered commands point to, and the next turn-off tries again. Every registry error except "not there" is a
+ * failed restore; the record is only trusted or replaced by a restore that finished. */
 bool defaultfm_disable(void) {
     HKEY state, saved;
     wchar_t launcher[MAX_PATH] = L"";
     bool ok = true;
+    LONG r;
     paths();
-    get_string(HKEY_CURRENT_USER, state_base, L"Launcher", launcher, MAX_PATH);
-    if (!RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_READ, &state)) {
-        if (!RegOpenKeyExW(state, L"Saved", 0, KEY_READ, &saved)) {
+    r = RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_READ, &state);
+    if (r) ok = is_missing(r) && remove_all_ours();
+    else {
+        DWORD type, n = sizeof launcher - sizeof *launcher;
+        if (RegQueryValueExW(state, L"Launcher", NULL, &type, (BYTE *)launcher, &n) || type != REG_SZ) launcher[0] = 0;
+        r = RegOpenKeyExW(state, L"Saved", 0, KEY_READ, &saved);
+        if (!r) {
             for (int i = TARGETS - 1; i >= 0; i--) ok = restore_target(saved, i) && ok;
             RegCloseKey(saved);
-        } else ok = remove_all_ours();
+        } else ok = is_missing(r) && remove_all_ours();
         RegCloseKey(state);
-    } else ok = remove_all_ours();
-    if (!ok || defaultfm_enabled()) return false;
+    }
+    if (!ok || any_ours()) return false;
     const wchar_t *base = wcsrchr(launcher, L'\\');      /* the copy goes too; a running one stays */
     if (base && !_wcsicmp(base + 1, LAUNCHER_NAME) && !defaultfm_is_launcher() && DeleteFileW(launcher)) {
         launcher[base - launcher] = 0;
         RemoveDirectoryW(launcher);                  /* only when nothing else is in it */
     }
-    RegDeleteTreeW(HKEY_CURRENT_USER, state_base);
+    r = RegDeleteTreeW(HKEY_CURRENT_USER, state_base);
+    if (r && !is_missing(r)) return false;           /* the record stays, so the switch still reads as waiting */
     if (!wcscmp(state_base, L"Software\\Dio File Manager\\DefaultFileManager")) RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\Dio File Manager");
     return true;
 }

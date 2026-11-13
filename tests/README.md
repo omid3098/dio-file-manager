@@ -177,8 +177,10 @@ was reverted. See `docs/view-slider-validation.md` for the incomplete acceptance
 (`DFM_TEST_REGROOT`, set for every child) on the hidden desktop and fails if the real keys change.
 It checks on/off with exact restore of values of several types, clean keys, every command-line form,
 the loop guard, the app exe gone, the exe moved, the real click in the main menu, a key that cannot be restored
-(denied write: record and launcher stay, turning off fails, a retry restores), another program's class that survives
-turning off, and long Unicode folder and file names.
+(denied write: record and launcher stay, turning off fails, a retry restores), a saved value that cannot be read
+(denied read: turning off fails and keeps everything), Win+E that cannot be written back while Folder can (the
+switch stays on, a turn-on does not replace the record, the retry restores), another program's class that survives
+turning off, and long Unicode folder and file names. 12 checks.
 
 `use/default_fm_real.py` is not a `*_smoke.py`: run it by hand. It runs `gaming.py check`, backs up the three real
 key trees, turns the switch on with `--test-state` (so opened places are only logged), calls `ShellExecuteEx`

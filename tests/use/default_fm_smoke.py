@@ -435,28 +435,84 @@ def inside():
             a.close()
             exe_run(['--default-fm', 'off', '--test-state', str(BASE)])
 
+    def acl_of(key, right):
+        """(deny, allow): run PowerShell that denies one right on a key under HKCU to the current user, and takes the denial away."""
+        acl = ("$k=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('%s','ReadWriteSubTree','ChangePermissions,ReadPermissions'); "
+               "$a=$k.GetAccessControl(); $r=New-Object System.Security.AccessControl.RegistryAccessRule("
+               "[System.Security.Principal.WindowsIdentity]::GetCurrent().Name,'%s','Deny'); " % (key, right))
+        ps = lambda tail: subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', acl + tail],
+                                         capture_output=True, timeout=60, creationflags=NO_WINDOW).returncode
+        return (lambda: ps('$a.AddAccessRule($r); $k.SetAccessControl($a); $k.Close()'),
+                lambda: ps('$a.RemoveAccessRule($r) | Out-Null; $k.SetAccessControl($a); $k.Close()'))
+
     def failed_restore_keeps_recovery():
         """A key that cannot be written back must keep the record and the launcher, and turning off must say so."""
         seed_rich()
         before = dump()
         assert on() == 0
         launcher = LOCAL / 'dio-file-manager-launcher.exe'
-        acl = ("$k=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('%s\\%s','ReadWriteSubTree','ChangePermissions,ReadPermissions'); "
-               "$a=$k.GetAccessControl(); $r=New-Object System.Security.AccessControl.RegistryAccessRule("
-               "[System.Security.Principal.WindowsIdentity]::GetCurrent().Name,'SetValue','Deny'); " % (CLASSES, FOLDER_OPEN))
-        ps = lambda tail: subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', acl + tail],
-                                         capture_output=True, timeout=60, creationflags=NO_WINDOW).returncode
-        assert ps('$a.AddAccessRule($r); $k.SetAccessControl($a); $k.Close()') == 0, 'Could not deny writes to the command key'
+        deny, allow = acl_of(CLASSES + '\\' + FOLDER_OPEN, 'SetValue')
+        assert deny() == 0, 'Could not deny writes to the command key'
         try:
             assert off() != 0, 'Turning off said it worked while a key could not be restored'
             assert launcher.exists(), 'The launcher the commands still point to was deleted'
             assert state_value('App') is not None, 'The record of the old values was deleted'
             assert status() == 0 and 'launcher' in command_of(FOLDER_OPEN), 'The command no longer points at the launcher'
         finally:
-            ps('$a.RemoveAccessRule($r) | Out-Null; $k.SetAccessControl($a); $k.Close()')
+            allow()
         assert off() == 0, 'Turning off failed once the key could be written again'
         assert dump() == before, 'Keys differ from before after the retry'
         assert not launcher.exists() and state_value('App') is None, 'The launcher or the record was left behind'
+
+    def unreadable_record_is_a_failure():
+        """A saved value the registry will not let us read must fail the turn-off and keep everything, not count as 'no record'."""
+        seed_rich()
+        put(WIN_E_CMD, '', 'original-explorer.exe')   # Win+E had a command before: it is what the unreadable record holds
+        before = dump()
+        assert on() == 0
+        launcher = LOCAL / 'dio-file-manager-launcher.exe'
+        after_on = dump()
+        deny, allow = acl_of(STATE + '\\Saved\\2', 'QueryValues')   # the saved Win+E record
+        assert deny() == 0, 'Could not deny reads of the saved record'
+        try:
+            assert off() != 0, 'Turning off said it worked while a saved value could not be read'
+            assert launcher.exists(), 'The launcher was deleted while Win+E still points to it'
+            assert state_value('App') is not None, 'The record was deleted while one value could not be read'
+            assert 'launcher' in (command_of(WIN_E_CMD) or ''), 'Win+E was changed without its saved value'
+            assert status() == 0, 'The switch reads as off while Win+E is still ours'
+        finally:
+            allow()
+        assert off() == 0, 'Turning off failed once the record could be read again'
+        assert dump() == before, 'Keys differ from before after the retry'
+        assert not launcher.exists() and state_value('App') is None, 'The launcher or the record was left behind'
+
+    def failed_win_e_restore_then_retry():
+        """Win+E cannot be written back while Folder can: the switch stays on, the next click retries, the record is never replaced."""
+        seed_rich()
+        put(WIN_E_CMD, '', 'original-explorer.exe')   # a Win+E command that has to be written back
+        before = dump()
+        assert on() == 0
+        launcher = LOCAL / 'dio-file-manager-launcher.exe'
+        saved = dump(STATE)
+        deny, allow = acl_of(CLASSES + '\\' + WIN_E_CMD, 'SetValue')
+        assert deny() == 0, 'Could not deny writes to the Win+E key'
+        try:
+            assert off() != 0, 'Turning off said it worked while Win+E could not be restored'
+            assert 'launcher' not in (command_of(FOLDER_OPEN) or ''), 'The test needs Folder to be restored'
+            assert 'launcher' in (command_of(WIN_E_CMD) or ''), 'The test needs Win+E to still be ours'
+            assert status() == 0, 'The switch reads as off while Win+E still points to the launcher'
+            assert launcher.exists(), 'The launcher Win+E points to was deleted'
+            assert dump(STATE) == saved, 'The record of the old values changed'
+            on()   # a turn-on on top of the waiting one (it cannot write Win+E either) must not replace the record
+            assert dump(STATE) == saved, 'A turn-on replaced the record of the old values'
+            assert off() != 0, 'Turning off said it worked while Win+E could still not be restored'
+            assert dump(STATE) == saved and launcher.exists(), 'The second failed turn-off lost the record or the launcher'
+        finally:
+            allow()
+        assert off() == 0, 'The retry failed once the key could be written again'
+        assert dump() == before, 'Keys differ from before after the retry'
+        assert status() == 10 and not launcher.exists() and state_value('App') is None, 'The launcher or the record was left behind'
+        assert on() == 0 and off() == 0 and dump() == before, 'A later on/off cycle left a difference'
 
     def other_programs_entries_survive():
         """A class another program registers while the switch is on stays when it goes off."""
@@ -513,6 +569,8 @@ def inside():
         check('8-failed-restore-keeps-recovery', failed_restore_keeps_recovery)
         check('9-other-programs-entries-survive', other_programs_entries_survive)
         check('10-long-unicode-names', long_names)
+        check('11-unreadable-saved-value-keeps-recovery', unreadable_record_is_a_failure)
+        check('12-failed-win-e-restore-retries-and-keeps-record', failed_win_e_restore_then_retry)
     finally:
         exe_run(['--default-fm', 'off', '--test-state', str(BASE)])
         wipe()
