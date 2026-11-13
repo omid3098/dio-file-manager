@@ -60,6 +60,7 @@ class QueueBuildTest(unittest.TestCase):
             self.assertIn('-DFETCHCONTENT_FULLY_DISCONNECTED=ON', configure)
             self.assertIn(f'-DDFM_TEST_WORK={root / "console"}', configure)
             self.assertEqual(build[build.index('--config') + 1], 'MinSizeRel')
+            self.assertIn('/nodeReuse:false', build)
             self.assertNotIn('--target', build)  # app's POST_BUILD size guard and console tests
 
     def test_missing_cache_refuses_download(self):

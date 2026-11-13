@@ -25,7 +25,8 @@ def build_candidate(build, cui, console):
     run(['cmake', '-S', ROOT, '-B', build, '-G', 'Visual Studio 17 2022', '-A', 'x64',
          '-DCMAKE_BUILD_TYPE=MinSizeRel', f'-DFETCHCONTENT_SOURCE_DIR_CUI={cui}',
          '-DFETCHCONTENT_FULLY_DISCONNECTED=ON', f'-DDFM_TEST_WORK={console}'])
-    run(['cmake', '--build', build, '--config', 'MinSizeRel', '--parallel', '2'])
+    # Reused MSBuild nodes can recreate MSBuildTemp after the run folder is removed.
+    run(['cmake', '--build', build, '--config', 'MinSizeRel', '--parallel', '2', '--', '/nodeReuse:false'])
 
 
 def console_checks(build):
