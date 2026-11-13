@@ -247,10 +247,12 @@ def inside():
     def close_button(a):
         g = Geo(a)
         a.click(*g.mid(g.c['buttons'][2]))
+        t0 = time.monotonic()
         try:
             code = a.proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            raise AssertionError('Close button did not end the app')
+            raise AssertionError(f'Close button did not end the app within {time.monotonic() - t0:.1f} s')
+        print(json.dumps({'close_ms': round((time.monotonic() - t0) * 1000)}), flush=True)
         assert code == 0, f'Exit code {code}'
 
     def colours(theme):
