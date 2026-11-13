@@ -117,6 +117,7 @@ void ui_other_locations(void);
 void act_reselect(const char *name);
 
 /* ui_ctxmenu.c */
+bool ctxmenu_row_hovered(cui_ctx *ui);       /* call immediately after cui_data_grid_row */
 bool ctxmenu_begin(cui_ctx *ui, const char *id, bool open_here);
 void ctxmenu_end(cui_ctx *ui);
 bool ctxmenu_is_open(cui_ctx *ui);
@@ -128,6 +129,7 @@ void search_location_text(int vis, char *out, size_t cap);
 void fsearch_changed(void);                 /* the query text changed */
 void fsearch_frame(void);
 void fsearch_end(void);                     /* back to the folder's own list; the caller rebuilds the view */
+void fsearch_refresh(void);                 /* drop missing results and refresh the saved folder */
 bool fsearch_running(void);
 void fsearch_empty_view(void);
 

@@ -21,3 +21,38 @@ FetchContent. All text is UTF-8 inside the app; convert to UTF-16 only at Win32 
 The window code calls the other modules; they never call CUI. Work that can take long (copy,
 move, trash, search, folder sizes, thumbnails) runs on its own thread, and the window polls
 its state each frame (`cui_request_wakeup` while it runs).
+
+`ui_ctxmenu.c` isolates the CUI 1.4.0 internal popup and list-row hit calls. CUI's
+data-grid row does not update `last_id`, so `cui_last_rect` cannot identify that row.
+Search results keep their own listing. Trash completion drops missing results and refreshes
+the saved folder; reload and Undo rerun the query without closing it.
+
+## Build and install
+
+From the repository root, build the app and console checks together:
+
+```powershell
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config MinSizeRel -j 8
+```
+
+The post-build guard refuses an executable over 819,200 bytes (800 KB).
+Install for the current Windows user. No administrator access is needed:
+
+```powershell
+$install = Join-Path $env:LOCALAPPDATA 'Programs\Dio File Manager'
+New-Item -ItemType Directory -Force $install | Out-Null
+$exe = Join-Path $install 'dio-file-manager.exe'
+Copy-Item -LiteralPath 'build\MinSizeRel\dio-file-manager.exe' -Destination $exe -Force
+$shell = New-Object -ComObject WScript.Shell
+$shortcut = $shell.CreateShortcut((Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Dio File Manager.lnk'))
+$shortcut.TargetPath = $exe
+$shortcut.WorkingDirectory = $install
+$shortcut.IconLocation = "$exe,0"
+$shortcut.Save()
+```
+
+Open **Dio File Manager** from Start. It opens Home in grid view and follows the Windows theme.
+Updating uses the same copy step after closing the app. For automated install checks, run the
+installed executable on `correct/hidden.py`'s private desktop with isolated `APPDATA` and
+`--test-state BASE`; the resulting PNG proves that copy created a working window.

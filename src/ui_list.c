@@ -77,13 +77,8 @@ void ui_list_view(void) {
                 A.last_click_idx = r;
                 A.last_click_t = now;
             }
-            /* the pointer inside the row, also when a cell of the row is the hovered widget */
-            cui_rect rr = cui_last_rect(ui);
-            cui_vec2 mp = cui_mouse_pos(ui);
-            bool row_hot = cui_last_hovered(ui) || (mp.x >= rr.x && mp.x < rr.x + rr.w && mp.y >= rr.y && mp.y < rr.y + rr.h && mp.y >= 46.0f + 36.0f);
+            bool row_hot = ctxmenu_row_hovered(ui);
             if (row_hot && cui_mouse_clicked(ui, CUI_MOUSE_RIGHT)) { if (!A.sel[r]) app_select_only(r); A.cursor = r; A.ctx_item = true; }
-            cui_push_id_int(ui, r);
-            cui_pop_id(ui);
             for (int c = 0; c < cs.n; c++) {
                 char buf[FS_PATH_MAX];
                 switch (cs.kind[c]) {

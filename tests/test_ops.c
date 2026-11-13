@@ -10,7 +10,10 @@
 #include <winioctl.h>
 #include <ole2.h>
 
-#define ROOT "E:\\w\\dio-file-manager\\.agent-work\\ops-v1\\sandbox\\verification"
+#ifndef DFM_TEST_WORK
+#define DFM_TEST_WORK "E:\\w\\dio-file-manager\\.agent-work\\console"
+#endif
+#define ROOT DFM_TEST_WORK "\\ops\\verification"
 static ops_state *state;
 static int sandbox_created;
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL line %d: %s (Win32 %lu)\n", __LINE__, #x, GetLastError()); exit(1); } } while (0)
@@ -173,7 +176,8 @@ static void cross_volume(void) {
 }
 int main(void) {
     wchar_t *root = wide(ROOT);
-    mkdir_u("E:\\w\\dio-file-manager\\.agent-work\\ops-v1\\sandbox");
+    mkdir_u(DFM_TEST_WORK);
+    mkdir_u(DFM_TEST_WORK "\\ops");
     CHECK(!exists(ROOT)); CHECK(CreateDirectoryW(root, NULL)); sandbox_created = 1; atexit(cleanup); state = calloc(1, sizeof(*state)); CHECK(state);
     basic(); conflicts(); names(); cancellation(); searching(); clipboard(); recycle(); cross_volume();
     cleanup(); free(root); free(state); puts("ALL CHECKS PASSED; sandboxes removed"); return 0;

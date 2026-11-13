@@ -235,6 +235,7 @@ static void go_hist(int pos) {
 void app_back(void) { go_hist(A.hist_pos - 1); }
 void app_forward(void) { go_hist(A.hist_pos + 1); }
 void app_reload(void) {
+    if (A.searching) { fsearch_refresh(); fsearch_changed(); return; }
     if (A.loc == LOC_FOLDER) load_entry(A.path);
     else if (A.loc != LOC_OTHER) { char e[3] = { '@', (char)('0' + A.loc), 0 }; load_entry(e); }
 }

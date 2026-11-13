@@ -1,7 +1,7 @@
 # Operations checks
 
 The console test uses only files it creates under
-`E:\w\dio-file-manager\.agent-work\ops-v1\sandbox\verification`.
+`E:\w\dio-file-manager\.agent-work\console\ops\verification` by default.
 It refuses to reuse an existing verification folder. The sandbox tests remove
 their files on exit, including failure. A cross-volume test additionally creates
 and removes a `dio-file-manager-test-<pid>` folder on a second fixed drive.
@@ -42,3 +42,20 @@ Paths use UTF-8. Win32 calls receive UTF-16. Extended `\\?\` paths are accepted;
 ordinary long paths depend on the application's Windows long-path manifest.
 The complete 800 KB application budget must be checked by the main build once
 the window and these modules are linked together.
+
+## Release checks
+
+Build both console tests with `cmake --build build --config MinSizeRel`.
+Run `ctest --test-dir build -C MinSizeRel -V` through the bounded runner with hidden
+console children. `test_ops.c` has 8 check groups; `test_thumbs.c` has 3.
+The thumbnail test creates its own `thumbs` directory below the same console work folder.
+Set that folder at configure time with `"-DDFM_TEST_WORK=E:/w/dio-file-manager/.agent-work/deliver-v1/console"`.
+Neither console test reuses its leaf sandbox; both remove their files on exit.
+
+Run `tests/use/input_smoke.py` and `tests/use/search_smoke.py` once against the release
+executable, with `DFM_EXE` pointing at it and separate `DFM_USE_WORK` folders below the task.
+Both check gaming and use the private desktop. The input suite has 18 checks; the search
+suite has 8, including list-row menus and search Trash/Undo. Clipboard checks preserve all
+formats in memory; when wrapping console tests, preserve the clipboard around the whole
+process as well so a failed assertion cannot leave test data behind.
+Set `TEMP` and `TMP` below the task folder before each runner call.

@@ -34,6 +34,25 @@ static void stop_job(void) {
 
 bool fsearch_running(void) { return A.searching && (running || pend_i < pend_n); }
 
+void fsearch_refresh(void) {
+    if (!A.searching) return;
+    fs_list_release(saved);
+    saved = fs_list_start(A.path, A.sort_key, A.sort_desc);
+    saved_seen = false;
+    int kept = 0;
+    for (int i = 0; i < A.list->count; i++) {
+        wchar_t w[FS_PATH_MAX];
+        const char *p = fs_extra(A.list, A.list->items[i].path_off);
+        if (fs_u8_to_w(p, w, FS_PATH_MAX) && GetFileAttributesW(w) == INVALID_FILE_ATTRIBUTES) {
+            DWORD e = GetLastError();
+            if (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND) continue;
+        }
+        A.list->items[kept++] = A.list->items[i];
+    }
+    A.list->count = kept;
+    app_rebuild_view();
+}
+
 /* Ends the search and puts the folder's list back. The caller rebuilds the view. */
 void fsearch_end(void) {
     due = 0;

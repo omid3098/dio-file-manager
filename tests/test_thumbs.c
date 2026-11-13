@@ -6,7 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SANDBOX "E:\\w\\dio-file-manager\\.agent-work\\thumbs-v1\\sandbox"
+#ifndef DFM_TEST_WORK
+#define DFM_TEST_WORK "E:\\w\\dio-file-manager\\.agent-work\\console"
+#endif
+#define SANDBOX DFM_TEST_WORK "\\thumbs"
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL line %d: %s (Win32 %lu)\n", \
     __LINE__, #c, GetLastError()); exit(1); } } while (0)
 #define HR(call) CHECK(SUCCEEDED(call))
@@ -124,6 +127,7 @@ int main(void) {
     DWORD written;
     uint64_t png_time;
     int i;
+    CHECK(CreateDirectoryA(DFM_TEST_WORK, NULL) || GetLastError() == ERROR_ALREADY_EXISTS);
     CHECK(CreateDirectoryA(SANDBOX, NULL)); /* Refuse to reuse any pre-existing files. */
     CHECK(atexit(cleanup) == 0);
     HR(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED));

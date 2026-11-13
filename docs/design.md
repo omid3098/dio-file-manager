@@ -78,6 +78,8 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   the folder, at most 10,000 results. Results list in the grid or the list; the list adds a Location
   column with the folder of the result relative to the searched folder. No match shows "No Results
   Found". Results open and take the item menu, with Open Item Location.
+  Moving a result to Trash keeps the query open and removes missing results. Undo restores the
+  file and refreshes the same search; Esc returns to a refreshed folder listing.
 - Ctrl+1 grid, Ctrl+2 list; Ctrl+H hidden files; F5 reload; Ctrl+A select all.
 - F2 renames in a small popover under the item ("Rename" field and button); Ctrl+Shift+N makes a
   folder through a popover ("New Folder" name field and Create).
@@ -89,6 +91,7 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   Properties. On the background: New Folder, Paste, Select All, Open in Terminal, Properties.
   The menu opens at the pointer with its own width (as narrow in the list view and in an empty
   folder as in the grid), from any right click in the content pane, also below the last grid row.
+  List rows claim right clicks using their own clipped row rectangle, including clicks on cells.
   While it is open it has Up, Down, Enter and Esc; the file view and the search field do not.
 - Ctrl+Z right after a delete undoes it like the toast's Undo button.
   Star/Unstar in the item menu, or the star in a list row, saves the item in Starred

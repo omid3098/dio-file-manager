@@ -7,6 +7,17 @@
 
 static cui_id menu_pid;   /* the id made inside the frame's id scope; ctxmenu_is_open runs outside it */
 
+bool ctxmenu_row_hovered(cui_ctx *ui) {
+    /* CUI 1.4.0's data-grid row does not set last_id; use its clipped hit rectangle. */
+    cui_id row = ui->nodes[cui__current(ui)].id;
+    for (int i = ui->prev_hit_count - 1; i >= 0; i--) {
+        const cui_hit *h = &ui->prev_hits[i];
+        if (h->id == row && h->layer == ui->hot_layer)
+            return cui__rect_contains(h->rect, ui->mx, ui->my) && ui->my >= 46.0f + 40.0f;
+    }
+    return false;
+}
+
 bool ctxmenu_begin(cui_ctx *ui, const char *id, bool open_here) {
     cui_id pid = cui_make_id(ui, id) ^ 0xC7Cu;
     menu_pid = pid;

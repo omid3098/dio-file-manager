@@ -163,7 +163,9 @@ static void job_done(void) {
         else snprintf(t, sizeof t, "%d items moved to Trash", G.n);
         G.undo_toast = cui_toast(A.ui, t, .action = "Undo", .show_timer = true, .duration = 8);
     }
-    if (strcmp(G.dir, A.path) == 0 && A.loc != LOC_OTHER) app_reload();
+    if (strcmp(G.dir, A.path) == 0 && A.loc != LOC_OTHER) {
+        if (A.searching && kind == OPS_TRASH) fsearch_refresh(); else app_reload();
+    }
     A.trash_check_t = -100;
 }
 
@@ -341,7 +343,7 @@ static void context_menu(void) {
     cui_ctx *ui = A.ui;
     cui_vec2 m = cui_mouse_pos(ui), vp = cui_viewport_size(ui);
     float x0 = app_is_narrow() ? 0.0f : 240.0f, y0 = 46.0f;
-    bool in_header = A.view == VIEW_LIST && A.vis_n > 0 && m.y < y0 + 36.0f;
+    bool in_header = A.view == VIEW_LIST && A.vis_n > 0 && m.y < y0 + 40.0f;
     bool open_here = cui_mouse_clicked(ui, CUI_MOUSE_RIGHT) && A.loc != LOC_OTHER && !G.delete_open && !G.conflict_open &&
                      !A.sidebar_open && m.x >= x0 && m.x < vp.x && m.y >= y0 && m.y < vp.y && !in_header;
     if (open_here) G.ctx_item = A.ctx_item;

@@ -356,8 +356,10 @@ def inside():
         x,y = a.cell_xy(0)
         a.rclick(x,y)
         a.snap('star-menu')
-        # The menu is clamped above the bottom edge; this is its visible Star row.
-        a.click(x+50, 622)
+        # Choose Star by row, independent of the popup's clamped screen position.
+        for _ in range(7):
+            a.key(40)
+        a.key(13)
         a.until('Star menu did not persist the sandbox path', lambda: saved.exists() and str(SAND/'starred.txt') in saved.read_text(encoding='utf-8'))
         a.restart()
         a.click(90, 46+34+16)

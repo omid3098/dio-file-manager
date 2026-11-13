@@ -150,6 +150,40 @@ def inside():
         a.rclick(500, 300)   # an empty folder
         assert a.snap('menu-list-empty')['ctx'], 'Empty folder: no menu'
 
+    def trash_search(a):
+        target = FIND / 'quarterly-root.txt'
+        target.write_text('search trash check', encoding='utf-8')
+        a.key(ord('F'), (17,))
+        a.until('Search field did not take the keyboard', lambda: a.snap()['typing'])
+        typed(a, 'quarterly')
+        searched(a, 3)
+        for i in range(3):
+            a.cell(i)
+            if a.snap()['selection'] == [target.name]:
+                break
+        else:
+            raise AssertionError('Root search result missing')
+        a.key(46)
+        try:
+            a.until('Search result was not trashed', lambda: not target.exists())
+            a.until('Trash action still running', lambda: not a.snap()['act'] & 2)
+            s = a.snap('search-after-trash')
+            assert s['search'] and s['searching'] and s['query'] == 'quarterly', 'Trash left the search'
+            assert s['count'] == 2, 'Trashed result still listed, or another result lost'
+            time.sleep(.5)  # a new row at the deleted row's index is not a double click
+            for i in range(2):
+                a.cell(i)
+                assert a.snap()['selection'] != [target.name], 'Deleted item still selectable'
+        finally:
+            if not target.exists():
+                a.key(ord('Z'), (17,))
+                a.until('Undo did not restore the test file', target.exists, seconds=10)
+        searched(a, 3)
+        assert target.read_text(encoding='utf-8') == 'search trash check'
+        a.key(27)
+        a.until('Esc did not leave search', lambda: not a.snap()['searching'])
+        assert a.wait_ready()['count'] == 6, 'Folder listing stale after trash and Undo'
+
     check('1-ctrl-f-and-esc', ctrl_f)
     check('2-one-letter', one_letter)
     check('3-path-field-keeps-letters', path_field_keeps_letters)
@@ -157,6 +191,7 @@ def inside():
     check('5-result-opens-and-menu', result_opens)
     check('6-menu-keys', menu_keys)
     check('7-list-menus', list_menus, 'list')
+    check('8-trash-search', trash_search)
     (WORK / 'search-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 
