@@ -248,7 +248,10 @@ retry_target:
         size_t n = wcslen(dst) + 64; wchar_t *temp = malloc(n * sizeof(*temp)); HANDLE h = INVALID_HANDLE_VALUE; unsigned attempt;
         if (!temp) { fail(j, dst, ERROR_NOT_ENOUGH_MEMORY); free(dst); return 0; }
         for (attempt = 0; attempt < 100; ++attempt) {
-            _snwprintf_s(temp, n, _TRUNCATE, L"%.*s.dfm-copy-%lu-%ld.tmp", (int)(dfm_leaf(dst) - dst), dst, GetCurrentProcessId(), InterlockedIncrement(&serial));
+            /* The final name is part of the temp name so the folder window can list the file while it copies. */
+            const wchar_t *leaf = dfm_leaf(dst);
+            _snwprintf_s(temp, n, _TRUNCATE, wcslen(leaf) <= 200 ? L"%.*s.%s.dfm-copy-%lu-%ld.tmp" : L"%.*s%s.dfm-copy-%lu-%ld.tmp",
+                         (int)(leaf - dst), dst, wcslen(leaf) <= 200 ? leaf : L"", GetCurrentProcessId(), InterlockedIncrement(&serial));
             h = CreateFileW(temp, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
             if (h != INVALID_HANDLE_VALUE || GetLastError() != ERROR_FILE_EXISTS) break;
         }
@@ -340,7 +343,7 @@ ops_job *ops_start(ops_kind kind, const char *const *sources, size_t count, cons
     DWORD delay_n = GetEnvironmentVariableA("DFM_TEST_COPY_DELAY_MS", delay, sizeof delay);
     if (delay_n && delay_n < sizeof delay) {
         unsigned long ms = strtoul(delay, NULL, 10);
-        if (ms <= 100) j->test_copy_delay = (DWORD)ms;
+        if (ms <= 500) j->test_copy_delay = (DWORD)ms;   /* 128 MiB then lasts about 4 s per 100 ms */
     }
     j->answer_event = CreateEventW(NULL, TRUE, FALSE, NULL);
     j->sources = calloc(count ? count : 1, sizeof(*j->sources));

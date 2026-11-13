@@ -14,6 +14,8 @@ import input_smoke as base
 
 WORK = base.WORK
 FINAL = WORK / 'final'
+ICON_FILES = ('a.pdf', 'b.png', 'c.txt', 'd.zip', 'e.mp3', 'f.mp4', 'g.json', 'h.xlsx', 'i.exe', 'j.bin')
+ICON_DX = 12   # left edge of a Details row's icon, from the row's left edge
 NAMES = ('details', 'list', 'small', 'medium', 'large', 'extra-large')
 
 
@@ -63,6 +65,30 @@ def cell_xy(a, index):
 def picture(a, name):
     a.snap()
     shutil.copyfile(str(a.base)+'.png', FINAL / (name+'.png'))
+
+
+def _lum(c):
+    def f(v):
+        v /= 255
+        return v / 12.92 if v <= .04045 else ((v + .055) / 1.055) ** 2.4
+    return .2126 * f(c[0]) + .7152 * f(c[1]) + .0722 * f(c[2])
+
+
+def contrast(a, b):
+    x, y = sorted((_lum(a), _lum(b)), reverse=True)
+    return (x + .05) / (y + .05)
+
+
+def icon_contrast(image, box, bg):
+    """(best contrast, pixels reaching 3:1) inside box=(x0, y0, x1, y1) against the row background."""
+    px = image.convert('RGB').load()
+    best, strong = 1.0, 0
+    for y in range(box[1], box[3]):
+        for x in range(box[0], box[2]):
+            c = contrast(px[x, y], bg)
+            best = max(best, c)
+            strong += c >= 3.0
+    return best, strong
 
 
 def inside():
@@ -128,6 +154,28 @@ def inside():
             a.until(name + ': tooltip did not return after closing', lambda: a.snap()['tooltip'])
             a.msg(0x200, 0, a.point(700, 400))
             time.sleep(.4)
+
+
+    def icons(a):
+        """File-type icons in Details and List keep 3:1 contrast against their row, in this check's theme."""
+        from PIL import Image
+        kinds = len(ICON_FILES)
+        for stop in (0, 1):
+            s = set_stop(a, stop)
+            assert s['count'] == kinds + 1, s['names']
+            picture(a, f'{a.theme}-icons-{NAMES[stop]}')
+            image = Image.open(str(a.base) + '.png')
+            image.load()
+            for i, name in enumerate(s['names']):
+                cx, cy = cell_xy(a, i)
+                x0 = int(cx - 48) if stop == 1 else int(s['row'][0] + ICON_DX)
+                box = (x0, int(cy - 8), x0 + 16, int(cy + 8))
+                bg = image.convert('RGB').getpixel((box[0] - 3, int(cy)))
+                best, strong = icon_contrast(image, box, bg)
+                print(json.dumps({'icon': name, 'view': NAMES[stop], 'theme': a.theme, 'best': round(best, 2), 'pixels_3to1': strong}), flush=True)
+                need = 60 if stop == 1 else 15   # the old pale List outline reached 3:1 on only 9 to 10 pixels
+                assert best >= 3.0 and strong >= need, f'{name} icon in {NAMES[stop]} ({a.theme}): best {best:.2f}:1, {strong} pixels reach 3:1'
+            image.close()
 
     def keys(a):
         set_stop(a, 0)
@@ -234,6 +282,8 @@ def inside():
     check('4-column-order-scroll', WORK/'views', columns)
     check('5-special-search', WORK/'views', special)
     check('7-popup-tooltips', WORK/'views', popup_tooltips, theme='dark')
+    check('8-icon-contrast-dark', WORK/'icons', icons, theme='dark')
+    check('8-icon-contrast-light', WORK/'icons', icons, theme='light')
     for stop in range(6):
         check('6-performance-'+NAMES[stop], WORK/'big', lambda a, stop=stop: performance(a,stop))
     (WORK/'view-results.json').write_text(json.dumps(results,indent=2),encoding='utf-8')
@@ -241,7 +291,7 @@ def inside():
 
 
 def main():
-    for d in ('tmp','appdata','final','views/A','big'):
+    for d in ('tmp','appdata','final','views/A','big','icons/z-folder'):
         (WORK/d).mkdir(parents=True, exist_ok=True)
     os.environ.update(TEMP=str(WORK/'tmp'), TMP=str(WORK/'tmp'))
     if '--inside' in sys.argv:
@@ -252,6 +302,8 @@ def main():
         subprocess.run([sys.executable,gaming,'wait','--cap','60'],check=True,creationflags=subprocess.CREATE_NO_WINDOW)
     elif rc:
         return rc
+    for name in ICON_FILES:
+        (WORK/'icons'/name).touch(exist_ok=True)
     for i in range(200):
         (WORK/'views'/f'file-{i:05}.txt').touch(exist_ok=True)
     for i in range(20000):

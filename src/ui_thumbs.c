@@ -22,7 +22,7 @@ static uint64_t tick;
 static int uploads;
 
 bool ui_thumb_wanted(const fs_entry *e, const char *name) {
-    if (e->flags & FS_DIR) return false;
+    if (e->flags & (FS_DIR | FS_INCOMING)) return false;
     if (e->kind == FS_KIND_IMAGE || e->kind == FS_KIND_VIDEO) return true;
     return _stricmp(fs_ext_of(name), "pdf") == 0;
 }

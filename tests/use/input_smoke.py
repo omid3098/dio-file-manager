@@ -18,6 +18,8 @@ WORK = Path(os.environ.get('DFM_USE_WORK', ROOT / '.agent-work/use-checks' / Pat
 EXE = Path(os.environ.get('DFM_EXE', ROOT / 'build/MinSizeRel/dio-file-manager.exe'))
 sys.pycache_prefix = str(WORK/'tmp/pycache')
 from clipboard_guard import clipboard_test_lock, preserved_clipboard  # shared by every clipboard check
+import recycle_guard
+recycle_guard.install(WORK)  # at exit, removes only this check's own items from the real Recycle Bin
 U = C.WinDLL('user32', use_last_error=True)
 K = C.WinDLL('kernel32', use_last_error=True)
 ENUM = C.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)

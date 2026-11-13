@@ -83,7 +83,7 @@ static void paint_compact(cui_ctx *ui, cui_rect r, const row_data *d) {
         float scale = icon / (float)(d->thumb.w > d->thumb.h ? d->thumb.w : d->thumb.h);
         float w = d->thumb.w * scale, h = d->thumb.h * scale;
         cui_draw_image(ui, d->thumb.tex, (cui_rect){ cx - w/2, cy - h/2, w, h }, (cui_rect){0,0,1,1}, CUI_CORNERS(2), (cui_color){0});
-    } else ui_draw_file(ui, cx, cy, icon, app_item_name(i), e->kind);
+    } else { ui_set_dim(e->flags & FS_INCOMING); ui_draw_file(ui, cx, cy, icon, app_item_name(i), e->kind); ui_set_dim(false); }
     char name[264];
     const char *full = app_item_name(i);
     float width = r.w - icon - 36;
@@ -91,7 +91,9 @@ static void paint_compact(cui_ctx *ui, cui_rect r, const row_data *d) {
     if (n < len) n = fit_prefix(ui, full, len, width - text_w(ui, "\xE2\x80\xA6", 3));
     memcpy(name, full, (size_t)n); name[n] = 0;
     if (n < len) memcpy(name + n, "\xE2\x80\xA6", 4);
-    cui_draw_text(ui, CUI_FONT_BODY, NAME_SIZE, (cui_vec2){ r.x + icon + 20, cy - 7 }, CUI_COLOR_FOREGROUND, name, -1);
+    ui_set_dim(e->flags & FS_INCOMING);
+    cui_draw_text(ui, CUI_FONT_BODY, NAME_SIZE, (cui_vec2){ r.x + icon + 20, cy - 7 }, ui_dimmed(ui, CUI_COLOR_FOREGROUND), name, -1);
+    ui_set_dim(false);
 }
 
 static void paint_row(cui_ctx *ui, cui_rect r, void *user) {
@@ -124,7 +126,7 @@ static void paint_row(cui_ctx *ui, cui_rect r, void *user) {
                             cui_alpha(cui_color_of(ui, CUI_COLOR_FOREGROUND), 0.18f));
             cui_draw_image(ui, th->tex, pr, (cui_rect){ 0, 0, 1, 1 }, CUI_CORNERS(rad), (cui_color){ 0 });
         }
-        else ui_draw_file(ui, cx, icy, icon, name, e->kind);
+        else { ui_set_dim(e->flags & FS_INCOMING); ui_draw_file(ui, cx, icy, icon, name, e->kind); ui_set_dim(false); }
         if (A.loc != LOC_TRASH && app_is_starred(i)) {
             cui_vec2 sp = { ib.x + ib.w - 8, ib.y + 12 };
             cui_draw_circle(ui, sp, 10, CUI_COLOR_SURFACE_RAISED);
@@ -140,7 +142,8 @@ static void paint_row(cui_ctx *ui, cui_rect r, void *user) {
                 cui_draw_rect(ui, (cui_rect){ p.x - 6, p.y - 1, w + 12, LINE_H }, CUI_CORNERS(9), CUI_COLOR_ACCENT);
                 cui_draw_text(ui, CUI_FONT_BODY, NAME_SIZE, (cui_vec2){ p.x, p.y + 1 }, CUI_COLOR_ACCENT_FOREGROUND, nl.line[k], -1);
             } else {
-                cui_draw_text(ui, CUI_FONT_BODY, NAME_SIZE, (cui_vec2){ p.x, p.y + 1 }, CUI_COLOR_FOREGROUND, nl.line[k], -1);
+                cui_draw_text(ui, CUI_FONT_BODY, NAME_SIZE, (cui_vec2){ p.x, p.y + 1 },
+                              (e->flags & FS_INCOMING) ? cui_alpha(cui_color_of(ui, CUI_COLOR_FOREGROUND), 0.5f) : cui_color_of(ui, CUI_COLOR_FOREGROUND), nl.line[k], -1);
             }
         }
     } while (0);

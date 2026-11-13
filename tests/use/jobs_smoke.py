@@ -62,26 +62,39 @@ def paste(a, folder):
     a.key(ord('V'), (17,))
 
 
-def show_jobs(a):
+def show_jobs(a, incoming=frozenset({'a.bin', 'b.bin'})):
+    t0 = time.monotonic()
     x, y = center(a.snap()['job_button'])
     a.msg(0x200, 0, a.point(x, y))
     a.until('File Operations tooltip never appeared', lambda: a.snap()['tooltip'])
     a.click(x, y)
     a.until('Progress popover did not show both jobs', lambda: a.snap()['job_pop'] and len(a.snap()['jobs']) == 2)
     s = a.snap('two-jobs-popover')
+    print(json.dumps({'popover_seconds_after_second_paste': round(time.monotonic() - t0, 2), 'done_mb': [j['done'] >> 20 for j in s['jobs']]}), flush=True)
     assert not s['tooltip'], 'File Operations tooltip survived click'
     time.sleep(.8)
     assert not a.snap()['tooltip'], 'File Operations tooltip returned over popup'
     assert all(j['total'] == 128 * 1024 * 1024 for j in s['jobs']), s
     assert all(j['cancel'][2] > 0 for j in s['jobs']), 'Each job needs its own Cancel'
-    assert s['count'] == 0, 'Incomplete internal copy files leaked into the view'
+    check_incoming(a, incoming)
+    return s
+
+
+def check_incoming(a, expected):
+    """While copies run, the receiving folder lists each incoming file under its final name (never the temp name,
+    never the empty-folder message) until the real file replaces it."""
+    a.until('Incoming files were not listed under their final names', lambda: expected <= set(a.snap()['incoming']), seconds=20)
+    s = a.snap()
+    assert s['listed'] == s['count'], f"Folder with incoming files shows the empty message: {s['listed']} listed, {s['count']} shown"
+    assert not [n for n in s['names'] if '.dfm-copy' in n or n.endswith('.tmp')], s['names']
+    assert expected <= set(s['incoming']) <= set(s['names']), s
     return s
 
 
 def inside():
     results = []
 
-    def check(name, fn):
+    def check(name, fn, view='grid', theme='light'):
         app = None
         try:
             target = SAND / 'target'
@@ -89,7 +102,7 @@ def inside():
             target.mkdir()
             opened = Path(str(WORK / name) + '.opened')
             opened.unlink(missing_ok=True)
-            app = base.App(name, SAND / 'source-a')
+            app = base.App(name, SAND / 'source-a', view, theme)
             with preserved_clipboard(app.hwnd):
                 fn(app)
             assert not opened.exists(), 'Job input unexpectedly opened a file: ' + opened.read_text(encoding='utf-8')
@@ -115,10 +128,30 @@ def inside():
         after = a.snap()
         assert len(after['jobs']) == 2, 'One job finished before both were observed'
         assert all(y['done'] > x['done'] for x, y in zip(before['jobs'], after['jobs'])), 'Both copies must make progress concurrently'
-        a.until('Copies did not finish', lambda: not a.snap()['jobs'], seconds=45)
+        a.until('Copies did not finish', lambda: not a.snap()['jobs'], seconds=120)
         for folder, name in (('source-a', 'a.bin'), ('source-b', 'b.bin')):
             assert digest(SAND / folder / name) == digest(SAND / 'target' / name), name
         assert not list((SAND / 'target').glob('*.tmp')), 'Copy temp files left behind'
+        a.until('Finished copies were not listed as real files', lambda: sorted(a.snap()['names']) == ['a.bin', 'b.bin'] and not a.snap()['incoming'])
+        s = a.snap()
+        assert s['listed'] == s['count'] == 2
+
+    def incoming(a):
+        # A folder that receives a copy shows the file under its final name, dimmed, with its place held; the
+        # picture is kept for review in this theme and view.
+        paste(a, 'source-a')
+        a.until('Incoming file was not listed', lambda: a.snap()['incoming'] == ['a.bin'])
+        s = a.snap()
+        assert s['count'] == 1 and s['listed'] == 1 and s['names'] == ['a.bin'], s
+        time.sleep(.3)
+        final = WORK / 'final'
+        final.mkdir(exist_ok=True)
+        a.snap(f'{a.theme}-{a.view}-incoming')
+        for ext in ('.png', '.json'):
+            shutil.copyfile(WORK / f'{a.theme}-{a.view}-incoming{ext}', final / f'{a.theme}-{a.view}-incoming{ext}')
+        a.until('Copy did not finish', lambda: not a.snap()['jobs'], seconds=120)
+        a.until('Finished copy not listed as a real file', lambda: a.snap()['names'] == ['a.bin'] and not a.snap()['incoming'])
+        assert digest(SAND / 'source-a/a.bin') == digest(SAND / 'target/a.bin')
 
     def cancel(a):
         paste(a, 'source-a')
@@ -132,8 +165,9 @@ def inside():
         time.sleep(.4)
         after = a.snap()['jobs'][0]
         assert after['done'] > before['done'], 'Other copy stopped progressing'
-        a.until('Other copy did not finish', lambda: not a.snap()['jobs'], seconds=45)
+        a.until('Other copy did not finish', lambda: not a.snap()['jobs'], seconds=120)
         assert not (SAND / 'target/a.bin').exists(), 'Cancelled copy published an incomplete file'
+        a.until('Cancelled copy left a ghost in the listing', lambda: a.snap()['names'] == ['b.bin'] and not a.snap()['incoming'])
         assert digest(SAND / 'source-b/b.bin') == digest(SAND / 'target/b.bin')
         assert (SAND / 'source-a/a.bin').exists()
         assert not list((SAND / 'target').glob('*.tmp'))
@@ -146,12 +180,12 @@ def inside():
         try:
             paste(a, 'source-a')
             paste(a, 'source-b')
-            show_jobs(a)
-            a.until('Concurrent target collision did not ask', lambda: a.snap()['act'] & 8, seconds=45)
+            show_jobs(a, {'a.bin'})
+            a.until('Concurrent target collision did not ask', lambda: a.snap()['act'] & 8, seconds=120)
             a.snap('concurrent-conflict')
             # Standard CUI dialog footer: Skip, Keep Both, Replace.
             a.click(*center(a.snap()['conflict_keep']))
-            a.until('Keep Both did not finish both jobs', lambda: not a.snap()['jobs'], seconds=12)
+            a.until('Keep Both did not finish both jobs', lambda: not a.snap()['jobs'], seconds=90)
             outputs = list((SAND / 'target').glob('*.bin'))
             assert len(outputs) == 2, [p.name for p in outputs]
             assert {digest(p) for p in outputs} == {digest(SAND / 'source-a/a.bin'), digest(b / 'a.bin')}
@@ -196,6 +230,8 @@ def inside():
     check('3-target-collision', collision)
     check('4-remove-recent', recent)
     check('5-eject', eject)
+    check('6-incoming-dark-details', incoming, 'list', 'dark')
+    check('7-incoming-light-icons', incoming, 'grid', 'light')
     (WORK / 'jobs-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 
@@ -207,7 +243,7 @@ def main():
     eject_log = WORK / 'eject.txt'
     os.environ.update(TEMP=str(WORK / 'tmp'), TMP=str(WORK / 'tmp'),
                       DFM_TEST_RECENT=str(SAND / 'recent'), DFM_JOBS_SANDBOX=str(SAND),
-                      DFM_TEST_DRIVES=str(drives), DFM_TEST_EJECT_LOG=str(eject_log), DFM_TEST_COPY_DELAY_MS='80')
+                      DFM_TEST_DRIVES=str(drives), DFM_TEST_EJECT_LOG=str(eject_log), DFM_TEST_COPY_DELAY_MS='300')
     if '--inside' in sys.argv:
         return inside()
     gaming = r'C:\Users\Omid\.agents\tools\gaming.py'

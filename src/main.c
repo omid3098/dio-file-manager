@@ -199,8 +199,10 @@ static void poll_list(void) {
 
 /* ---- navigation ---- */
 
+static void quiet_cleanup(void);
 static void load_entry(const char *entry) {
     ui_band_cancel();
+    quiet_cleanup();
     fsearch_end();
     if (A.list) { fs_list_release(A.list); A.list = NULL; }
     A.last_click_idx = -1;
@@ -269,13 +271,49 @@ void app_reload(void) {
     else if (A.loc != LOC_OTHER) { char e[3] = { '@', (char)('0' + A.loc), 0 }; load_entry(e); }
 }
 
+/* ---- a quiet reload: the folder shows new files while a copy runs, and the selection and scroll stay ---- */
+
+static fs_list *next_list;
+static char **keep_names;
+static int keep_n;
+
+static void quiet_cleanup(void) {
+    if (next_list) { fs_list_release(next_list); next_list = NULL; }
+    for (int i = 0; i < keep_n; i++) free(keep_names[i]);
+    free(keep_names); keep_names = NULL; keep_n = 0;
+}
+
+void app_reload_quiet(void) {
+    if (A.loc != LOC_FOLDER || A.searching || !A.list || !A.list_seen || next_list || fs_list_state(A.list) != FS_DONE) return;
+    next_list = fs_list_start(A.path, A.sort_key, A.sort_desc);
+    keep_names = calloc((size_t)A.sel_n + 1, sizeof *keep_names);
+    for (int i = 0; keep_names && i < A.vis_n; i++)
+        if (A.sel[i] && keep_n < A.sel_n) keep_names[keep_n++] = _strdup(app_item_name(i));
+}
+
+static void poll_next(void) {
+    if (!next_list) return;
+    if (fs_list_state(next_list) == FS_LOADING) { cui_request_wakeup(A.ui, 0.03f); return; }
+    if (A.loc != LOC_FOLDER || A.searching || strcmp(next_list->path, A.path) != 0 || fs_list_state(next_list) != FS_DONE) { quiet_cleanup(); return; }
+    ui_band_cancel();
+    fs_list_release(A.list);
+    A.list = next_list; next_list = NULL;
+    app_rebuild_view();
+    A.reset_scroll = false;
+    for (int k = 0; k < keep_n; k++)
+        for (int i = 0; i < A.vis_n; i++)
+            if (!strcmp(app_item_name(i), keep_names[k])) { A.sel[i] = true; if (A.cursor < 0) A.cursor = i; break; }
+    if (keep_n) app_count_selection();
+    quiet_cleanup();
+}
+
 void app_up(void) {
     char p[FS_PATH_MAX];
     if (A.loc == LOC_FOLDER && fs_parent(A.path, p, sizeof p)) app_navigate(p);
 }
 
 void app_open_vis(int i) {
-    if (i < 0 || i >= A.vis_n || A.loc == LOC_TRASH) return;
+    if (i < 0 || i >= A.vis_n || A.loc == LOC_TRASH || (app_item(i)->flags & FS_INCOMING)) return;
     char p[FS_PATH_MAX];
     app_path_of(i, p, sizeof p);
     if (app_item(i)->flags & FS_DIR) { app_navigate(p); return; }
@@ -384,6 +422,7 @@ static void frame(void) {
     theme_apply(ui, A.dark);
     act_pre_frame();
     poll_list();
+    poll_next();
     fsearch_frame();
     if (A.list && fs_list_state(A.list) == FS_LOADING) cui_request_wakeup(ui, 0.02f);
     global_keys();
@@ -487,6 +526,14 @@ static void test_snapshot(const char *base) {
         if (comma) fputc(',', f);
         json_text(f, app_item_name(i)); comma = true;
     }
+    fprintf(f, "],\"listed\":%d,\"incoming\":[", A.list ? A.list->count : 0);
+    comma = false;
+    for (int i = 0; i < A.vis_n; i++) if (app_item(i)->flags & FS_INCOMING) {
+        if (comma) fputc(',', f);
+        json_text(f, app_item_name(i)); comma = true;
+    }
+    fprintf(f, "],\"names\":[");
+    for (int i = 0; i < A.vis_n && i < 300; i++) { if (i) fputc(',', f); json_text(f, app_item_name(i)); }
     fprintf(f, "],\"band\":%d,\"zoom\":%d,\"icon\":%d,\"column_rows\":%d,\"slider\":[%.2f,%.2f,%.2f,%.2f],\"query\":", ui_band_dragging(), A.zoom, A.last_icon, A.column_rows, A.zoom_rect.x, A.zoom_rect.y, A.zoom_rect.w, A.zoom_rect.h); json_text(f, A.search);
     fprintf(f, ",\"documents\":"); json_text(f, A.places[2]);
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));

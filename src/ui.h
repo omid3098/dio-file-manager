@@ -81,6 +81,7 @@ void app_select_range(int from, int to);
 void app_select_all(void);
 void app_clear_selection(void);
 void app_count_selection(void);
+void app_reload_quiet(void);   /* relist the folder, keeping selection and scroll; used while a copy writes into it */
 void app_set_view(int view);
 void app_set_zoom(int stop);
 void app_load_view(void);
@@ -179,6 +180,9 @@ void ui_draw_folder(cui_ctx *ui, float cx, float cy, float s);
 void ui_draw_file(cui_ctx *ui, float cx, float cy, float s, const char *name, int kind);
 const char *ui_kind_icon(int kind);
 cui_color ui_kind_color(int kind);
+cui_color ui_icon_ink(cui_ctx *ui, cui_color c, float min);   /* c, mixed toward the text colour until it reaches `min`:1 on every row background */
+void ui_set_dim(bool dim);                                       /* draw the next file icons and names dimmed (incoming files) */
+cui_color ui_dimmed(cui_ctx *ui, cui_color c);
 
 /* ui_chrome.c */
 void ui_sidebar_header(void);

@@ -17,6 +17,8 @@ enum { POP_NONE = 0, POP_RENAME, POP_NEWDIR };
 
 typedef struct file_job {
     struct file_job *next;
+    char listed[1024];   /* the file whose start the folder listing last showed */
+    double listed_t, again;   /* again: relist once more, in case the temp file was made after the first listing */
     ops_job *job;
     ops_state st;
     ops_kind kind;
@@ -94,7 +96,7 @@ static int first_selected(void) {
 static char **selected_paths(size_t *n) {
     char **p = calloc((size_t)A.sel_n + 1, sizeof *p);
     size_t k = 0;
-    for (int i = 0; p && i < A.vis_n; i++) if (A.sel[i]) {
+    for (int i = 0; p && i < A.vis_n; i++) if (A.sel[i] && !(app_item(i)->flags & FS_INCOMING)) {   /* a file still copying is not there yet */
         p[k] = malloc(FS_PATH_MAX);
         if (!p[k]) break;
         app_path_of(i, p[k], FS_PATH_MAX);
@@ -577,6 +579,15 @@ void act_frame(void) {
         ops_poll(j->job, &j->st);
         if (j->st.finished) { *link = j->next; job_done(j); free(j); }
         else {
+            /* Show the file the copy has just started, under its final name, in the folder that receives it. */
+            if ((j->kind == OPS_COPY || j->kind == OPS_MOVE) && strcmp(j->dir, A.path) == 0 && A.loc == LOC_FOLDER && !A.searching) {
+                double now = cui_time(ui);
+                if (strcmp(j->listed, j->st.current_name) != 0 && now - j->listed_t > 0.4) {
+                    snprintf(j->listed, sizeof j->listed, "%s", j->st.current_name);
+                    j->listed_t = now; j->again = now + 0.5;
+                    app_reload_quiet();
+                } else if (j->again > 0 && now >= j->again) { j->again = 0; app_reload_quiet(); }
+            }
             if (j->st.waiting_conflict && !G.conflict) { G.conflict = j; G.conflict_open = true; G.apply_all = false; }
             link = &j->next;
             cui_request_wakeup(ui, 0.05f);

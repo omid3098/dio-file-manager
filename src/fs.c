@@ -214,10 +214,46 @@ bool fs_list_add(fs_list *l, const char *name, uint32_t flags, uint64_t size, ui
     return true;
 }
 
+/* The copy engine writes ".<final name>.dfm-copy-<pid>-<n>.tmp" and renames it when the copy is done. While the
+ * process that owns it is alive, the file is listed under <final name> as an incoming file, as GNOME Files shows
+ * a file that is being copied. Leftovers of a dead process stay ordinary hidden files. */
+static bool incoming_name(const wchar_t *w, wchar_t *final, size_t cap) {
+    size_t n = wcslen(w);
+    if (n < 18 || w[0] != L'.' || wcscmp(w + n - 4, L".tmp")) return false;
+    size_t tag = n - 4;
+    while (tag > 1 && w[tag - 1] != L'-') tag--;               /* serial */
+    size_t serial_at = tag;
+    if (serial_at >= n - 4 || tag < 3) return false;
+    for (size_t i = serial_at; i < n - 4; i++) if (w[i] < L'0' || w[i] > L'9') return false;
+    size_t pid_at = tag - 1;                                    /* the dash before the serial */
+    while (pid_at > 1 && w[pid_at - 1] != L'-') pid_at--;
+    if (pid_at >= tag - 1) return false;
+    unsigned long pid = 0;
+    for (size_t i = pid_at; i < tag - 1; i++) { if (w[i] < L'0' || w[i] > L'9') return false; pid = pid * 10 + (unsigned long)(w[i] - L'0'); }
+    static const wchar_t mark[] = L".dfm-copy-";
+    size_t ml = wcslen(mark);
+    if (pid_at < ml + 2 || wcsncmp(w + pid_at - ml, mark, ml)) return false;
+    size_t fl = pid_at - ml - 1;                                /* length of the final name */
+    if (fl == 0 || fl >= cap) return false;
+    if (pid != GetCurrentProcessId()) {
+        HANDLE p = OpenProcess(SYNCHRONIZE, FALSE, pid);
+        if (!p) return false;
+        bool alive = WaitForSingleObject(p, 0) == WAIT_TIMEOUT;
+        CloseHandle(p);
+        if (!alive) return false;
+    }
+    memcpy(final, w + 1, fl * sizeof *w); final[fl] = 0;
+    return true;
+}
+
 static bool add_entry(fs_list *l, const WIN32_FIND_DATAW *f) {
     char name[1024];
-    if (!fs_w_to_u8(f->cFileName, name, sizeof name)) return false;
+    wchar_t final[300];
     uint32_t flags = 0;
+    if (!(f->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && incoming_name(f->cFileName, final, 300) && fs_w_to_u8(final, name, sizeof name))
+        return fs_list_add(l, name, FS_INCOMING, ((uint64_t)f->nFileSizeHigh << 32) | f->nFileSizeLow,
+                           ((uint64_t)f->ftLastWriteTime.dwHighDateTime << 32) | f->ftLastWriteTime.dwLowDateTime, NULL, NULL);
+    if (!fs_w_to_u8(f->cFileName, name, sizeof name)) return false;
     if (f->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) flags |= FS_DIR;
     if ((f->dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) || name[0] == '.') flags |= FS_HIDDEN;
     if (f->dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) flags |= FS_LINK;
@@ -252,6 +288,16 @@ static unsigned __stdcall list_thread(void *arg) {
             add_entry(l, &f);
         } while (FindNextFileW(h, &f));
         FindClose(h);
+        /* An incoming file whose final name already exists (a replace in progress) is not listed twice. */
+        for (int i = l->count - 1; i >= 0 && !l->abandoned; i--) {
+            if (!(l->items[i].flags & FS_INCOMING)) continue;
+            wchar_t full[FS_PATH_MAX + 300], leaf[300];
+            fs_u8_to_w(l->names + l->items[i].name_off, leaf, 300);
+            wcscpy_s(full, FS_PATH_MAX + 300, wpath);
+            full[n - 1] = 0;
+            wcscat_s(full, FS_PATH_MAX + 300, leaf);
+            if (GetFileAttributesW(full) != INVALID_FILE_ATTRIBUTES) l->items[i] = l->items[--l->count];
+        }
         if (!l->abandoned) fs_list_sort(l, l->sort_key, l->sort_desc);
     }
     /* Publishing DONE must not let navigation free the worker's last writes. */

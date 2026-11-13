@@ -7,7 +7,7 @@
 
 #define FS_PATH_MAX 1040
 
-enum { FS_DIR = 1, FS_HIDDEN = 2, FS_LINK = 4 };
+enum { FS_DIR = 1, FS_HIDDEN = 2, FS_LINK = 4, FS_INCOMING = 8 };   /* FS_INCOMING: a file still being copied here, listed under its final name */
 typedef enum {
     FS_KIND_FOLDER, FS_KIND_FILE, FS_KIND_IMAGE, FS_KIND_AUDIO, FS_KIND_VIDEO, FS_KIND_ARCHIVE,
     FS_KIND_DOC, FS_KIND_TEXT, FS_KIND_CODE, FS_KIND_SHEET, FS_KIND_EXEC, FS_KIND_COUNT
@@ -17,7 +17,7 @@ typedef enum { FS_LOADING = 0, FS_DONE = 1, FS_FAILED = 2 } fs_state;
 
 typedef struct fs_entry {
     uint32_t name_off;   /* offset into fs_list.names */
-    uint32_t flags;      /* FS_DIR | FS_HIDDEN | FS_LINK */
+    uint32_t flags;      /* FS_DIR | FS_HIDDEN | FS_LINK | FS_INCOMING */
     uint64_t size;
     uint64_t mtime;      /* FILETIME */
     uint8_t kind;        /* fs_kind */

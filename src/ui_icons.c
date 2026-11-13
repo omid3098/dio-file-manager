@@ -1,7 +1,36 @@
 /* Drawn file and folder icons for the grid view (not outline icons) and small helpers for the list. */
 #include <ctype.h>
+#include <math.h>
 #include <string.h>
 #include "ui.h"
+
+/* ---- contrast: file-type icons must stay visible on every row background, in both themes ---- */
+
+static float lin(uint8_t v) { float c = v / 255.0f; return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f); }
+static float luma(cui_color c) { return 0.2126f * lin(c.r) + 0.7152f * lin(c.g) + 0.0722f * lin(c.b); }
+static float ratio(cui_color a, cui_color b) {
+    float x = luma(a), y = luma(b);
+    return (x > y ? x + 0.05f : y + 0.05f) / (x > y ? y + 0.05f : x + 0.05f);
+}
+
+/* The colour itself when it already reaches `min` against the page, a row and a selected row; otherwise it is
+ * mixed toward the text colour just far enough, so its hue stays. */
+cui_color ui_icon_ink(cui_ctx *ui, cui_color c, float min) {
+    static const int bgs[] = { CUI_TOKEN_BACKGROUND, CUI_TOKEN_SURFACE, CUI_TOKEN_SURFACE_RAISED, CUI_TOKEN_ACTIVE };
+    cui_color base = cui_color_of(ui, c), fg = cui_color_of(ui, CUI_COLOR_FOREGROUND);
+    for (int step = 0; step <= 20; step++) {
+        cui_color t = step ? cui_mix(base, fg, step / 20.0f) : base;
+        bool ok = true;
+        for (int i = 0; i < 4 && ok; i++) ok = ratio(t, cui_color_of(ui, CUI_TOKEN_COLOR(bgs[i]))) >= min;
+        if (ok || step == 20) { t.a = 255; return t; }
+    }
+    return base;
+}
+
+/* A file still being copied is drawn dimmed until the real file replaces it. */
+static float g_dim = 1.0f;
+void ui_set_dim(bool dim) { g_dim = dim ? 0.5f : 1.0f; }
+cui_color ui_dimmed(cui_ctx *ui, cui_color c) { cui_color r = cui_color_of(ui, c); return g_dim < 1 ? cui_alpha(r, g_dim) : r; }
 
 const char *ui_kind_icon(int kind) {
     switch (kind) {
@@ -51,17 +80,18 @@ void ui_draw_folder(cui_ctx *ui, float cx, float cy, float s) {
 void ui_draw_file(cui_ctx *ui, float cx, float cy, float s, const char *name, int kind) {
     float w = s * 0.68f, h = s * 0.9f, f = s * 0.24f;
     float x0 = cx - w * 0.5f, y0 = cy - h * 0.5f, x1 = x0 + w, y1 = y0 + h;
-    cui_color page = cui_color_of(ui, CUI_COLOR_SURFACE_RAISED);
-    cui_color edge = cui_color_of(ui, CUI_COLOR_BORDER_STRONG);
-    cui_color tone = cui_color_of(ui, ui_kind_color(kind));
+    bool small = s < 40;
+    cui_color page = ui_dimmed(ui, CUI_COLOR_SURFACE_RAISED);
+    cui_color edge = small ? ui_dimmed(ui, ui_icon_ink(ui, CUI_COLOR_TEXT_SECONDARY, 4.5f)) : ui_dimmed(ui, CUI_COLOR_BORDER_STRONG);
+    cui_color tone = ui_dimmed(ui, small ? ui_icon_ink(ui, ui_kind_color(kind), 4.5f) : cui_color_of(ui, ui_kind_color(kind)));
     cui_vec2 body[5] = { { x0, y0 }, { x1 - f, y0 }, { x1, y0 + f }, { x1, y1 }, { x0, y1 } };
     cui_draw_shadow(ui, (cui_rect){ x0, y0 + s * 0.02f, w, h }, CUI_CORNERS(s * 0.05f), s * 0.05f, 0, (cui_vec2){ 0, s * 0.02f },
                     cui_alpha(cui_color_of(ui, CUI_COLOR_FOREGROUND), 0.10f));
     cui_draw_polygon(ui, body, 5, page);
-    cui_draw_polyline(ui, body, 5, 1.0f, edge, true);
+    cui_draw_polyline(ui, body, 5, small ? 1.25f : 1.0f, edge, true);
     cui_vec2 fold[3] = { { x1 - f, y0 }, { x1 - f, y0 + f }, { x1, y0 + f } };
-    cui_draw_polygon(ui, fold, 3, cui_alpha(tone, 0.28f));
-    cui_draw_polyline(ui, fold, 3, 1.0f, edge, true);
+    cui_draw_polygon(ui, fold, 3, small ? tone : cui_alpha(tone, 0.28f));
+    cui_draw_polyline(ui, fold, 3, small ? 1.25f : 1.0f, edge, true);
     /* type label */
     char label[8] = "";
     const char *ext = fs_ext_of(name);

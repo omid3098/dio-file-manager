@@ -87,8 +87,10 @@ void ui_list_view(void) {
                 switch (cs.kind[c]) {
                 case C_NAME:
                     cui_data_grid_cell(ui);
-                    cui_icon(ui, ui_kind_icon(e->kind), 16, ui_kind_color(e->kind));
-                    cui_text(ui, app_item_name(r), .nowrap = true, .width = CUI_FILL);
+                    ui_set_dim(e->flags & FS_INCOMING);
+                    cui_icon(ui, ui_kind_icon(e->kind), 16, ui_dimmed(ui, ui_icon_ink(ui, ui_kind_color(e->kind), 4.5f)));
+                    cui_text(ui, app_item_name(r), .nowrap = true, .width = CUI_FILL, .color = ui_dimmed(ui, CUI_COLOR_FOREGROUND));
+                    ui_set_dim(false);
                     break;
                 case C_LOC:
                     if (A.searching) search_location_text(r, buf, sizeof buf); else view_location_text(r, buf, sizeof buf);
@@ -96,6 +98,7 @@ void ui_list_view(void) {
                     break;
                 case C_SIZE:
                     if (e->flags & FS_DIR) cui_data_grid_cell_text(ui, "");
+                    else if (e->flags & FS_INCOMING) cui_data_grid_cell_text(ui, "Copyingâ¦");
                     else { fs_format_size(buf, sizeof buf, e->size); cui_data_grid_cell_text(ui, buf); }
                     break;
                 case C_TIME:
