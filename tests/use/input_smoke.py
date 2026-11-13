@@ -1,6 +1,7 @@
 """Real Win32 input on a private desktop. No default file handlers are invoked.
 Run from the repo: python tests/use/input_smoke.py
-Artifacts stay in .agent-work/use-v1. Requires the shared correct/hidden.py.
+DFM_USE_WORK and DFM_EXE select isolated artifacts and the executable.
+Requires the shared correct/hidden.py.
 """
 import ctypes as C
 from ctypes import wintypes as W
@@ -12,8 +13,9 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-WORK = ROOT / '.agent-work/use-v1'
-EXE = ROOT / 'build/MinSizeRel/dio-file-manager.exe'
+WORK = Path(os.environ.get('DFM_USE_WORK', ROOT / '.agent-work/use-v1'))
+EXE = Path(os.environ.get('DFM_EXE', ROOT / 'build/MinSizeRel/dio-file-manager.exe'))
+sys.pycache_prefix = str(WORK/'tmp/pycache')
 U = C.WinDLL('user32', use_last_error=True)
 K = C.WinDLL('kernel32', use_last_error=True)
 ENUM = C.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
@@ -32,11 +34,14 @@ U.SendMessageTimeoutW.restype = C.c_ssize_t
 
 class App:
     def __init__(self, name, path, view='grid'):
+        self.started = time.monotonic()
+        self.name, self.folder, self.view = name, path, view
         self.base = WORK / name
         Path(str(self.base)+'.request').unlink(missing_ok=True)
         self.proc = subprocess.Popen([str(EXE), '--path', str(path), '--view', view,
                                       '--test-state', str(self.base), '--theme', 'light'],
-                                     cwd=ROOT, creationflags=subprocess.CREATE_NO_WINDOW)
+                                     cwd=ROOT, env=dict(os.environ, APPDATA=str(WORK/'appdata')),
+                                     creationflags=subprocess.CREATE_NO_WINDOW)
         self.hwnd = None
         time.sleep(.2)  # Let window creation and font loading finish.
         def find(h, _):
@@ -163,6 +168,8 @@ class App:
         return self.wait_ready()
 
     def close(self):
+        if self.proc.poll() is not None:
+            return
         self.keys(())
         U.AttachThreadInput(self.our_tid, self.tid, False)
         self.msg(0x10)
@@ -170,9 +177,14 @@ class App:
             self.proc.wait(timeout=3)
         except subprocess.TimeoutExpired:
             self.proc.kill()
+            self.proc.wait()
+
+    def restart(self):
+        self.close()
+        self.__init__(self.name, self.folder, self.view)
 
 
-SAND = ROOT/'.agent-work/actions-v1/sandbox'
+SAND = WORK/'sandbox'
 
 
 def fresh(*names):
@@ -306,13 +318,19 @@ def inside():
         a.until('New folder not selected', lambda: a.snap()['selection'] == ['Docs'])
 
     def copy_paste(a):
-        a.cell(0); assert a.snap()['selection'] == ['a.txt']
-        a.key(ord('C'), (17,))
-        a.key(ord('V'), (17,))
-        a.until('No copy made', lambda: (SAND/'a (copy).txt').exists())
-        assert (SAND/'a.txt').exists(), 'Original kept'
-        a.key(ord('V'), (17,))
-        a.until('Second paste gave no "(copy 2)"', lambda: (SAND/'a (copy 2).txt').exists())
+        from clipboard_guard import preserved_clipboard
+        with preserved_clipboard(a.hwnd):
+            a.cell(0); assert a.snap()['selection'] == ['a.txt']
+            a.key(ord('C'), (17,))
+            a.key(ord('V'), (17,))
+            a.until('No copy made', lambda: (SAND/'a (copy).txt').exists())
+            assert (SAND/'a.txt').exists(), 'Original kept'
+            a.key(ord('V'), (17,))
+            a.until('Second paste gave no "(copy 2)"', lambda: (SAND/'a (copy 2).txt').exists())
+
+    def clipboard_restore(a):
+        from clipboard_guard_test import roundtrip
+        roundtrip(a.hwnd)
 
     def trash_undo(a):
         a.cell(0); assert a.snap()['selection'] == ['a.txt']
@@ -331,9 +349,79 @@ def inside():
         a.rclick(700,420)
         a.snap('menu-bg')
 
+    def starred(a):
+        saved = WORK/'appdata/dio-file-manager/starred.txt'
+        assert not saved.exists(), 'Star test requires an empty sandbox starred list'
+        a.cell(0)
+        x,y = a.cell_xy(0)
+        a.rclick(x,y)
+        a.snap('star-menu')
+        # The menu is clamped above the bottom edge; this is its visible Star row.
+        a.click(x+50, 622)
+        a.until('Star menu did not persist the sandbox path', lambda: saved.exists() and str(SAND/'starred.txt') in saved.read_text(encoding='utf-8'))
+        a.restart()
+        a.click(90, 46+34+16)
+        s = a.wait_ready()
+        assert s['loc'] == 2 and s['count'] == 1, 'Starred after restart'
+        a.cell(0)
+        assert a.snap('starred-restarted')['selection'] == ['starred.txt'], 'Starred item missing'
+
+    def trash_restore(a):
+        target = SAND/'dio-views-v2-restore.txt'
+        a.cell(0)
+        assert a.snap()['selection'] == [target.name]
+        a.key(46)
+        a.until('Delete did not trash the sandbox file', lambda: not target.exists())
+        a.until('Trash action still running', lambda: not a.snap()['act'] & 2)
+        a.restart()
+        initial = a.snap('trash-badge-startup')
+        assert initial['trash'] > 0, 'Trash count missing on startup'
+        elapsed = time.monotonic() - a.started
+        assert elapsed < 2, f'Startup badge check arrived too late ({elapsed:.2f}s)'
+        print(json.dumps({'startup_trash': initial['trash'], 'seconds': round(elapsed, 3)}), flush=True)
+        a.click(90, 46+9*34+16)
+        s = a.wait_ready()
+        assert s['loc'] == 3, 'Trash sidebar'
+        a.key(36)
+        for _ in range(s['count']):
+            if a.snap()['selection'] == [target.name]:
+                break
+            a.key(39)
+        else:
+            raise AssertionError('Sandbox file not listed in Trash')
+        a.snap('trash-selected')
+        # The bar restores only the selection. Never select all or empty the bin.
+        a.click(925, 69)
+        a.until('Restore did not return the sandbox file', target.exists, seconds=10)
+        assert target.read_text(encoding='utf-8') == 'x', 'Restored content changed'
+        a.key(37, (18,))
+        assert a.wait_ready()['path'] == str(SAND), 'Back to original folder'
+        a.cell(0)
+        assert a.snap('trash-restored')['selection'] == [target.name], 'Restored file not in its folder'
+
+    def prepare_starred():
+        fresh('starred.txt')
+        (WORK/'appdata/dio-file-manager/starred.txt').unlink(missing_ok=True)
+
+    def virtual_navigation(a):
+        a.click(90, 62)
+        s = a.wait_ready()
+        assert s['loc'] == 1 and s['state'] == 1, 'Recent did not load'
+        a.snap('recent-opened')
+        a.click(90, 522)
+        assert a.snap('other-opened')['loc'] == 4, 'Other Locations did not open'
+        a.click(600, 112)
+        s = a.wait_ready()
+        assert s['loc'] == 0 and s['path'] == s['drive'], 'Other Locations drive did not open'
+
+    check('10-starred-restart', SAND, starred, prep=prepare_starred)
+    check('11-trash-restore', SAND, trash_restore, prep=lambda: fresh('dio-views-v2-restore.txt'))
+    check('12-virtual-navigation', WORK/'fixture', virtual_navigation)
+
     check('9-rename', SAND, rename, prep=lambda: fresh('a.txt','b.txt'))
     check('9-new-folder', SAND, new_folder, prep=lambda: fresh('a.txt'))
     check('9-copy-paste', SAND, copy_paste, prep=lambda: fresh('a.txt'))
+    check('9-clipboard-restore', SAND, clipboard_restore, prep=lambda: fresh('a.txt'))
     check('9-trash-undo', SAND, trash_undo, prep=lambda: fresh('a.txt','b.txt'))
     check('9-context', SAND, context, prep=lambda: fresh('a.txt','b.txt','c.pdf'))
     check('1-grid-wheel', WORK/'big', wheel)
@@ -352,6 +440,7 @@ def inside():
 def main():
     WORK.mkdir(parents=True,exist_ok=True)
     (WORK/'tmp').mkdir(exist_ok=True)
+    (WORK/'appdata').mkdir(exist_ok=True)
     os.environ.update(TEMP=str(WORK/'tmp'),TMP=str(WORK/'tmp'))
     if '--inside' in sys.argv:
         return inside()

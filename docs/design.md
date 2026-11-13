@@ -45,6 +45,8 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   for removable drives; "Other Locations" last (all drives with their used and free space).
   Rows are 36 px, a 16 px Lucide icon and 14 px text, radius 10, 6 px inside the pane edge.
   The current place is filled with the `selected` colour; hover with `hover`.
+  Trash shows an item-count badge when nonempty. CUI 1.4.0 has no empty-bin icon,
+  so the icon stays the same when the bin is empty or full.
 - **Grid view (default):** cells about 112 px wide; a 64 px icon above the name; the name centred,
   up to two lines then cut short with an ellipsis (whole name in a tooltip, and in full while
   selected). Folders are drawn filled in the accent colour (a back flap a step darker), not as
@@ -79,9 +81,16 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   Shift+Delete deletes for ever after a confirm dialog.
 - Right click on an item: Open, Open With…, Cut, Copy, Rename, Move to Trash, Star, Copy Path,
   Properties. On the background: New Folder, Paste, Select All, Open in Terminal, Properties.
-- Ctrl+Z right after a delete undoes it like the toast's Undo button. Star is not built yet, so the item menu has no Star row.
+- Ctrl+Z right after a delete undoes it like the toast's Undo button.
+  Star/Unstar in the item menu, or the star in a list row, saves the item in Starred
+  across app restarts. The list lives under the current user's AppData.
   The rename and new-folder popovers open centred just below the selected item's row.
-- Trash shows the Recycle Bin with Restore and Empty Trash.
+- Recent lists recently opened items. Recent and Starred show each item's location
+  and offer Open Item Location in the item menu.
+- Trash shows the Recycle Bin with Original Location and Date Deleted columns.
+  Its bar shows an item count, Restore for the selection and Empty Trash.
+  Empty Trash and Delete Permanently require confirmation.
+- Other Locations lists drives with a usage bar and free/total space. Clicking one opens it.
 - Paste onto a name that exists asks: Replace, Skip or Keep Both, with "Apply to all".
 
 ## Colours (Halo, from `tokens.json`)

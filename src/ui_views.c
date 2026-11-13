@@ -234,7 +234,7 @@ static void paint_drive(cui_ctx *ui, cui_rect r, void *user) {
         if (bw > 420) bw = 420;
         float used = (float)((double)(d->total - d->free) / (double)d->total);
         cui_rect track = { tx, r.y + 38, bw, 6 };
-        cui_draw_rect(ui, track, CUI_CORNERS(3), cui_alpha(CUI_COLOR_FOREGROUND, 0.12f));
+        cui_draw_rect(ui, track, CUI_CORNERS(3), CUI_COLOR_BORDER_STRONG);
         if (used > 0.004f) cui_draw_rect(ui, (cui_rect){ tx, track.y, bw * used, 6 }, CUI_CORNERS(3), used > 0.9f ? CUI_COLOR_DANGER : CUI_COLOR_ACCENT);
         char f[48], t[48], line[120];
         fs_format_size(f, sizeof f, d->free);
