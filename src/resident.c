@@ -24,7 +24,7 @@ static HWND win;
 static UINT taskbar_created;
 static bool registered;
 static bool bridge;               /* the switch is off, Win+E is still ours: it opens Explorer until Explorer restarts */
-static DWORD tray_pid;            /* the process that owned the taskbar when the bridge began: 0 when there was none */
+static HANDLE shell_proc;         /* the Explorer that owned the taskbar when the bridge began; NULL when there was none */
 static wchar_t tail[1200];        /* what follows --resident: handed to the app as the launcher hands over its own */
 
 static void log_line(const wchar_t *what, const wchar_t *a) {
@@ -173,18 +173,17 @@ static int ask_process(UINT msg) {
     return (int)r;
 }
 
-/* Explorer's identity is the process behind its taskbar window: "TaskbarCreated" is also sent when the primary display's scale changes. */
-static DWORD shell_pid(void) {
-    DWORD p = 0;
-    HWND t = FindWindowW(L"Shell_TrayWnd", NULL);
-    if (t) GetWindowThreadProcessId(t, &p);
-    return p;
-}
-
+/* The bridge ends when the Explorer that was running at turn-off ends: the new Explorer registers its hotkeys while it
+ * starts, before it says "TaskbarCreated" (which is also sent when the display scale changes), so the hotkey must be let go
+ * before it starts. With no Explorer at turn-off, "TaskbarCreated" ends the bridge. */
 static bool start_bridge(void) {
+    DWORD p = 0;
+    HWND t;
     if (!registered) return false;
     bridge = true;
-    tray_pid = shell_pid();
+    t = FindWindowW(L"Shell_TrayWnd", NULL);
+    if (t) GetWindowThreadProcessId(t, &p);
+    if (p) shell_proc = OpenProcess(SYNCHRONIZE, FALSE, p);
     return true;
 }
 
@@ -252,6 +251,13 @@ static void open_home(void) {
     if (!bridge) PostMessageW(win, WM_CLOSE, 0, 0);   /* the keys could not be put back: nothing is held for Explorer */
 }
 
+static void end_bridge(void) {
+    log_line(L"bridge-exit", NULL);
+    if (registered) { UnregisterHotKey(win, HOTKEY_ID); registered = false; }
+    defaultfm_bridge_ended();
+    DestroyWindow(win);
+}
+
 static LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_HOTKEY && w == HOTKEY_ID) { open_home(); return 0; }
     if (m == MSG_RELEASE) {
@@ -266,13 +272,8 @@ static LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     if (m == taskbar_created && m) {
         log_line(L"taskbar-created", NULL);
-        if (bridge) {   /* Explorer restarted and read the restored DisabledHotkeys: Win+E is its own again */
-            if (tray_pid && shell_pid() == tray_pid) return 0;   /* the same Explorer: it did not restart */
-            log_line(L"bridge-exit", NULL);
-            if (registered) { UnregisterHotKey(h, HOTKEY_ID); registered = false; }
-            defaultfm_bridge_ended();
-            DestroyWindow(h);
-        } else try_register();
+        if (!bridge) try_register();
+        else if (!shell_proc) end_bridge();   /* a bridge that watches Explorer's process ends when that process does */
         return 0;
     }
     if (m == WM_CLOSE) { DestroyWindow(h); return 0; }
@@ -319,7 +320,16 @@ bool resident_main(int *rc) {
     log_line(L"pid", pid);
     try_register();
     SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);   /* give back what start-up touched */
-    while (GetMessageW(&msg, NULL, 0, 0) > 0) DispatchMessageW(&msg);
-    CloseHandle(mutex);
-    return true;
+    for (;;) {
+        DWORD r = MsgWaitForMultipleObjects(shell_proc ? 1 : 0, shell_proc ? &shell_proc : NULL, FALSE, INFINITE, QS_ALLINPUT);
+        if (shell_proc && r == WAIT_OBJECT_0) {   /* the old Explorer ended: let go of Win+E before the new one starts */
+            CloseHandle(shell_proc);
+            shell_proc = NULL;
+            end_bridge();
+        }
+        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
+            if (msg.message == WM_QUIT) { CloseHandle(mutex); return true; }
+            DispatchMessageW(&msg);
+        }
+    }
 }

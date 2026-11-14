@@ -534,7 +534,7 @@ bool defaultfm_disable(void) {
         } else ok = dfm_is_missing(r) && remove_all_ours();
         RegCloseKey(state);
     }
-    ok = resident_keys_restore() && ok;
+    ok = ok && resident_keys_restore();       /* the hotkey value and the Run entry go back last: a turn-off that fails keeps them, so the process and the next sign-in still hold Win+E for the commands that stay */
     if (!ok || any_ours()) return false;
     /* Explorer reads DisabledHotkeys only when it starts, so when it started with E in it, Win+E has no owner now.
      * The Win+E process that holds the hotkey stays on as a bridge (it opens Explorer on Win+E) until Explorer

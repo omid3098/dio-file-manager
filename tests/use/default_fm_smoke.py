@@ -384,23 +384,26 @@ def inside():
         if w:
             user32.PostMessageW(ctypes.c_void_p(w), user32.RegisterWindowMessageW('TaskbarCreated'), 0, 0)
 
-    def fake_taskbar():
-        """A window of Explorer's taskbar class on this desktop: the process tells an Explorer restart from a display-scale change by
-        the process behind that window."""
-        user32 = ctypes.windll.user32
-
-        class WndClass(ctypes.Structure):
-            _fields_ = [('style', ctypes.c_uint), ('proc', ctypes.c_void_p), ('cls', ctypes.c_int), ('wnd', ctypes.c_int), ('inst', ctypes.c_void_p),
-                        ('icon', ctypes.c_void_p), ('cursor', ctypes.c_void_p), ('brush', ctypes.c_void_p), ('menu', ctypes.c_wchar_p),
-                        ('name', ctypes.c_wchar_p)]
-        wc = WndClass()
-        wc.proc = ctypes.cast(user32.DefWindowProcW, ctypes.c_void_p).value
-        wc.name = 'Shell_TrayWnd'
-        user32.RegisterClassW(ctypes.byref(wc))
-        user32.CreateWindowExW.restype = ctypes.c_void_p
-        w = user32.CreateWindowExW(0, 'Shell_TrayWnd', 'taskbar', 0x80000000, 0, 0, 0, 0, None, None, None, None)
-        assert w, 'No stand-in taskbar window'
-        return w
+    def fake_explorer():
+        """A stand-in for the Explorer that is running at turn-off: a process that owns a window of Explorer's taskbar class. The
+        bridge watches the process behind that window, and lets go of Win+E when it ends."""
+        code = ('''import ctypes, time
+u = ctypes.windll.user32
+class C(ctypes.Structure):
+    _fields_ = [('style', ctypes.c_uint), ('proc', ctypes.c_void_p), ('cls', ctypes.c_int), ('wnd', ctypes.c_int), ('inst', ctypes.c_void_p),
+                ('icon', ctypes.c_void_p), ('cursor', ctypes.c_void_p), ('brush', ctypes.c_void_p), ('menu', ctypes.c_wchar_p), ('name', ctypes.c_wchar_p)]
+c = C()
+c.proc = ctypes.cast(u.DefWindowProcW, ctypes.c_void_p).value
+c.name = 'Shell_TrayWnd'
+u.RegisterClassW(ctypes.byref(c))
+u.CreateWindowExW.restype = ctypes.c_void_p
+assert u.CreateWindowExW(0, 'Shell_TrayWnd', 'taskbar', 0x80000000, 0, 0, 0, 0, None, None, None, None)
+print('ready', flush=True)
+time.sleep(600)
+''')
+        p = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE, env=env(), creationflags=NO_WINDOW)
+        assert p.stdout.readline().strip() == b'ready', 'The stand-in Explorer did not start'
+        return p
 
     def sign_in():
         """What Windows does at the next sign-in: it deletes the RunOnce value and runs its command. The real launcher is never
@@ -720,6 +723,7 @@ def inside():
         assert deny() == 0, 'Could not deny writes to the command key'
         try:
             assert off() != 0, 'Turning off said it worked while a key could not be restored'
+            assert run_value() is not None and adv_value() is not None, 'The Win+E keys went back while the switch stays on'
             assert launcher.exists(), 'The launcher the commands still point to was deleted'
             assert state_value('App') is not None, 'The record of the old values was deleted'
             assert status() == 0 and 'launcher' in command_of(FOLDER_OPEN), 'The command no longer points at the launcher'
@@ -989,7 +993,13 @@ def inside():
         before = dump()
         assert on() == 0
         pid = resident_up()
-        taskbar = fake_taskbar()
+        old_explorer = fake_explorer()
+        try:
+            bridge_after_turn_off_body(pid, before, old_explorer)
+        finally:
+            old_explorer.kill()
+
+    def bridge_after_turn_off_body(pid, before, old_explorer):
         assert off_raw() == 0
         assert pid_alive(pid), 'The process ended with the switch: Win+E does nothing until Explorer restarts'
         assert run_value() is None and adv_value() is None, 'The keys are not back'
@@ -1010,9 +1020,8 @@ def inside():
         assert pid_alive(pid) and not has_line('bridge-exit'), 'The bridge ended although Explorer did not restart: %r' % res_lines()
         post_hotkey()
         wait_for('Win+E did not open Explorer after a TaskbarCreated of the same Explorer', lambda: len(standin_lines()) == 3)
-        ctypes.windll.user32.DestroyWindow(ctypes.c_void_p(taskbar))   # Explorer is gone, a new one starts
-        explorer_restarts()
-        wait_for('The process did not end when Explorer restarted', lambda: not pid_alive(pid))
+        old_explorer.kill()   # Explorer ends; the new one registers its hotkeys while it starts, before it says TaskbarCreated
+        wait_for('The process kept Win+E after Explorer ended: the new Explorer would find it taken and not try again', lambda: not pid_alive(pid))
         assert has_line('bridge-exit')
         user32 = ctypes.windll.user32
         assert user32.RegisterHotKey(None, 78, 0x4000 | 0xF, 0x86), 'The hotkey is still held after the process ended'
