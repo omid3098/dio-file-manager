@@ -302,11 +302,12 @@ static bool write_commands(const wchar_t *launcher, const wchar_t *extra) {
 
 /* A registration made by an older version has no record for the targets added since. Each such target that is not
  * ours is saved as it is now and then registered, so turning off puts it back like the others. */
-static void register_missing(const wchar_t *launcher, const wchar_t *extra) {
+static bool register_missing(const wchar_t *launcher, const wchar_t *extra) {
     wchar_t p[520], c[1200];
     HKEY saved;
     sub(p, state_base, L"Saved");
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, p, 0, NULL, 0, KEY_READ | KEY_WRITE, NULL, &saved, NULL)) return;
+    bool ok = true;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, p, 0, NULL, 0, KEY_READ | KEY_WRITE, NULL, &saved, NULL)) return false;
     for (int i = 0; i < TARGETS; i++) {
         wchar_t name[16];
         HKEY k;
@@ -314,10 +315,13 @@ static void register_missing(const wchar_t *launcher, const wchar_t *extra) {
         if (!RegOpenKeyExW(saved, name, 0, KEY_READ, &k)) { RegCloseKey(k); continue; }
         sub(p, classes_base, TARGET[i].path);
         if (!read_default(p, c, 1200) && is_ours(c)) continue;
-        if (save_target(saved, i)) write_command(i, launcher, extra);
-        else RegDeleteTreeW(saved, name);
+        if (!save_target(saved, i) || !write_command(i, launcher, extra)) {   /* no record without a registration: the next try starts over */
+            RegDeleteTreeW(saved, name);
+            ok = false;
+        }
     }
     RegCloseKey(saved);
+    return ok;
 }
 
 static bool launcher_path(wchar_t *out, size_t cap) {
@@ -357,7 +361,7 @@ bool defaultfm_enable(const wchar_t *extra_args) {
         if (RegCreateKeyExW(HKEY_CURRENT_USER, state_base, 0, NULL, 0, KEY_WRITE, NULL, &state, NULL)) return false;
         RegCloseKey(state);
     }
-    if (defaultfm_enabled() && key_exists(state_base)) register_missing(launcher, extra_args ? extra_args : L"");
+    if (any_ours() && !register_missing(launcher, extra_args ? extra_args : L"")) return false;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_WRITE, &state)) return false;
     bool ok = set_string(state, L"App", self) && set_string(state, L"Launcher", launcher) &&
               set_string(state, L"Args", extra_args ? extra_args : L"");
@@ -412,7 +416,7 @@ void defaultfm_sync(void) {
     if (!same_size(self, launcher)) copy_launcher(self, launcher);
     wchar_t args[520] = L"";
     get_string(HKEY_CURRENT_USER, state_base, L"Args", args, 520);
-    if (key_exists(state_base)) register_missing(launcher, args);
+    if (any_ours()) register_missing(launcher, args);   /* recovery state alone, without a command of ours, registers nothing */
 }
 
 /* ---- the requests ---- */
