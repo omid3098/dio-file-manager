@@ -632,6 +632,65 @@ void ui_column_view(void) {
     if (opened >= 0) app_open_vis(opened);
 }
 
+/* ---- loading placeholders: the cells of ui_grid_view and ui_column_view as shapes, one shared shine over all ----
+ * Built inside ui_loading_view; the shapes sit where the real cells will: the same columns, row height and icon size. */
+
+#define SKEL_ROWS_MAX 40
+static float skel_name_w(float room, int i) { return room * (0.5f + 0.01f * (float)((i * 7) % 21)); }   /* about 60% of the cell, no two alike in a row */
+
+void ui_grid_skeleton(void) {
+    cui_ctx *ui = A.ui;
+    int cols = (int)floorf((A.content_w - 2 * GPAD) / min_cell_w());
+    if (cols < 1) cols = 1;
+    float cw = (A.content_w - 2 * GPAD) / (float)cols, icon = icon_size(), ch = cell_height();
+    int rows = (int)ceilf(A.content_h / ch);
+    if (rows > SKEL_ROWS_MAX) rows = SKEL_ROWS_MAX;
+    bool compact = A.zoom == Z_SMALL;
+    cui_skeleton_group(ui) {
+        cui_column(ui, .width = CUI_FILL, .gap = 0) {
+            for (int r = 0; r < rows; r++) {
+                cui_row(ui, .width = CUI_FILL, .height = CUI_PX(ch), .pad_x = GPAD, .gap = 0) {
+                    for (int c = 0; c < cols; c++) {
+                        int i = r * cols + c;
+                        if (compact) {   /* a tile: the icon at the left, the name beside it */
+                            cui_row(ui, .width = CUI_PX(cw), .height = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 8, .pad_left = 12) {
+                                cui_skeleton(ui, CUI_PX(icon), icon);
+                                cui_skeleton(ui, CUI_PX(skel_name_w(cw - icon - 36, i)), 10);
+                            }
+                        } else {   /* the icon block, then one name line under it, both centred */
+                            cui_column(ui, .width = CUI_PX(cw), .height = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 0) {
+                                cui_gap(ui, 10);
+                                cui_skeleton(ui, CUI_PX(icon), icon);
+                                cui_gap(ui, 16);
+                                cui_skeleton(ui, CUI_PX(skel_name_w(cw - 10, i)), 10);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+void ui_columns_skeleton(void) {
+    cui_ctx *ui = A.ui;
+    int rows = (int)(A.content_h - 32) / 32;
+    if (rows < 1) rows = 1;
+    int cols = (int)ceilf(A.content_w / 240.0f);
+    cui_skeleton_group(ui) {
+        cui_row(ui, .width = CUI_FILL, .pad_y = 16, .gap = 0) {
+            for (int c = 0; c < cols; c++)
+                cui_column(ui, .width = CUI_PX(240), .gap = 0) {
+                    for (int r = 0; r < rows; r++)
+                        cui_row(ui, .width = CUI_FILL, .height = CUI_PX(32), .align = CUI_ALIGN_CENTER, .gap = 8, .pad_left = 12) {
+                            cui_skeleton(ui, CUI_PX(16), 16);
+                            cui_skeleton(ui, CUI_PX(skel_name_w(192, c * rows + r)), 10);
+                        }
+                }
+        }
+    }
+}
+
 /* ---- keyboard ---- */
 
 static void move_cursor(int to, bool extend) {

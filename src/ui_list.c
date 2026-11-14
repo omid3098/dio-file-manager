@@ -135,3 +135,62 @@ void ui_list_view(void) {
         app_resort();
     }
 }
+
+/* Loading placeholders for Details: the frame and header of the real grid, then rows of 36 px with a square and a bar in the
+ * Name column and a bar in each other column. The columns are those of ui_list_view, and drop by priority as its grid does. */
+void ui_list_skeleton(void) {
+    cui_ctx *ui = A.ui;
+    colset cs;
+    columns_for(&cs);
+    bool hide[6] = { false };
+    float total = 0;
+    for (int i = 0; i < cs.n; i++) total += cs.cols[i].width;
+    for (int shown = cs.n; total > A.content_w - 2 && shown > 1; shown--) {
+        int h = -1;
+        for (int i = 0; i < cs.n; i++)
+            if (!hide[i] && cs.cols[i].priority > 0 && (h < 0 || cs.cols[i].priority >= cs.cols[h].priority)) h = i;
+        if (h < 0) break;
+        hide[h] = true;
+        total -= cs.cols[h].width;
+    }
+    int rows = (int)ceilf((A.content_h - 40) / 36.0f);
+    if (rows > 40) rows = 40;
+    float sm = cui_theme_get(ui)->text_sm;
+    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .bg = CUI_COLOR_SURFACE, .border = 1, .radius = cui_theme_get(ui)->radius_control, .clip = true, .gap = 0) {
+        cui_row(ui, .width = CUI_FILL, .height = CUI_PX(40), .bg = CUI_COLOR_SURFACE_MUTED, .align = CUI_ALIGN_CENTER) {
+            for (int c = 0; c < cs.n; c++) {
+                if (hide[c]) continue;
+                bool last = cs.kind[c] == C_STAR;
+                cui_row(ui, .width = last ? CUI_FILL : CUI_PX(cs.cols[c].width), .height = CUI_FILL, .align = CUI_ALIGN_CENTER, .pad_x = 12) {
+                    if (cs.cols[c].title[0])
+                        cui_text(ui, cs.cols[c].title, .font = CUI_FONT_MEDIUM, .size = sm, .color = CUI_COLOR_TEXT_SECONDARY, .nowrap = true,
+                                 .align = cs.cols[c].align, .width = CUI_FILL);
+                }
+            }
+        }
+        cui_box(ui, .width = CUI_FILL, .height = CUI_PX(1), .bg = CUI_COLOR_BORDER) {}
+        cui_skeleton_group(ui) {
+            cui_column(ui, .width = CUI_FILL, .gap = 0) {
+                for (int r = 0; r < rows; r++) {
+                    cui_row(ui, .width = CUI_FILL, .height = CUI_PX(36), .align = CUI_ALIGN_CENTER) {
+                        for (int c = 0; c < cs.n; c++) {
+                            if (hide[c]) continue;
+                            float w = cs.cols[c].width, pct = 0.5f + 0.01f * (float)((r * 7) % 21);
+                            if (cs.kind[c] == C_STAR) { cui_gap(ui, 0); continue; }
+                            cui_row(ui, .width = CUI_PX(w), .height = CUI_FILL, .align = CUI_ALIGN_CENTER, .gap = 8, .pad_x = 12,
+                                    .justify = cs.cols[c].align == CUI_TEXT_RIGHT ? CUI_JUSTIFY_END : CUI_JUSTIFY_START) {
+                                if (cs.kind[c] == C_NAME) {
+                                    cui_skeleton(ui, CUI_PX(16), 16);
+                                    cui_skeleton(ui, CUI_PX((w - 24 - 24) * pct), 10);
+                                } else {
+                                    float bar = cs.kind[c] == C_SIZE ? 40 : (w - 24) * (0.4f + 0.01f * (float)((r * 5) % 31));
+                                    cui_skeleton(ui, CUI_PX(bar), 10);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

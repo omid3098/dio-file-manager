@@ -173,7 +173,7 @@ void fsearch_empty_view(void) {
         }
         return;
     }
-    ui_state_view(CUI_ICON_SEARCH, "No Results Found", "Try a different search.");
+    ui_state_view(CUI_ICON_SEARCH, "No Results Found", "Try a different search.", NULL);
 }
 
 /* The Location column of the results, as in GNOME Files: the folder of the result below the searched folder

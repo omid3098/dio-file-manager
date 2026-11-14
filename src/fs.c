@@ -265,8 +265,12 @@ static bool add_entry(fs_list *l, const WIN32_FIND_DATAW *f) {
                        ((uint64_t)f->ftLastWriteTime.dwHighDateTime << 32) | f->ftLastWriteTime.dwLowDateTime, NULL, NULL);
 }
 
+static unsigned test_list_delay_ms;
+void fs_test_list_delay(unsigned ms) { test_list_delay_ms = ms; }
+
 static unsigned __stdcall list_thread(void *arg) {
     fs_list *l = arg;
+    for (unsigned waited = 0; waited < test_list_delay_ms && !l->abandoned; waited += 20) Sleep(20);
     if (l->vkind) {
         long r = views_fill(l);
         if (!l->abandoned) fs_list_sort(l, l->sort_key, l->sort_desc);

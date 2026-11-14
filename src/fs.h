@@ -46,6 +46,7 @@ typedef struct fs_list {
 enum { FS_V_NONE = 0, FS_V_RECENT = 1, FS_V_STARRED = 2, FS_V_TRASH = 3 };
 
 fs_list *fs_list_start(const char *path, int sort_key, bool sort_desc);  /* returns at once */
+void fs_test_list_delay(unsigned ms);   /* checks only: every listing waits this long before it reads, so the loading view can be seen */
 fs_list *fs_list_start_virtual(int vkind, int sort_key, bool sort_desc); /* Recent, Starred or Trash; filled by views_fill */
 bool fs_list_add(fs_list *l, const char *name, uint32_t flags, uint64_t size, uint64_t mtime, const char *path, const char *id);
 const char *fs_extra(const fs_list *l, uint32_t off);

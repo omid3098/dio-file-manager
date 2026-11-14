@@ -226,6 +226,8 @@ static void poll_list(void) {
         fs_list_sort(A.list, A.sort_key, A.sort_desc);
     }
     app_rebuild_view();
+    if (A.skel_shown && A.vis_n > 0 && app_animations()) A.fade_t = cui_time(A.ui);   /* the real items replace the placeholders with the 120 ms fade */
+    A.skel_shown = false;
     act_list_ready();
 }
 
@@ -239,6 +241,7 @@ static void load_entry(const char *entry) {
     if (A.list) { fs_list_release(A.list); A.list = NULL; }
     sizes_forget();
     A.last_click_idx = -1;
+    A.load_t = cui_time(A.ui); A.skel_shown = false; A.skel_frames = 0;
     A.list_seen = false; A.vis_n = 0; A.sel_n = 0; A.cursor = A.anchor = -1; A.reset_scroll = true;
     A.search[0] = 0; A.search_open = false; A.sidebar_open = false;
     if (entry[0] == '@') {
@@ -479,26 +482,26 @@ static void list_body(void) {
     cui_ctx *ui = A.ui;
     int st = A.list ? fs_list_state(A.list) : FS_FAILED;
     if (st == FS_FAILED) {
-        if (A.loc != LOC_FOLDER) { ui_state_view(CUI_ICON_LOCK, "Unable to load this view", "Try again in a moment."); return; }
+        if (A.loc != LOC_FOLDER) { ui_state_view(CUI_ICON_LOCK, "Unable to load this view", "Try again in a moment.", NULL); return; }
         const char *base = strrchr(A.path, '\\');
         char t[300];
         snprintf(t, sizeof t, "Unable to access \xE2\x80\x9C%s\xE2\x80\x9D", (base && base[1]) ? base + 1 : A.path);
-        ui_state_view(CUI_ICON_LOCK, t, A.list ? fs_error_text(A.list->error) : "");
+        if (ui_state_view(CUI_ICON_LOCK, t, A.list ? fs_error_text(A.list->error) : "", "Try Again")) app_reload();   /* what F5 does */
         return;
     }
-    if (st == FS_LOADING) return;
+    if (st == FS_LOADING) { ui_loading_view(); return; }
     if (A.list->count == 0 && A.searching) { fsearch_empty_view(); return; }
     if (A.list->count == 0) {
-        if (A.loc == LOC_RECENT) ui_state_view(CUI_ICON_CLOCK, "No Recent Files", "Files you open will show up here.");
-        else if (A.loc == LOC_STARRED) ui_state_view(CUI_ICON_STAR, "No Starred Files", "Star a file or folder to find it quickly.");
-        else if (A.loc == LOC_TRASH) ui_state_view(CUI_ICON_TRASH_2, "Trash is Empty", "Items you move to the Trash will show up here.");
-        else { ui_state_view(CUI_ICON_FOLDER_OPEN, "Folder is Empty", NULL); }
+        if (A.loc == LOC_RECENT) ui_state_view(CUI_ICON_CLOCK, "No Recent Files", "Files you open will show up here.", NULL);
+        else if (A.loc == LOC_STARRED) ui_state_view(CUI_ICON_STAR, "No Starred Files", "Star a file or folder to find it quickly.", NULL);
+        else if (A.loc == LOC_TRASH) ui_state_view(CUI_ICON_TRASH_2, "Trash is Empty", "Items you move to the Trash will show up here.", NULL);
+        else { ui_state_view(CUI_ICON_FOLDER_OPEN, "Folder is Empty", NULL, NULL); }
         return;
     }
     if (A.vis_n == 0 && A.searching) { fsearch_empty_view(); return; }
     if (A.vis_n == 0) {
         ui_state_view(CUI_ICON_SEARCH, A.search[0] ? "No Results" : "Nothing to Show",
-                      A.search[0] ? "Try a different search." : "Only hidden items are here. Press Ctrl+H to show them.");
+                      A.search[0] ? "Try a different search." : "Only hidden items are here. Press Ctrl+H to show them.", NULL);
         return;
     }
     float fade = app_view_fade();   /* a mode switch fades the new view in over 120 ms */
@@ -524,6 +527,7 @@ static void frame(void) {
     A.dark = cui_get_theme_mode(ui) == CUI_THEME_DARK;
     theme_apply(ui, A.dark);
     chrome_begin_frame();
+    ui_loading_frame_begin();
     menu_frame_begin();
     act_pre_frame();
     poll_list();
@@ -661,7 +665,7 @@ static void test_snapshot(const char *base) {
         if (comma) fputc(',', f);
         json_text(f, app_item_name(i)); comma = true;
     }
-    fprintf(f, "],\"listed\":%d,\"incoming\":[", A.list ? A.list->count : 0);
+    fprintf(f, "],\"listed\":%d,\"skel\":%d,\"incoming\":[", A.list ? A.list->count : 0, A.skel_frames);
     comma = false;
     for (int i = 0; i < A.vis_n; i++) if (app_item(i)->flags & FS_INCOMING) {
         if (comma) fputc(',', f);
@@ -801,6 +805,7 @@ int main(void) {
         clip_test_handshake(getenv("DFM_TEST_CLIP_HANDSHAKE"));
         recent_test_source(getenv("DFM_TEST_RECENT"));
         fs_test_drives(getenv("DFM_TEST_DRIVES"), getenv("DFM_TEST_EJECT_LOG"));
+        if (getenv("DFM_TEST_LIST_DELAY_MS")) fs_test_list_delay((unsigned)atoi(getenv("DFM_TEST_LIST_DELAY_MS")));
     }
     HWND hwnd = (HWND)cui_app_native_window(g_app);
     test_window_proc = (WNDPROC)SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)test_input_proc);

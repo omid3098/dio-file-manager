@@ -26,6 +26,9 @@ typedef struct app_t {
     /* what is in it */
     fs_list *list;                   /* the current listing; may still be loading */
     bool list_seen;                  /* the window has built its view of a finished listing */
+    double load_t;                   /* when the current listing was asked for: placeholders show once it has run 200 ms */
+    bool skel_shown;                 /* placeholders were drawn for it: the real items fade in */
+    int skel_frames;                 /* test state: frames that drew them, so a check sees a fast folder draw none */
     int *vis;                        /* indices into list->items after the filters */
     bool *sel;                       /* parallel to vis */
     int vis_n, vis_cap, sel_n;
@@ -250,7 +253,9 @@ bool app_default_fm(void);
 void ui_content_header(void);
 void ui_bottom_bar(void);          /* narrow windows: Back, Forward and the view controls */
 void ui_search_bar(void);
-void ui_state_view(const char *icon, const char *title, const char *detail);
+bool ui_state_view(const char *icon, const char *title, const char *detail, const char *action);   /* a whole view's message; true when its action button (NULL: none) was clicked */
+void ui_loading_view(void);                 /* a listing running 200 ms or more: placeholder shapes in the current view's form */
+void ui_loading_frame_begin(void);          /* start of every frame */
 void ui_status_pill(void);
 const char *ui_pill_text(void);             /* test state: the pill's text of the last frame */
 
@@ -269,8 +274,11 @@ void ui_grid_view(void);
 #define UI_NAME_BYTES 1028   /* a file name is at most 1023 bytes (fs.c add_entry); a label line adds an ellipsis and the end 0 */
 int ui_grid_label_lines(int idx, char out[][UI_NAME_BYTES]);   /* the lines of an item's grid label as they are drawn (test probe) */
 void ui_column_view(void);
+void ui_grid_skeleton(void);               /* loading placeholders in the form of ui_grid_view and ui_column_view */
+void ui_columns_skeleton(void);
 void ui_grid_keys(void);
 void ui_list_view(void);
+void ui_list_skeleton(void);               /* Details: the header and rows of placeholder bars */
 void ui_handle_open_keys(void);
 
 #endif
