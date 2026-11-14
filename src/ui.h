@@ -30,7 +30,8 @@ typedef struct app_t {
     bool *sel;                       /* parallel to vis */
     int vis_n, vis_cap, sel_n;
     int cursor, anchor;              /* vis indices, -1 for none */
-    uint64_t sel_bytes;
+    uint64_t sel_bytes;              /* file sizes plus the folder sizes known so far */
+    bool sel_pending;                /* a selected folder's size is still being measured */
 
     /* view settings */
     int view, zoom, last_icon;       /* zoom: the stop the continuous value rounds to (mode and layout style); view keeps the header shortcuts */
@@ -250,6 +251,16 @@ void ui_bottom_bar(void);          /* narrow windows: Back, Forward and the view
 void ui_search_bar(void);
 void ui_state_view(const char *icon, const char *title, const char *detail);
 void ui_status_pill(void);
+const char *ui_pill_text(void);             /* test state: the pill's text of the last frame */
+
+/* ui_sizes.c: folder sizes (engine: foldersize.c) */
+void sizes_frame(void);                                       /* once per frame: ask for the shown folders, one re-sort when all are in */
+void sizes_fill(void);                                        /* before a size sort: the known folder sizes into the entries */
+int sizes_cell(const fs_entry *e, const char *name, char *buf, size_t cap);   /* 0 nothing to show, 1 text in buf, 2 still measuring */
+void sizes_selection(uint64_t *bytes, bool *pending);         /* the selected folders' total */
+bool sizes_settled(void);
+int sizes_open(void);
+void app_resort_keep(void);                                   /* main.c: sort again, keeping the selection and the scroll anchored */
 
 /* ui_grid.c, ui_list.c */
 void ui_grid_view(void);

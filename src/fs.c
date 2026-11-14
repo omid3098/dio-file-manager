@@ -120,7 +120,7 @@ static int cmp_entries(const void *pa, const void *pb) {
     if (da != db && !l->mixed) return da ? -1 : 1;
     int c = 0;
     switch (l->sort_key) {
-    case FS_SORT_SIZE: if (!da) c = a->size < b->size ? -1 : a->size > b->size; break;
+    case FS_SORT_SIZE: c = a->size < b->size ? -1 : a->size > b->size; break;   /* a folder carries its measured size (0 until known) and sorts by it among folders */
     case FS_SORT_MODIFIED: c = a->mtime < b->mtime ? -1 : a->mtime > b->mtime; break;
     case FS_SORT_TYPE:
         c = a->kind != b->kind ? (int)a->kind - (int)b->kind

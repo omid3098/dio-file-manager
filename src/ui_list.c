@@ -97,8 +97,12 @@ void ui_list_view(void) {
                     cui_data_grid_cell_text(ui, buf);
                     break;
                 case C_SIZE:
-                    if (e->flags & FS_DIR) cui_data_grid_cell_text(ui, "");
-                    else if (e->flags & FS_INCOMING) cui_data_grid_cell_text(ui, "Copying...");
+                    if (e->flags & FS_DIR) {
+                        int sk = sizes_cell(e, app_item_name(r), buf, sizeof buf);
+                        if (sk == 1) cui_data_grid_cell_text(ui, buf);
+                        else if (sk == 2) { cui_data_grid_cell(ui); cui_text(ui, "\xE2\x80\xA6", .color = CUI_COLOR_TEXT_MUTED, .align = CUI_TEXT_RIGHT, .width = CUI_FILL); }
+                        else cui_data_grid_cell_text(ui, "");
+                    } else if (e->flags & FS_INCOMING) cui_data_grid_cell_text(ui, "Copying...");
                     else { fs_format_size(buf, sizeof buf, e->size); cui_data_grid_cell_text(ui, buf); }
                     break;
                 case C_TIME:

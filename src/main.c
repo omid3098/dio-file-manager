@@ -16,6 +16,10 @@
 #include "dlgtext.h"
 #include "clip.h"
 #include "defaultfm.h"
+#include "foldersize.h"
+
+#define WM_DFM_SIZES (WM_APP + 7)   /* the folder-size engine has results: draw a frame */
+static void sizes_notify(void) { if (A.hwnd) PostMessageW((HWND)A.hwnd, WM_DFM_SIZES, 0, 0); }
 
 app_t A;
 static cui_app *g_app;
@@ -43,6 +47,7 @@ static void nav_press(int dir) {
 
 static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     LRESULT chrome_result;
+    if (m == WM_DFM_SIZES) { if (A.ui) cui_request_redraw(A.ui); return 0; }
     if (m == WM_NCMOUSELEAVE && test_mode) return 0;   /* same reason: the maximize button's hover comes from the driver */
     if (chrome_message(h, m, w, l, (intptr_t *)&chrome_result)) return chrome_result;
     if (m == WM_MOUSELEAVE && test_mode) return 0;
@@ -132,9 +137,10 @@ void app_set_search_open(bool open) {
 /* ---- selection ---- */
 
 void app_count_selection(void) {
-    A.sel_n = 0; A.sel_bytes = 0;
+    A.sel_n = 0; A.sel_bytes = 0; A.sel_pending = false;
     for (int i = 0; i < A.vis_n; i++)
         if (A.sel[i]) { A.sel_n++; if (!(app_item(i)->flags & FS_DIR)) A.sel_bytes += app_item(i)->size; }
+    if (A.sel_n) { uint64_t db; sizes_selection(&db, &A.sel_pending); A.sel_bytes += db; }
 }
 
 void app_clear_selection(void) {
@@ -204,6 +210,7 @@ void app_rebuild_view(void) {
 
 void app_resort(void) {
     if (A.list && fs_list_state(A.list) == FS_DONE) {
+        sizes_fill();
         fs_list_sort(A.list, A.sort_key, A.sort_desc);
         app_rebuild_view();
     }
@@ -213,8 +220,10 @@ static void poll_list(void) {
     if (!A.list || A.list_seen || fs_list_state(A.list) == FS_LOADING) return;
     A.list_seen = true;
     if (fs_list_state(A.list) == FS_DONE &&
-        (A.list->sort_key != A.sort_key || A.list->sort_desc != A.sort_desc))
+        (A.list->sort_key != A.sort_key || A.list->sort_desc != A.sort_desc || A.sort_key == FS_SORT_SIZE)) {
+        sizes_fill();
         fs_list_sort(A.list, A.sort_key, A.sort_desc);
+    }
     app_rebuild_view();
     act_list_ready();
 }
@@ -331,7 +340,7 @@ static void poll_next(void) {
     fs_list *old = A.list;
     ui_band_cancel();
     A.list = next_list; next_list = NULL;
-    if (A.list->sort_key != A.sort_key || A.list->sort_desc != A.sort_desc) fs_list_sort(A.list, A.sort_key, A.sort_desc);
+    if (A.list->sort_key != A.sort_key || A.list->sort_desc != A.sort_desc || A.sort_key == FS_SORT_SIZE) { sizes_fill(); fs_list_sort(A.list, A.sort_key, A.sort_desc); }
     app_rebuild_view();
     A.reset_scroll = false;
     for (int i = 0; i < A.vis_n; i++) {
@@ -344,6 +353,39 @@ static void poll_next(void) {
     if (n) app_count_selection();
     free(keep);
     fs_list_release(old);
+}
+
+/* All folder sizes are in: sort once more by them. The selection and the first visible row stay where they are, so
+ * nothing jumps under the pointer. */
+void app_resort_keep(void) {
+    if (A.loc != LOC_FOLDER || A.searching || !A.list || !A.list_seen || next_list || fs_list_state(A.list) != FS_DONE) return;
+    const char **keep = malloc(((size_t)A.sel_n + 1) * sizeof *keep);
+    const char *cur = A.cursor >= 0 && A.cursor < A.vis_n ? app_item_name(A.cursor) : NULL;
+    const char *anc = A.anchor >= 0 && A.anchor < A.vis_n ? app_item_name(A.anchor) : NULL;
+    int old_first = A.first_row;
+    const char *top = old_first >= 0 && old_first < A.vis_n ? app_item_name(old_first) : NULL;   /* names live in the listing's pool: they stay put while it is sorted */
+    float y = 0, ty = 0, vh = 0;
+    ui_scroll_get("list", &y, &ty, &vh);
+    int n = 0, first = -1;
+    for (int i = 0; keep && i < A.vis_n; i++)
+        if (A.sel[i] && n < A.sel_n) keep[n++] = app_item_name(i);
+    if (n) qsort(keep, (size_t)n, sizeof *keep, cmp_name);
+    sizes_fill();
+    fs_list_sort(A.list, A.sort_key, A.sort_desc);
+    app_rebuild_view();
+    A.reset_scroll = false;
+    int top_idx = -1;
+    for (int i = 0; i < A.vis_n; i++) {
+        const char *name = app_item_name(i);
+        if (n && bsearch(&name, keep, (size_t)n, sizeof *keep, cmp_name)) { A.sel[i] = true; if (first < 0) first = i; }
+        if (cur && A.cursor < 0 && !strcmp(name, cur)) A.cursor = i;
+        if (anc && A.anchor < 0 && !strcmp(name, anc)) A.anchor = i;
+        if (top && top_idx < 0 && !strcmp(name, top)) top_idx = i;
+    }
+    if (A.cursor < 0) A.cursor = first;
+    if (n) app_count_selection();
+    free(keep);
+    if (top_idx >= 0 && top_idx != old_first) { float ny = y + (float)(top_idx - old_first) * A.cell_h; ui_scroll_jump("list", ny < 0 ? 0 : ny); }
 }
 
 void app_up(void) {
@@ -484,6 +526,7 @@ static void frame(void) {
     act_pre_frame();
     poll_list();
     poll_next();
+    sizes_frame();
     fsearch_frame();
     if (A.list && fs_list_state(A.list) == FS_LOADING) cui_request_wakeup(ui, 0.02f);
     ui_zoom_tick();
@@ -633,7 +676,16 @@ static void test_snapshot(const char *base) {
         for (int k = 0; k < n; k++) { if (k) fputc(',', f); json_text(f, ln[k]); }
         fputc(']', f);
     }
-    fprintf(f, "],\"content_w\":%.2f,\"cell_h\":%.2f,\"probe\":%d,\"band\":%d,\"zv\":%.4f,\"icon_px\":%.2f,\"zoom\":%d,\"icon\":%d,\"column_rows\":%d,\"slider\":[%.2f,%.2f,%.2f,%.2f],\"query\":", A.content_w, A.cell_h, A.probe_idx, ui_band_dragging(), A.zv, app_icon_size(), A.zoom, A.last_icon, A.column_rows, A.zoom_rect.x, A.zoom_rect.y, A.zoom_rect.w, A.zoom_rect.h); json_text(f, A.search);
+    fprintf(f, "],\"sizes\":[");
+    for (int i = 0, k = 0; i < A.vis_n && k < 300; i++) {   /* [name, 0 none / 1 value / 2 measuring, text] of each folder */
+        char sz[64] = "";
+        if (!(app_item(i)->flags & FS_DIR)) continue;
+        int sk = sizes_cell(app_item(i), app_item_name(i), sz, sizeof sz);
+        if (k++) fputc(',', f);
+        fputc('[', f); json_text(f, app_item_name(i)); fprintf(f, ",%d,", sk); json_text(f, sz); fputc(']', f);
+    }
+    fprintf(f, "],\"fsz_open\":%d,\"sel_pending\":%d,\"pill\":", sizes_open(), A.sel_pending); json_text(f, ui_pill_text());
+    fprintf(f, ",\"content_w\":%.2f,\"cell_h\":%.2f,\"probe\":%d,\"band\":%d,\"zv\":%.4f,\"icon_px\":%.2f,\"zoom\":%d,\"icon\":%d,\"column_rows\":%d,\"slider\":[%.2f,%.2f,%.2f,%.2f],\"query\":", A.content_w, A.cell_h, A.probe_idx, ui_band_dragging(), A.zv, app_icon_size(), A.zoom, A.last_icon, A.column_rows, A.zoom_rect.x, A.zoom_rect.y, A.zoom_rect.w, A.zoom_rect.h); json_text(f, A.search);
     fprintf(f, ",\"documents\":"); json_text(f, A.places[2]);
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));
     json_text(f, A.drive_n ? A.drives[0].root : "");
@@ -750,6 +802,8 @@ int main(void) {
     memset(&A, 0, sizeof A);
     A.ui = cui_app_ui(g_app);
     A.hwnd = cui_app_native_window(g_app);
+    fsz_start(sizes_notify);
+    if (test_mode && getenv("DFM_TEST_FSZ_DELAY_MS")) fsz_test_delay((unsigned)atoi(getenv("DFM_TEST_FSZ_DELAY_MS")));
     ui_text_clipboard(A.ui);
     chrome_init(hwnd, o.w, o.h, 360, 280);
     if (o.inactive) chrome_set_active(false);
@@ -783,7 +837,7 @@ int main(void) {
     while (cui_app_frame(g_app)) {
         window_frame(A.ui, o.test_state);
         frames++;
-        if (shot && frames > 45 && ((A.list && fs_list_state(A.list) != FS_LOADING && A.list_seen) || A.loc == LOC_OTHER)) {
+        if (shot && frames > 45 && sizes_settled() && ((A.list && fs_list_state(A.list) != FS_LOADING && A.list_seen) || A.loc == LOC_OTHER)) {
             if (o.select[0] && A.sel_n == 0)
                 for (int i = 0; i < A.vis_n; i++)
                     if (!strcmp(app_item_name(i), o.select)) { app_select_only(i); app_count_selection(); break; }
@@ -804,6 +858,7 @@ int main(void) {
         }
         if (shot && frames > 600) { rc = 3; break; }
     }
+    fsz_stop();
     act_shutdown();
     ui_sidebar_shutdown();
     app_flush_view();

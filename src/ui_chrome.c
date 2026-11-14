@@ -436,6 +436,9 @@ void ui_state_view(const char *icon, const char *title, const char *detail) {
     }
 }
 
+static char pill_buf[400];
+const char *ui_pill_text(void) { return pill_buf; }
+
 void ui_status_pill(void) {
     cui_ctx *ui = A.ui;
     char buf[400] = "";
@@ -450,17 +453,25 @@ void ui_status_pill(void) {
                 char sz[48];
                 fs_format_size(sz, sizeof sz, e->size);
                 snprintf(tail, sizeof tail, " selected (%s)", sz);
+            } else if (A.sel_pending) {
+                snprintf(tail, sizeof tail, " selected (\xE2\x80\xA6)");   /* the folder is still being measured */
+            } else if (A.sel_bytes) {
+                char sz[48];
+                fs_format_size(sz, sizeof sz, A.sel_bytes);
+                snprintf(tail, sizeof tail, " selected (%s)", sz);
             }
             dlg_quoted_leaf(app_item_name(idx), tail, buf, sizeof buf);
         }
     } else if (A.sel_n > 1) {
         char sz[48];
         fs_format_size(sz, sizeof sz, A.sel_bytes);
-        if (A.sel_bytes) snprintf(buf, sizeof buf, "%d items selected (%s)", A.sel_n, sz);
+        if (A.sel_pending) snprintf(buf, sizeof buf, A.sel_bytes ? "%d items selected (%s\xE2\x80\xA6)" : "%d items selected (\xE2\x80\xA6)", A.sel_n, sz);
+        else if (A.sel_bytes) snprintf(buf, sizeof buf, "%d items selected (%s)", A.sel_n, sz);
         else snprintf(buf, sizeof buf, "%d items selected", A.sel_n);
     } else if (loading) {
         snprintf(buf, sizeof buf, "Loading\xE2\x80\xA6");
     }
+    snprintf(pill_buf, sizeof pill_buf, "%s", buf);
     if (!buf[0]) return;
     cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_END, .justify = CUI_JUSTIFY_END, .pad = 14) {
         cui_row(ui, .bg = CUI_COLOR_SURFACE_RAISED, .radius = 14, .border = 1, .border_color = CUI_COLOR_BORDER,
