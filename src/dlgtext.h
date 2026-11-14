@@ -10,6 +10,10 @@ enum { DLG_NAME_MAX = 50 };
    selectors: they are never cut apart. */
 void dlg_short_name(const char *name, char *out, size_t cap);
 
+/* The last part of `path` (after the last backslash), shortened as dlg_short_name does. Take a dialog's file name
+   from the path with this, never through a smaller buffer first: a buffer cuts a name of 2-byte letters in half. */
+void dlg_short_leaf(const char *path, char *out, size_t cap);
+
 /* Width in pixels of the first `len` bytes of `s`. */
 typedef float (*dlg_measure_fn)(void *ctx, const char *s, int len);
 

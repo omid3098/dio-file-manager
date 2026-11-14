@@ -3,7 +3,7 @@
 A file with a 200-character name and no spaces, in a folder deep enough that its path passes 260 characters, is
 sent to the Trash: the Recycle Bin cannot take it, so the app asks "Cannot move file to trash, do you want to delete
 immediately?" and names the file. In each theme and window width, and for an English and a Persian name, the name
-must be cut in the middle and no pixel of the dialog's text may lie outside the dialog (the scrim around it is
+must be cut in the middle, keep its real last letters and ".txt" (no U+FFFD in the text the dialog shows), and no pixel of the dialog's text may lie outside the dialog (the scrim around it is
 one flat colour). DFM_DIALOG_SHOTS=<folder> also saves each picture there.
 """
 import ctypes as C
@@ -82,6 +82,9 @@ def inside():
             panel = (int((W_ - panel_w) / 2), int((W_ + panel_w) / 2))
             buttons = s['action_rects'][2]
             band = (int(180 * scale), int(buttons[1] * scale if buttons[1] < H_ / 2 else buttons[1]) - 8)
+            text = s.get('dialog_text', '')   # the dialog's own text: whole characters, middle cut, the name's real end
+            assert text and '�' not in text, 'broken text in the dialog: %r' % text
+            assert '…' in text and fname[-24:] in text, 'the name lost its end: %r' % text
             bad = band_outside(WORK / (name + '-open.png'), panel, band)
             assert not bad, 'text outside the dialog: %d pixels, first at %s (panel x %s)' % (len(bad), bad[0], panel)
             if shots:

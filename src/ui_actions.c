@@ -24,7 +24,7 @@ typedef struct file_job {
     ops_job *job;
     ops_state st;
     ops_kind kind;
-    char title[320], dir[FS_PATH_MAX], first[260];
+    char title[320], dir[FS_PATH_MAX], first[800];   /* the whole leaf: 255 UTF-16 units are at most 765 bytes */
     int n, id;
     DWORD clipboard_sequence;
     cui_rect cancel_rect;
@@ -35,6 +35,7 @@ static struct {
     int serial;
     bool conflict_open, apply_all, job_pop_open;
     cui_rect job_rect, conflict_buttons[3], delete_buttons[2];
+    char dialog_text[700];   /* the text the last "Cannot move file to trash" dialog showed; for the test snapshot */
     HANDLE recent_thread;
     char **recent_paths;
     size_t recent_n;
@@ -262,8 +263,7 @@ static void ask_delete_forever(void) {
     G.delete_paths = selected_paths(&G.delete_n);
     if (G.delete_n == 1) {
         char nm[260];
-        name_of(G.delete_paths[0], nm, sizeof nm);
-        dlg_short_name(nm, nm, sizeof nm);
+        dlg_short_leaf(G.delete_paths[0], nm, sizeof nm);
         snprintf(G.delete_title, sizeof G.delete_title, "Delete \xE2\x80\x9C%s\xE2\x80\x9D Permanently?", nm);
     } else snprintf(G.delete_title, sizeof G.delete_title, "Delete %d Items Permanently?", (int)G.delete_n);
     G.delete_open = true;
@@ -474,9 +474,9 @@ static void conflict_dialog(void) {
     char nm[260], dir[FS_PATH_MAX], t[400], d[700];
     if (G.conflict->st.cannot_trash) {
         /* GNOME Files' question for an item the Trash cannot take. The item stays put until the answer is Delete. */
-        name_of(G.conflict->st.conflict_source, nm, sizeof nm);
-        dlg_short_name(nm, nm, sizeof nm);
+        dlg_short_leaf(G.conflict->st.conflict_source, nm, sizeof nm);
         snprintf(d, sizeof d, "\xE2\x80\x9C%s\xE2\x80\x9D cannot be moved to the Trash. If you delete it, it will be permanently lost.", nm);
+        snprintf(G.dialog_text, sizeof G.dialog_text, "%s", d);
         bool shown = true;
         if (ui_dialog_begin(ui, "Cannot move file to trash, do you want to delete immediately?", &shown, d, true, true)) {
             if (G.conflict->n > 1) cui_checkbox(ui, "Apply this action to all files", &G.apply_all);
@@ -494,8 +494,7 @@ static void conflict_dialog(void) {
         }
         return;
     }
-    name_of(G.conflict->st.conflict_target, nm, sizeof nm);
-    dlg_short_name(nm, nm, sizeof nm);
+    dlg_short_leaf(G.conflict->st.conflict_target, nm, sizeof nm);
     if (!fs_parent(G.conflict->st.conflict_target, dir, sizeof dir)) dir[0] = 0;
     const char *dn = strrchr(dir, '\\');
     char dnm[260];
@@ -729,5 +728,7 @@ void act_test_snapshot(FILE *f) {
     fprintf(f, ",\"job\":{\"active\":%d,\"popover\":%d,\"done\":%llu,\"total\":%llu},\"action_rects\":[",
             G.jobs != NULL, G.job_pop_open, (unsigned long long)done, (unsigned long long)total);
     for (int i = 0; i < 7; i++) fprintf(f, "%s[%.2f,%.2f,%.2f,%.2f]", i ? "," : "", rects[i].x, rects[i].y, rects[i].w, rects[i].h);
-    fprintf(f, "]");
+    fprintf(f, "],\"dialog_text\":\"");
+    for (const char *c = G.dialog_text; *c; c++) { if (*c == '"' || *c == '\\') fputc('\\', f); fputc(*c, f); }
+    fprintf(f, "\"");
 }

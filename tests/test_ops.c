@@ -357,6 +357,15 @@ static void dialog_names(void) {
     in[0] = 0; for (int i = 0; i < 40; i++) cat(in, "\xD8\xAC\xD8\xB2\xD8\xA7\xD8\xB1\xD8\xB4\x5F");   /* a Persian run without spaces */
     cat(in, ".txt");
     dlg_short_name(in, out, sizeof out); CHECK(valid_utf8(out) && cps(out) == 50 && !strcmp(out + strlen(out) - 4, ".txt"));
+    {   /* a path whose Persian name is 354 bytes goes to the dialog whole: no 260-byte buffer on the way (it broke the last letter and lost the .txt) */
+        char path[1200] = "C:\\dir\\";
+        for (int i = 0; i < 17; i++) cat(path, "\xDA\xAF\xD8\xB2\xD8\xA7\xD8\xB1\xD8\xB4\x5F\xD9\x86\xD9\x87\xD8\xA7\xDB\x8C\xDB\x8C\x5F\xD8\xB3\xD8\xA7\xD9\x84\xD8\xA7\xD9\x86\xD9\x87\x5F");
+        cat(path, ".txt");
+        CHECK(strlen(path) - 7 > 300);
+        dlg_short_leaf(path, out, sizeof out);
+        CHECK(valid_utf8(out) && cps(out) == 50 && strstr(out, "\xE2\x80\xA6") && !strstr(out, "\xEF\xBF\xBD") && !strcmp(out + strlen(out) - 4, ".txt"));
+        CHECK(strstr(path, out + strlen(out) - 40) != NULL);   /* its tail is the name's real tail */
+    }
     in[0] = 0; for (int i = 0; i < 80; i++) cat(in, "e\xCC\x81");   /* e + combining acute: 80 characters */
     dlg_short_name(in, out, sizeof out); CHECK(valid_utf8(out) && !strncmp(out + strlen(out) - 2, "\xCC\x81", 2));
     { const char *e = strstr(out, "\xE2\x80\xA6"); CHECK(e && e > out && !strncmp(e - 2, "\xCC\x81", 2) && e[3] == 'e' && ((unsigned char)e[4]) == 0xCC); }   /* both sides cut between letters */

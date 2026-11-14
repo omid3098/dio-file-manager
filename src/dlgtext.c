@@ -68,6 +68,11 @@ void dlg_short_name(const char *name, char *out, size_t cap) {
     out[hb + 3 + len - tb] = 0;
 }
 
+void dlg_short_leaf(const char *path, char *out, size_t cap) {
+    const char *l = strrchr(path, '\\');
+    dlg_short_name(l ? l + 1 : path, out, cap);   /* straight from the path: no buffer in between can cut the name */
+}
+
 void dlg_break_words(const char *in, char *out, size_t cap, float max_w, dlg_measure_fn measure, void *ctx) {
     if (!cap) return;
     size_t o = 0, len = strlen(in);
