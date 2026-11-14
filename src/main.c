@@ -16,6 +16,7 @@
 #include "dlgtext.h"
 #include "clip.h"
 #include "defaultfm.h"
+#include "resident.h"
 
 app_t A;
 static cui_app *g_app;
@@ -579,7 +580,7 @@ void app_toggle_default_fm(void) {
     ok = want ? defaultfm_enable(extra) : defaultfm_disable();
     if (!ok) cui_toast(A.ui, want ? "Could not turn on the default file manager" : "Could not turn off the default file manager",
                        .description = "Windows refused the change.", .tone = CUI_TONE_DANGER);
-    else if (want) cui_toast(A.ui, "Dio File Manager is now the default", .description = "Folders and Win+E open here.", .tone = CUI_TONE_SUCCESS);
+    else if (want) cui_toast(A.ui, "Dio File Manager is now the default", .description = "Folders open here. Win+E works after you sign out and back in.", .tone = CUI_TONE_SUCCESS);
     else cui_toast(A.ui, "Windows Explorer is the default again", .tone = CUI_TONE_SUCCESS);
 }
 
@@ -710,6 +711,8 @@ static void shot_action(const options *o, int k) {
 int main(void) {
     options o;
     dfm_request rq;
+    int rrc;
+    if (resident_main(&rrc)) return rrc;                              /* the Win+E process: no window, no CUI */
     memset(&rq, 0, sizeof rq);
     if (defaultfm_is_launcher()) return defaultfm_launcher_main();   /* the registered command: no window, no CUI */
     memset(&o, 0, sizeof o);

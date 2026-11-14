@@ -4,6 +4,7 @@
  * its DisabledHotkeys value lists E, and reads that once when it starts; until then RegisterHotKey is refused,
  * and the resident process tries again whenever Explorer says it has restarted (the "TaskbarCreated" message). */
 #include <windows.h>
+#include <shellapi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <wchar.h>
@@ -178,7 +179,10 @@ void resident_stop(void) {
 static void try_register(void) {
     wchar_t e[16];
     if (registered) return;
-    if (RegisterHotKey(win, HOTKEY_ID, MOD_WIN | MOD_NOREPEAT, 'E')) { registered = true; log_line(L"hotkey-ok", NULL); return; }
+    /* Windows keeps Win+E for Explorer on every desktop of the session, so a check, which runs on a private desktop
+     * beside the owner's, takes a combination nobody presses instead. */
+    UINT mods = dfm_test_on() ? MOD_WIN | MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT : MOD_WIN | MOD_NOREPEAT;
+    if (RegisterHotKey(win, HOTKEY_ID, mods, dfm_test_on() ? VK_F23 : 'E')) { registered = true; log_line(L"hotkey-ok", NULL); return; }
     _snwprintf_s(e, 16, _TRUNCATE, L"%lu", GetLastError());   /* 1409: Explorer still holds it */
     log_line(L"hotkey-busy", e);
 }
@@ -201,13 +205,14 @@ static void open_home(void) {
     }
     defaultfm_disable();
     defaultfm_fallback(NULL, 0);
+    defaultfm_delete_self_later();
     log_line(L"hotkey-gone", NULL);
     PostMessageW(win, WM_CLOSE, 0, 0);
 }
 
 static LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_HOTKEY && w == HOTKEY_ID) { open_home(); return 0; }
-    if (m == taskbar_created && m) { try_register(); return 0; }
+    if (m == taskbar_created && m) { log_line(L"taskbar-created", NULL); try_register(); return 0; }
     if (m == WM_CLOSE) { DestroyWindow(h); return 0; }
     if (m == WM_DESTROY) {
         if (registered) UnregisterHotKey(h, HOTKEY_ID);

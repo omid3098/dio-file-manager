@@ -140,7 +140,20 @@ until restoration finishes (including nested checks and exception paths).
 - The launcher is a copy of the exe named `dio-file-manager-launcher.exe` in `%LOCALAPPDATA%\dio-file-manager`.
   `main()` checks its own file name first: with the app present it starts it with the same arguments and exits
   (no window); with the app gone it restores the keys, hands the request to Explorer and deletes itself.
-  A normal start refreshes the launcher copy by size and follows an exe that moved.
+  A normal start refreshes the launcher copy by content (a thread beside the window) and follows an exe that moved.
+- Win+E (`src/resident.c`, shared registry helpers in `defaultfm_int.h`): `main()` first asks `resident_main`, which
+  takes over only for `--resident` (the Run entry's command). The resident process has one hidden top-level window
+  (a message-only window gets no `TaskbarCreated` broadcast), registers Win+E with `RegisterHotKey`, and on
+  `WM_HOTKEY` starts the saved App with the arguments after `--resident`. One instance per user (named mutex
+  `Local\DioFmResident`). `resident_keys_set` saves `DisabledHotkeys` once (`State\Saved\DisabledHotkeys`:
+  `Existed`, `Type`, `Value`; an existing record is never replaced), appends E and writes the Run value;
+  `resident_keys_restore` puts the saved value back exactly and removes the Run value. `defaultfm_enable` stops a
+  running process before it replaces a different launcher, then sets the keys and starts the process;
+  `defaultfm_disable` restores the keys with the rest and stops the process before it deletes the launcher. The
+  launcher refresh thread does the same around the copy: stop, copy over, keys, start. In a check, `--test-state`
+  redirects `Advanced` and `Run` next to `Classes` and `State`, the process logs to `BASE.resident` (`pid`,
+  `hotkey-ok`, `hotkey-busy <error>`, `taskbar-created`, `hotkey-open`, `hotkey-gone`) and takes
+  Win+Ctrl+Alt+Shift+F23 instead of Win+E.
 - Requests: `defaultfm_request` turns the arguments into a folder (with an optional name to select), a place
   (Recent, Trash, This PC), Home or a fallback. The shell sends `C:\` as `"C:\"`, which arrives as `C:"`; trailing quotes are removed.
 - Loop guard: the same Explorer request twice within 2 s is refused (`fallback.txt` in the launcher folder, exit 4).

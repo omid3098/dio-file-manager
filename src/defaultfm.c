@@ -9,6 +9,7 @@
 #include <wchar.h>
 #include "defaultfm.h"
 #include "defaultfm_int.h"
+#include "resident.h"
 #include "fs.h"
 
 enum { LOC_RECENT_ = 1, LOC_TRASH_ = 3, LOC_OTHER_ = 4 };   /* the values of LOC_* in ui.h */
@@ -408,8 +409,11 @@ bool defaultfm_enable(const wchar_t *extra_args) {
     bool ok = dfm_set_string(state, L"App", self) && dfm_set_string(state, L"Launcher", launcher) &&
               dfm_set_string(state, L"Args", extra_args ? extra_args : L"");
     RegCloseKey(state);
+    if (ok && !same_content(self, launcher)) resident_stop();   /* a running launcher cannot be replaced */
     ok = ok && copy_launcher(self, launcher) && write_commands(launcher, extra_args);
+    ok = ok && resident_keys_set(launcher, extra_args ? extra_args : L"");
     if (!ok) defaultfm_disable();
+    else resident_start(launcher, extra_args ? extra_args : L"");
     return ok;
 }
 
@@ -434,7 +438,9 @@ bool defaultfm_disable(void) {
         } else ok = dfm_is_missing(r) && remove_all_ours();
         RegCloseKey(state);
     }
+    ok = resident_keys_restore() && ok;
     if (!ok || any_ours()) return false;
+    resident_stop();                                     /* a running exe cannot be deleted */
     const wchar_t *base = wcsrchr(launcher, L'\\');      /* the copy goes too; a running one stays */
     if (base && !_wcsicmp(base + 1, LAUNCHER_NAME) && !defaultfm_is_launcher() && DeleteFileW(launcher)) {
         wchar_t part[MAX_PATH + 8];
@@ -453,24 +459,29 @@ bool defaultfm_disable(void) {
  * beside the window. The new copy is written under another name and renamed over the launcher, so closing the app
  * in the middle never leaves a half launcher. */
 static DWORD WINAPI refresh_launcher(void *arg) {
-    wchar_t *two = arg, *self = two, *launcher = two + MAX_PATH, part[MAX_PATH + 8];
+    wchar_t *three = arg, *self = three, *launcher = three + MAX_PATH, *args = three + 2 * MAX_PATH, part[MAX_PATH + 8];
     if (!same_content(self, launcher)) {
+        bool was = resident_running();
+        if (was) resident_stop();            /* the resident process runs from the launcher: it must let go before the new copy lands */
         _snwprintf_s(part, MAX_PATH + 8, _TRUNCATE, L"%s.new", launcher);
         CreateDirectoryW(local_dir, NULL);
         if (!CopyFileW(self, part, FALSE) || !MoveFileExW(part, launcher, MOVEFILE_REPLACE_EXISTING)) DeleteFileW(part);
     }
-    free(two);
+    /* Win+E keys and process: an install made before they existed gets them here; a pending turn-off adds none */
+    if (any_ours() && resident_keys_set(launcher, args)) resident_start(launcher, args);
+    free(three);
     return 0;
 }
 
-static void refresh_launcher_later(const wchar_t *self, const wchar_t *launcher) {
-    wchar_t *two = malloc(2 * MAX_PATH * sizeof *two);
+static void refresh_launcher_later(const wchar_t *self, const wchar_t *launcher, const wchar_t *args) {
+    wchar_t *three = malloc(3 * MAX_PATH * sizeof *three);
     HANDLE t;
-    if (!two) return;
-    wcscpy_s(two, MAX_PATH, self);
-    wcscpy_s(two + MAX_PATH, MAX_PATH, launcher);
-    t = CreateThread(NULL, 0, refresh_launcher, two, 0, NULL);
-    if (t) CloseHandle(t); else free(two);
+    if (!three) return;
+    wcscpy_s(three, MAX_PATH, self);
+    wcscpy_s(three + MAX_PATH, MAX_PATH, launcher);
+    wcsncpy_s(three + 2 * MAX_PATH, MAX_PATH, args, _TRUNCATE);
+    t = CreateThread(NULL, 0, refresh_launcher, three, 0, NULL);
+    if (t) CloseHandle(t); else free(three);
 }
 
 void defaultfm_sync(void) {
@@ -480,9 +491,9 @@ void defaultfm_sync(void) {
     /* Only the registered app (the saved App path) keeps the launcher and the keys up to date. A test build, a copy
      * elsewhere or a moved exe changes nothing; turning the switch on from that copy registers it. */
     if (!dfm_get_string(HKEY_CURRENT_USER, state_base, L"App", app, MAX_PATH) || !same_path(app, self)) return;
-    refresh_launcher_later(self, launcher);
     wchar_t args[520] = L"";
     dfm_get_string(HKEY_CURRENT_USER, state_base, L"Args", args, 520);
+    refresh_launcher_later(self, launcher, args);
     if (any_ours()) register_missing(launcher, args);   /* recovery state alone, without a command of ours, registers nothing */
 }
 
@@ -691,6 +702,17 @@ const wchar_t *dfm_command_tail(void) {
     return c ? c : L"";
 }
 
+/* A running exe cannot delete itself: a hidden cmd waits a few seconds and does it. A check never deletes anything this way. */
+void defaultfm_delete_self_later(void) {
+    wchar_t self[MAX_PATH];
+    if (!GetModuleFileNameW(NULL, self, MAX_PATH) || test_on) return;
+    wchar_t c[MAX_PATH + 80], sys[MAX_PATH];
+    GetSystemDirectoryW(sys, MAX_PATH);
+    _snwprintf_s(c, MAX_PATH + 80, _TRUNCATE, L"\"%s\\cmd.exe\" /d /c ping -n 4 127.0.0.1 >nul & del /f /q \"%s\"", sys, self);
+    STARTUPINFOW si = { sizeof si }; PROCESS_INFORMATION pi;
+    if (CreateProcessW(NULL, c, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); }
+}
+
 int defaultfm_launcher_main(void) {
     int n = 0, kept = 0;
     wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &n), **args;
@@ -712,14 +734,7 @@ int defaultfm_launcher_main(void) {
     defaultfm_disable();
     log_line(L"restored", NULL, NULL);
     bool ok = defaultfm_fallback(args, kept);
-    wchar_t self[MAX_PATH];
-    if (GetModuleFileNameW(NULL, self, MAX_PATH) && !test_on) {
-        wchar_t c[MAX_PATH + 80], sys[MAX_PATH];
-        GetSystemDirectoryW(sys, MAX_PATH);
-        _snwprintf_s(c, MAX_PATH + 80, _TRUNCATE, L"\"%s\\cmd.exe\" /d /c ping -n 4 127.0.0.1 >nul & del /f /q \"%s\"", sys, self);
-        STARTUPINFOW si = { sizeof si }; PROCESS_INFORMATION pi;
-        if (CreateProcessW(NULL, c, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); }
-    }
+    defaultfm_delete_self_later();
     free(args); LocalFree(argv);
     return ok ? 0 : 4;
 }

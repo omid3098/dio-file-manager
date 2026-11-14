@@ -186,9 +186,36 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   worktree build, a moved exe) leaves the launcher and the keys alone; turning the switch on from that copy
   registers it. Its start-up cost on the UI thread is about 0.1 ms.
   Win+E is registered on both verbs of Windows' Win+E class, `opennewwindow` and `open` (Windows' own copy sends
-  `open`, the verb of a launch without a verb, to Explorer). If Win+E still opens Explorer on some Windows build,
-  that build starts the window without the shell's verb lookup, and only a program that is always running can
-  take Win+E over there.
+  `open`, the verb of a launch without a verb, to Explorer). That is not enough on Windows 11 build 26300:
+  Explorer's shell handles Win+E itself and never runs the class's verb, also with window preloading off. So
+  the switch also starts a small copy of this exe that runs all the time (below).
+  **Win+E process.** Turning the switch on writes three things and starts one process; turning it off undoes all
+  four and ends the process.
+  - `DisabledHotkeys` (`HKCU\...\Explorer\Advanced`) gains the letter E: Explorer then leaves Win+E alone. The old
+    value, its type or its absence is saved once under the record and put back exactly; a record that exists is
+    never replaced. Explorer reads this value only when it starts.
+  - A Run entry, `Dio File Manager`, starts `"<launcher>" --resident` at every sign-in.
+  - The process (`src/resident.c`, same exe, run from the launcher path) has one hidden top-level window, no CUI
+    and no COM. It calls `RegisterHotKey(Win+E)`. Explorer holds Win+E until it restarts, so the call is refused
+    (error 1409) at first; the process tries again whenever Explorer says it restarted (the `TaskbarCreated`
+    message), and at sign-in the first try works. `WM_HOTKEY` starts the registered app with the launcher's own
+    arguments, so the window is the one a Win+E verb would have opened. If the app is gone, the keys go back and
+    the process ends.
+  - The app never restarts Explorer. **Deliberate limit:** after turning the switch on (or off) Win+E changes
+    owner only when Explorer restarts or the user signs in again; the turn-on notice says so. Turning it off after
+    that restart leaves Win+E dead until the next restart or sign-in, because Explorer does not take it back
+    before it restarts.
+  - An install or launcher sync while the process runs from the launcher: the registered app notices the launcher
+    differs, stops the process (a running exe cannot be replaced), copies the new build over the launcher and
+    starts the process again, so it runs the new code. An install made before this existed gets the keys and the
+    process at the first start behind the same registered-app gate.
+  - Budgets, each a check in `tests/use/default_fm_smoke.py` (22): process working set at most 5 MB (measured
+    about 2 MB); idle CPU 0 (`cpu_budget.py --max 0`, five 30-second windows all pass); a Win+E (posted
+    `WM_HOTKEY`) shows the window at most 50 ms later than a plain launcher start (measured 36 ms against 56 ms:
+    it saves the launcher's own start); exe at most 10,240 bytes larger than before (measured +6,656). The
+    start-time budget did not exist before this change.
+  - In a check the process takes Win+Ctrl+Alt+Shift+F23 instead: Win+E belongs to the user's Explorer on every
+    desktop of the session, so a private test desktop cannot hold it.
   Limit: "Show in folder" from other programs (`SHOpenFolderAndSelectItems`) opens the folder here but does not
   select the file, and `explorer.exe /select,...` started directly by a program cannot be redirected without
   administrator rights.

@@ -31,6 +31,10 @@ APP_DIR = WORK / 'app'
 LOCAL = WORK / 'local'
 BASE = WORK / 'default-fm'
 OPENED = Path(str(BASE) + '.opened')
+RESIDENT = Path(str(BASE) + '.resident')   # what the Win+E process logs: its pid, hotkey-ok / hotkey-busy, hotkey-open
+ADV = TEST_KEY + r'\Advanced'              # stands in for Explorer\Advanced (DisabledHotkeys)
+RUN = TEST_KEY + r'\Run'                   # stands in for the Run key
+RUN_NAME = 'Dio File Manager'
 STAND_LOG = WORK / 'standin.log'
 STAND_PY = WORK / 'standin.py'
 NO_WINDOW = subprocess.CREATE_NO_WINDOW
@@ -88,6 +92,39 @@ def wipe():
         pass
 
 
+def ensure_keys():
+    """Explorer/Advanced and Run exist on every Windows; the redirected copies exist before a check starts."""
+    for key in (ADV, RUN):
+        winreg.CreateKeyEx(HIVE, key, 0, winreg.KEY_WRITE).Close()
+
+
+def adv_value():
+    try:
+        with winreg.OpenKey(HIVE, ADV) as k:
+            return winreg.QueryValueEx(k, 'DisabledHotkeys')
+    except OSError:
+        return None
+
+
+def set_adv(value):
+    with winreg.CreateKeyEx(HIVE, ADV, 0, winreg.KEY_WRITE) as k:
+        if value is None:
+            try:
+                winreg.DeleteValue(k, 'DisabledHotkeys')
+            except OSError:
+                pass
+        else:
+            winreg.SetValueEx(k, 'DisabledHotkeys', 0, value[1], value[0])
+
+
+def run_value():
+    try:
+        with winreg.OpenKey(HIVE, RUN) as k:
+            return winreg.QueryValueEx(k, RUN_NAME)[0]
+    except OSError:
+        return None
+
+
 def seed_rich():
     """Values that exist before: three types, an existing Folder\\shell with a value, another CLSID, no explore key."""
     wipe()
@@ -99,11 +136,13 @@ def seed_rich():
     put('Folder\\shell\\open\\command', 'Extra', bytes([1, 2, 3, 0, 255]), winreg.REG_BINARY)
     put('Folder\\shell\\open\\command', 'Count', 7, winreg.REG_DWORD)
     put('CLSID\\{00000000-0000-0000-0000-000000000042}', 'Name', 'someone else')
+    ensure_keys()
 
 
 def seed_clean():
     wipe()
     put('', None, None)
+    ensure_keys()
 
 
 def state_value(name):
@@ -159,15 +198,73 @@ def standin_lines():
     return STAND_LOG.read_text(encoding='utf-8').splitlines() if STAND_LOG.exists() else []
 
 
+def kill_apps():
+    pids = [int(l.split('\t')[1]) for l in lines() if l.startswith('pid\t')]
+    for pid in pids:
+        subprocess.run(['taskkill', '/F', '/PID', str(pid)], capture_output=True, creationflags=NO_WINDOW)
+    for pid in pids:   # an exe that is still running cannot be written
+        for _ in range(100):
+            if not pid_alive(pid):
+                break
+            time.sleep(.05)
+
+
+def res_lines():
+    try:
+        return RESIDENT.read_text(encoding='utf-8', errors='replace').splitlines() if RESIDENT.exists() else []
+    except PermissionError:
+        return []
+
+
+def res_pids():
+    return [int(l.split('\t')[1]) for l in res_lines() if l.startswith('pid\t')]
+
+
+def pid_alive(pid):
+    h = ctypes.windll.kernel32.OpenProcess(0x00100000, False, pid)   # SYNCHRONIZE
+    if not h:
+        return False
+    alive = ctypes.windll.kernel32.WaitForSingleObject(h, 0) == 258
+    ctypes.windll.kernel32.CloseHandle(h)
+    return alive
+
+
+def kill_resident():
+    for pid in res_pids():
+        if pid_alive(pid):
+            subprocess.run(['taskkill', '/F', '/PID', str(pid)], capture_output=True, creationflags=NO_WINDOW)
+    for pid in res_pids():
+        for _ in range(100):
+            if not pid_alive(pid):
+                break
+            time.sleep(.05)
+
+
 def kill_started():
-    for line in lines():
-        if line.startswith('pid\t'):
-            subprocess.run(['taskkill', '/F', '/PID', line.split('\t')[1]], capture_output=True, creationflags=NO_WINDOW)
+    kill_apps()
+    kill_resident()
+
+
+def has_line(prefix):
+    return any(l.startswith(prefix) for l in res_lines())
+
+
+def resident_window():
+    user32 = ctypes.windll.user32
+    user32.FindWindowW.restype = ctypes.c_void_p
+    return user32.FindWindowW('DioFileManagerResident', None)
+
+
+def post_hotkey():
+    """What Windows posts to the window that owns a hotkey: WM_HOTKEY with the id the resident registered."""
+    w = resident_window()
+    assert w, 'The resident process has no window'
+    ctypes.windll.user32.PostMessageW(ctypes.c_void_p(w), 0x0312, 1, 0)
 
 
 def reset_case():
     kill_started()
-    for f in (OPENED, STAND_LOG, LOCAL / 'fallback.txt'):
+    for f in (OPENED, RESIDENT, STAND_LOG, LOCAL / 'fallback.txt'):
         for _ in range(60):   # a process that was just ended may still hold the file for a moment
             try:
                 f.unlink(missing_ok=True)
@@ -230,11 +327,23 @@ def inside():
     OPENED.unlink(missing_ok=True)
     os.environ.update(env())   # every child, also the ones other helpers start, runs against the test key
 
+    def real_hot():
+        """Read-only: the real DisabledHotkeys and Run value must stay as they are."""
+        out = []
+        for path, name in ((r'Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced', 'DisabledHotkeys'),
+                           (r'Software\Microsoft\Windows\CurrentVersion\Run', RUN_NAME)):
+            try:
+                with winreg.OpenKey(HIVE, path) as k:
+                    out.append(winreg.QueryValueEx(k, name))
+            except OSError:
+                out.append(None)
+        return out
+
     def real_keys():
-        return [dump(p, p) for p in (r'Software\Classes\Folder', r'Software\Classes\CLSID\%s' % WIN_E, r'Software\Dio File Manager')]
+        return [dump(p, p) for p in (r'Software\Classes\Folder', r'Software\Classes\CLSID\%s' % WIN_E, r'Software\Dio File Manager')] + [real_hot()]
 
     def check(name, fn):
-        if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
+        if os.environ.get('USE_ONLY') and not name.startswith(tuple(os.environ['USE_ONLY'].split(','))):
             return
         real = real_keys()
         try:
@@ -419,6 +528,7 @@ def inside():
         shutil.copyfile(EXE, first); shutil.copyfile(EXE, second)
         assert exe_run(['--default-fm', 'on', '--test-state', str(BASE)], exe=first) == 0
         assert state_value('App') == str(first)
+        kill_resident()   # a running exe cannot be written
         launcher_file.write_bytes(b'stale')   # a launcher of another version
         registered = dump()
         first.unlink()
@@ -442,6 +552,7 @@ def inside():
         shutil.copyfile(EXE, reg)
         assert exe_run(['--default-fm', 'on', '--test-state', str(BASE)], exe=reg) == 0
         stale = stale_copy_of(reg)
+        kill_resident()
         launcher_file.write_bytes(stale)
         assert len(stale) == reg.stat().st_size and stale != reg.read_bytes()
         spelled = Path(str(APP_DIR / 'old' / '..' / 'reg' / 'DIO-FILE-MANAGER.EXE'))
@@ -462,6 +573,7 @@ def inside():
         shutil.copyfile(EXE, reg)
         assert exe_run(['--default-fm', 'on', '--test-state', str(BASE)], exe=reg) == 0
         other.write_bytes(reg.read_bytes() + bytes(1024))   # a larger build, like an unfinished feature
+        kill_resident()
         launcher_file.write_bytes(b'launcher of the installed app')
         registered = dump()
         start_app(other).kill()
@@ -648,6 +760,210 @@ def inside():
         finally:
             a.close()
 
+
+    # ---- Win+E: the resident process, DisabledHotkeys and the Run entry ----
+
+    def want_run():
+        return '"%s" --resident --test-state "%s"' % (launcher_file, BASE)
+
+    def resident_up():
+        wait_for('The resident process did not take Win+E: %r' % res_lines(), lambda: has_line('hotkey-ok'))
+        return res_pids()[-1]
+
+    def working_set(pid):
+        import psutil
+        return psutil.Process(pid).memory_info().wset
+
+    def resident_keys_and_process():
+        """Turning on starts the process, writes the Run entry and the hotkey value; a posted WM_HOTKEY opens a window; off undoes all."""
+        seed_rich()
+        before = dump()
+        assert on() == 0
+        pid = resident_up()
+        assert run_value() == want_run(), 'Run entry: %r' % run_value()
+        assert adv_value() == ('E', winreg.REG_SZ), 'DisabledHotkeys: %r' % (adv_value(),)
+        assert pid_alive(pid), 'The resident process is not running'
+        time.sleep(.5)
+        assert working_set(pid) <= 5 * 1024 * 1024, 'Working set %d bytes' % working_set(pid)
+        post_hotkey()
+        got = arrival()
+        assert got == ['arrive-home\t\t'], 'A posted Win+E did not open Home: %r' % got
+        assert working_set(pid) <= 5 * 1024 * 1024, 'Working set after a hotkey %d bytes' % working_set(pid)
+        kill_apps()
+        assert on() == 0 and pid_alive(pid) and res_pids() == [pid], 'Turning on twice started a second process'
+        assert off() == 0
+        for _ in range(100):
+            if not pid_alive(pid):
+                break
+            time.sleep(.05)
+        assert not pid_alive(pid), 'The process still runs after turning off'
+        assert run_value() is None and adv_value() is None, 'Run entry or DisabledHotkeys left: %r %r' % (run_value(), adv_value())
+        assert dump() == before, 'Keys differ from before:\n%s' % ([r for r in dump() if r not in before] + [r for r in before if r not in dump()])
+        assert not launcher_file.exists(), 'The launcher was left behind while its process was running'
+
+    def disabled_hotkeys_values():
+        """E is added to what is there and the old value, its type or its absence comes back exactly."""
+        for old, label in ((None, 'absent'), (('XR', winreg.REG_SZ), 'letters'), (('Xr', winreg.REG_EXPAND_SZ), 'expand type'),
+                           (('ZeX', winreg.REG_SZ), 'already has E')):
+            seed_rich()
+            set_adv(old)
+            before = dump()
+            assert on() == 0, label
+            want = ('E', winreg.REG_SZ) if old is None else (old[0] if 'E' in old[0].upper() else old[0] + 'E', old[1])
+            assert adv_value() == want, '%s: %r is not %r' % (label, adv_value(), want)
+            after_on = dump()
+            assert on() == 0 and dump() == after_on, label + ': turning on twice changed the keys'
+            assert off() == 0, label
+            assert adv_value() == old, '%s: back as %r, not %r' % (label, adv_value(), old)
+            assert dump() == before, label + ': keys differ from before'
+            reset_case()
+
+    def hotkey_busy_then_taken():
+        """While Explorer holds Win+E the process says so (1409) and waits; when Explorer restarts (TaskbarCreated) it takes it."""
+        import threading
+        user32 = ctypes.windll.user32
+        seed_rich()
+        ready, stop, held = threading.Event(), threading.Event(), []
+
+        def holder():
+            held.append(bool(user32.RegisterHotKey(None, 77, 0x4000 | 0xF, 0x86)))   # Win+Ctrl+Alt+Shift+F23: the key a check uses instead of Win+E
+            ready.set()
+            stop.wait()
+            user32.UnregisterHotKey(None, 77)
+
+        t = threading.Thread(target=holder)
+        t.start()
+        try:
+            assert ready.wait(5) and held == [True], 'The test could not hold Win+E'
+            assert on() == 0
+            wait_for('No refusal logged: %r' % res_lines(), lambda: has_line('hotkey-busy'))
+            assert 'hotkey-busy\t1409' in res_lines() and not has_line('hotkey-ok'), res_lines()
+            stop.set(); t.join()
+            user32.RegisterWindowMessageW.restype = ctypes.c_uint
+            msg = user32.RegisterWindowMessageW('TaskbarCreated')
+            for _ in range(3):   # Explorer sends it once; a check on a loaded machine has seen it go unanswered, so it may ask again
+                user32.SendNotifyMessageW(ctypes.c_void_p(0xFFFF), msg, 0, 0)   # as Explorer does
+                try:
+                    wait_for('The hotkey was not taken after TaskbarCreated: %r' % res_lines(), lambda: has_line('hotkey-ok'), seconds=3)
+                    break
+                except AssertionError:
+                    if _ == 2:
+                        raise
+        finally:
+            stop.set(); t.join()
+        assert off() == 0
+
+    def old_install_gets_resident():
+        """An install made before the Win+E process existed gets the keys and the process when its app starts."""
+        seed_rich()
+        before = dump()
+        assert on() == 0
+        resident_up()
+        kill_resident()
+        subprocess.run(['reg', 'delete', 'HKCU\\' + RUN, '/v', RUN_NAME, '/f'], capture_output=True, creationflags=NO_WINDOW)
+        subprocess.run(['reg', 'delete', 'HKCU\\' + STATE + '\\Saved\\DisabledHotkeys', '/f'], capture_output=True, creationflags=NO_WINDOW)
+        set_adv(None)
+        RESIDENT.unlink(missing_ok=True)
+        assert run_value() is None and adv_value() is None
+        p = start_app(APP_EXE)
+        try:
+            wait_for('The old install did not get its keys', lambda: run_value() == want_run() and adv_value() == ('E', winreg.REG_SZ))
+            resident_up()
+        finally:
+            p.kill(); p.wait()
+        assert off() == 0 and dump() == before, 'Off after the upgrade did not restore'
+
+    def update_while_resident():
+        """The hard case: the app is replaced by a new build while the process runs from the launcher. The launcher follows,
+        the process restarts from the new launcher, and a turn-on from a newer build works the same way."""
+        seed_rich()
+        before = dump()
+        reg = APP_DIR / 'upd' / 'dio-file-manager.exe'
+        reg.parent.mkdir(exist_ok=True)
+        shutil.copyfile(EXE, reg)
+        assert exe_run(['--default-fm', 'on', '--test-state', str(BASE)], exe=reg) == 0
+        first = resident_up()
+        reg.write_bytes(EXE.read_bytes() + bytes(16))   # the installer writes the new build over the app
+        assert launcher_file.read_bytes() != reg.read_bytes()
+        p = start_app(reg)
+        try:
+            wait_for('The launcher did not become the new build', lambda: launcher_file.read_bytes() == reg.read_bytes(), seconds=10)
+            wait_for('The process did not restart from the new launcher', lambda: len(res_pids()) >= 2 and pid_alive(res_pids()[-1]), seconds=10)
+        finally:
+            p.kill(); p.wait()
+        assert not pid_alive(first), 'The old process still runs'
+        second = res_pids()[-1]
+        assert not (LOCAL / 'dio-file-manager-launcher.exe.new').exists(), 'The temporary copy was left behind'
+        assert launcher_file.read_bytes() == reg.read_bytes() and run_value() == want_run()
+        wait_for('The new process did not take Win+E', lambda: res_lines()[-1].startswith('hotkey-ok'))
+        post_hotkey()
+        assert arrival() == ['arrive-home\t\t'], 'The new process did not open a window'
+        kill_apps()
+        reg.write_bytes(reg.read_bytes() + bytes(16))
+        assert exe_run(['--default-fm', 'on', '--test-state', str(BASE)], exe=reg) == 0, 'A turn-on from a newer build failed while the process runs'
+        assert launcher_file.read_bytes() == reg.read_bytes() and not pid_alive(second) and pid_alive(res_pids()[-1]), 'The newer turn-on left the old process or launcher'
+        assert off() == 0 and dump() == before and not launcher_file.exists()
+
+    def app_gone_while_resident():
+        """Win+E with the app deleted: the keys go back, Explorer is handed the request and the process ends."""
+        seed_rich()
+        before = dump()
+        gone = APP_DIR / 'gone2.exe'
+        shutil.copyfile(EXE, gone)
+        assert exe_run(['--default-fm', 'on', '--test-state', str(BASE)], exe=gone) == 0
+        pid = resident_up()
+        gone.unlink()
+        post_hotkey()
+        wait_for('The process did not notice the app is gone: %r' % res_lines(), lambda: has_line('hotkey-gone'))
+        wait_for('The process did not end', lambda: not pid_alive(pid))
+        wait_for('The stand-in was not called', lambda: standin_lines())
+        assert dump() == before, 'Keys not restored:\n%s' % ([r for r in dump() if r not in before] + [r for r in before if r not in dump()])
+
+    def resident_start_cost():
+        """Budget: a posted Win+E shows the window at most 50 ms later than a plain launcher start (median of 7); idle CPU is 0."""
+        import statistics
+        seed_rich()
+        assert on() == 0
+        resident_up()
+        prefix = registered_prefix()
+
+        def wait_home(t0):
+            deadline = time.perf_counter() + 20
+            while time.perf_counter() < deadline:
+                if any(l.startswith('arrive-home') for l in lines()):
+                    return (time.perf_counter() - t0) * 1000
+                time.sleep(.002)
+            raise AssertionError('No window: %r' % lines())
+
+        plain, hot = [], []
+        for _ in range(7):
+            kill_apps(); OPENED.unlink(missing_ok=True)
+            t0 = time.perf_counter()
+            fire(prefix)
+            plain.append(wait_home(t0))
+            kill_apps(); OPENED.unlink(missing_ok=True)
+            time.sleep(.3)
+            t0 = time.perf_counter()
+            post_hotkey()
+            hot.append(wait_home(t0))
+        kill_apps()
+        mp, mh = statistics.median(plain), statistics.median(hot)
+        print(json.dumps({'budget-numbers': {'plain launcher start ms': round(mp, 1), 'posted Win+E ms': round(mh, 1)}}), flush=True)
+        assert mh <= mp + 50, 'Posted Win+E %.1f ms vs plain launcher start %.1f ms' % (mh, mp)
+        pid = res_pids()[-1]
+        import psutil
+        pr = psutil.Process(pid)
+        c0 = sum(pr.cpu_times()[:2]); time.sleep(3); c1 = sum(pr.cpu_times()[:2])
+        assert c1 - c0 == 0, 'The idle process used %.3f s of CPU in 3 s' % (c1 - c0)
+        print(json.dumps({'budget-numbers': {'resident working set KB': working_set(pid) // 1024, 'idle CPU seconds in 3 s': c1 - c0}}), flush=True)
+        assert working_set(pid) <= 5 * 1024 * 1024
+        if os.environ.get('DFM_CPU_BUDGET'):   # the machine's own budget tool: five 30-second windows, all must be at 0 %
+            tool = subprocess.run([sys.executable, r'C:\Users\Omid\.agents\tools\cpu_budget.py', '--pid', str(pid), '--max', '0'],
+                                  capture_output=True, text=True, creationflags=NO_WINDOW, timeout=300)
+            (WORK / 'cpu_budget.out').write_text(tool.stdout + tool.stderr, encoding='utf-8')
+            assert tool.returncode == 0, 'cpu_budget.py: %s' % tool.stdout[-400:]
+        assert off() == 0
+
     try:
         check('1-on-off-restores-values', on_off(seed_rich, 'rich'))
         check('2-on-off-on-clean-keys', on_off(seed_clean, 'clean'))
@@ -664,6 +980,13 @@ def inside():
         check('13-upgrade-from-three-targets', upgrade_from_three_targets)
         check('14-registered-build-updates-same-size-launcher', registered_build_updates_launcher)
         check('15-other-copy-leaves-launcher-and-keys', other_copy_leaves_launcher_alone)
+        check('16-win-e-process-keys-and-hotkey', resident_keys_and_process)
+        check('17-disabled-hotkeys-kept-and-restored-exactly', disabled_hotkeys_values)
+        check('18-hotkey-busy-then-taken-after-explorer-restart', hotkey_busy_then_taken)
+        check('19-old-install-gets-the-process', old_install_gets_resident)
+        check('20-update-while-the-process-runs', update_while_resident)
+        check('21-app-gone-while-the-process-runs', app_gone_while_resident)
+        check('22-win-e-start-cost-and-idle-budget', resident_start_cost)
     finally:
         exe_run(['--default-fm', 'off', '--test-state', str(BASE)])
         wipe()
