@@ -34,7 +34,7 @@ Search results keep their own listing. Trash completion drops missing results an
 the saved folder; reload and Undo rerun the query without closing it.
 
 Mouse back and forward (`WM_XBUTTONUP`, `WM_APPCOMMAND`) and the keyboard's `VK_BROWSER_BACK`/`VK_BROWSER_FORWARD` key messages (taken before CUI, which would consume them) are caught in `main.c`'s window hook, counted, and
-run through the same history as Alt+Left and Alt+Right in the next frame (`mouse_nav`).
+run through the same history as Alt+Left and Alt+Right in the next frame (`mouse_nav`). With a popup open the press closes it instead, and the operations popover's own flag is cleared too (`act_dismiss_popups`), or the header would reopen it every frame.
 Alt+Enter opens only Properties; plain Enter opens an item only without modifiers.
 The running-job header control is one clickable progress ring; its popover names
 the copy and offers Cancel. Real-input action checks and private-desktop shell
