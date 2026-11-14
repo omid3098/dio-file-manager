@@ -12,6 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 WORK = Path(os.environ.get('DFM_USE_WORK', ROOT / '.agent-work/use-checks' / Path(__file__).stem))
@@ -209,6 +210,9 @@ def fresh(*names):
 
 def inside():
     results = []
+    # The real Recycle Bin is shared with other runs of this check and lists same-named items in no fixed order, so
+    # the file gets a name no other run uses: the Trash selection then can only be this run's own item.
+    restore_name = f'dio-views-v2-restore-{uuid.uuid4().hex[:12]}.txt'
     def check(name, folder, fn, view='grid', prep=None):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
@@ -435,7 +439,7 @@ def inside():
         assert a.snap('starred-restarted')['selection'] == ['starred.txt'], 'Starred item missing'
 
     def trash_restore(a):
-        target = SAND/'dio-views-v2-restore.txt'
+        target = SAND/restore_name
         a.cell(0)
         assert a.snap()['selection'] == [target.name]
         a.key(46)
@@ -483,7 +487,7 @@ def inside():
         assert s['loc'] == 0 and s['path'] == s['drive'], 'Other Locations drive did not open'
 
     check('10-starred-restart', SAND, starred, prep=prepare_starred)
-    check('11-trash-restore', SAND, trash_restore, prep=lambda: fresh('dio-views-v2-restore.txt'))
+    check('11-trash-restore', SAND, trash_restore, prep=lambda: fresh(restore_name))
     check('12-virtual-navigation', WORK/'fixture', virtual_navigation)
 
     check('9-rename', SAND, rename, prep=lambda: fresh('a.txt','b.txt'))
