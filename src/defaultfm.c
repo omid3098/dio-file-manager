@@ -361,7 +361,7 @@ bool defaultfm_enable(const wchar_t *extra_args) {
         if (RegCreateKeyExW(HKEY_CURRENT_USER, state_base, 0, NULL, 0, KEY_WRITE, NULL, &state, NULL)) return false;
         RegCloseKey(state);
     }
-    if (any_ours() && !register_missing(launcher, extra_args ? extra_args : L"")) return false;
+    if (!register_missing(launcher, extra_args ? extra_args : L"")) return false;   /* an explicit turn-on also repairs a record left without its open verb */
     if (RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_WRITE, &state)) return false;
     bool ok = set_string(state, L"App", self) && set_string(state, L"Launcher", launcher) &&
               set_string(state, L"Args", extra_args ? extra_args : L"");
