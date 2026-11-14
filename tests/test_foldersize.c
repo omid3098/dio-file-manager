@@ -1,5 +1,7 @@
 /* Console checks of the folder-size engine (src/foldersize.c) on a sandbox tree: exact sizes, nested totals kept,
- * a junction not followed, a change making a folder stale and then right again, a move, and cancel on navigate. */
+ * a junction not followed, a change moving up through the ancestors with one directory read, a move, cancel on navigate,
+ * one big folder walked by several threads, a new and a removed subfolder, the cache never dropping a shown folder,
+ * missing data walked again no sooner than a second later, and the cost of ten thousand lookups. */
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -81,14 +83,10 @@ int main(void) {
     { int s; uint64_t v = size_of("a\\sub", &s); CHECK(s == FSZ_DONE && v == 100, "nested a\\sub = 100 kept (state %d, %llu)", s, U(v)); }
     CHECK(wakes > 0, "the window was told");
 
-    /* a change after caching: stale at once, right again after about a second of quiet */
+    /* a change after caching: the changed folder is read again and the difference moves up, no walk of the rest */
     write_file("a\\sub\\x", 50, true);
-    char ap[MAX_PATH]; path_of(ap, "a");
-    bool saw_stale = false;
-    for (int t = 0; t < 600 && !saw_stale; t += 10) { saw_stale = fsz_stale(ap); Sleep(10); }
-    CHECK(saw_stale, "a goes stale after a file below it grew");
     CHECK(wait_size("a", 180, 6000), "a recomputes to 180 (got %llu)", U(size_of("a", NULL)));
-    CHECK(size_of("a\\sub", NULL) == 150, "nested a\\sub = 150 after the recompute (got %llu)", U(size_of("a\\sub", NULL)));
+    CHECK(size_of("a\\sub", NULL) == 150, "nested a\\sub = 150 after the change (got %llu)", U(size_of("a\\sub", NULL)));
 
     /* a moved folder: its old parent shrinks, and it is measured at the new place */
     { char from[MAX_PATH], to[MAX_PATH]; path_of(from, "a\\sub"); path_of(to, "sub_moved"); MoveFileA(from, to); }
@@ -128,6 +126,105 @@ int main(void) {
     for (int i = 1; i <= 3; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "slow\\%d", i); path_of(p, r); fsz_want(p); }
     CHECK(wait_open0(10000), "asked again, they finish");
     CHECK(size_of("slow\\2", NULL) == 33, "slow\\2 = 33 (got %llu)", U(size_of("slow\\2", NULL)));
+
+
+    /* a big tree is walked by several threads at once: one shown folder, many subfolders */
+    mkdirs("big");
+    for (int i = 0; i < 24; i++) {
+        char r[64];
+        snprintf(r, sizeof r, "big\\s%d", i); mkdirs(r);
+        snprintf(r, sizeof r, "big\\s%d\\f", i); write_file(r, 1000 + (size_t)i, false);
+    }
+    char bp[MAX_PATH]; path_of(bp, "big");
+    fsz_test_delay(40);
+    fsz_test_peak();
+    fsz_view(root);
+    fsz_want(bp);
+    CHECK(wait_open0(20000), "the big folder finishes");
+    fsz_test_delay(0);
+    { unsigned pk = fsz_test_peak(); CHECK(pk >= 3, "one shown folder is walked by several threads at once (peak %u)", pk); }
+    CHECK(size_of("big", NULL) == 24 * 1000 + 276, "big = 24276 (got %llu)", U(size_of("big", NULL)));
+
+    /* a change in a deep folder moves up through its ancestors without reading its siblings */
+    mkdirs("deep"); mkdirs("deep\\a"); mkdirs("deep\\a\\b"); mkdirs("deep\\a\\b\\c");
+    write_file("deep\\a\\b\\c\\f", 100, false); write_file("deep\\a\\g", 10, false);
+    for (int i = 0; i < 12; i++) { char r[64]; snprintf(r, sizeof r, "deep\\s%d", i); mkdirs(r); snprintf(r, sizeof r, "deep\\s%d\\f", i); write_file(r, 5, false); }
+    char dp[MAX_PATH]; path_of(dp, "deep");
+    fsz_view(root); fsz_want(dp);
+    CHECK(wait_open0(10000), "deep finishes");
+    CHECK(size_of("deep", NULL) == 170, "deep = 170 (got %llu)", U(size_of("deep", NULL)));
+    Sleep(300);
+    unsigned r0 = fsz_test_reads();
+    write_file("deep\\a\\b\\c\\f", 40, true);
+    CHECK(wait_size("deep", 210, 6000), "deep = 210 after the deep file grew (got %llu)", U(size_of("deep", NULL)));
+    CHECK(size_of("deep\\a", NULL) == 150 && size_of("deep\\a\\b", NULL) == 140 && size_of("deep\\a\\b\\c", NULL) == 140,
+          "the folders between are right too (%llu %llu %llu)", U(size_of("deep\\a", NULL)), U(size_of("deep\\a\\b", NULL)), U(size_of("deep\\a\\b\\c", NULL)));
+    Sleep(600);
+    { unsigned d = fsz_test_reads() - r0; CHECK(d <= 3, "the change read %u directories, not the whole tree (16 folders)", d); }
+    /* a new subfolder is walked on its own, a removed one is subtracted */
+    r0 = fsz_test_reads();
+    mkdirs("deep\\a\\n"); write_file("deep\\a\\n\\z", 33, false);
+    CHECK(wait_size("deep", 243, 6000), "deep = 243 with a new subfolder (got %llu)", U(size_of("deep", NULL)));
+    { char r[MAX_PATH]; path_of(r, "deep\\s3"); char c[2048]; snprintf(c, sizeof c, "cmd.exe /c rmdir /s /q \"%s\"", r); run_hidden(c); }
+    CHECK(wait_size("deep", 238, 6000), "deep = 238 after a subfolder was removed (got %llu)", U(size_of("deep", NULL)));
+    Sleep(600);
+    { unsigned d = fsz_test_reads() - r0; CHECK(d <= 6, "a new and a removed subfolder read %u directories", d); }
+
+    /* the cache never drops a shown folder, even when it is over its cap */
+    mkdirs("many");
+    for (int i = 0; i < 10; i++) { char r[64]; snprintf(r, sizeof r, "many\\m%d", i); mkdirs(r); snprintf(r, sizeof r, "many\\m%d\\f", i); write_file(r, 3, false); }
+    char mp[MAX_PATH]; path_of(mp, "many");
+    fsz_test_cap(4);
+    fsz_view(mp);
+    for (int i = 0; i < 10; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "many\\m%d", i); path_of(p, r); fsz_want(p); }
+    CHECK(wait_open0(10000), "the ten shown folders finish");
+    { int done = 0; for (int i = 0; i < 10; i++) { char r[64]; int s; snprintf(r, sizeof r, "many\\m%d", i); if (size_of(r, &s) == 3 && s == FSZ_DONE) done++; }
+      CHECK(done == 10, "all ten shown folders stay cached over a cap of 4 (%d)", done); }
+    fsz_test_cap(0);
+
+    /* data that is missing is walked again, not sooner than a second later; the walk puts the folder back in the cache */
+    mkdirs("miss"); mkdirs("miss\\x"); mkdirs("miss\\x\\y"); write_file("miss\\x\\y\\f", 10, false);
+    char xp[MAX_PATH]; path_of(xp, "miss");
+    fsz_test_cap(1);
+    fsz_view(root); fsz_want(xp);
+    CHECK(wait_open0(10000), "miss finishes with an almost empty cache");
+    fsz_test_cap(0);
+    { int s; size_of("miss\\x\\y", &s); CHECK(s == FSZ_NONE, "the nested folders were not kept (state %d)", s); }
+    DWORD t0 = GetTickCount();   /* the walk above just ended: the next one is due a second after it */
+    Sleep(300);
+    write_file("miss\\x\\y\\f", 5, true);
+    Sleep(500);
+    CHECK(size_of("miss", NULL) == 10, "no walk before a second has passed (got %llu)", U(size_of("miss", NULL)));
+    CHECK(wait_size("miss", 15, 6000), "miss = 15 after the walk (got %llu)", U(size_of("miss", NULL)));
+    CHECK(GetTickCount() - t0 >= 950, "the walk waited about a second after the last one (%lu ms)", (unsigned long)(GetTickCount() - t0));
+    { int s; size_of("miss\\x\\y", &s); CHECK(s == FSZ_DONE, "the walk cached the changed folder (state %d)", s); }
+    Sleep(300);
+    r0 = fsz_test_reads();
+    write_file("miss\\x\\y\\f", 5, true);
+    CHECK(wait_size("miss", 20, 6000), "the next change is a cheap read: miss = 20 (got %llu)", U(size_of("miss", NULL)));
+    Sleep(500);
+    { unsigned d = fsz_test_reads() - r0; CHECK(d <= 2, "the next change read %u directories", d); }
+
+    /* sizes_fill asks for one folder at a time: ten thousand lookups must not eat the 50 ms budget */
+    mkdirs("wide");
+    for (int i = 0; i < 10000; i++) { char r[64]; snprintf(r, sizeof r, "wide\\w%05d", i); mkdirs(r); }
+    char wp[MAX_PATH]; path_of(wp, "wide");
+    fsz_view(wp);
+    for (int i = 0; i < 10000; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "wide\\w%05d", i); path_of(p, r); fsz_want(p); }
+    CHECK(wait_open0(60000), "ten thousand shown folders finish");
+    {
+        LARGE_INTEGER f, a0, a1; QueryPerformanceFrequency(&f);
+        char (*paths)[MAX_PATH] = malloc(10000 * sizeof *paths);
+        for (int i = 0; i < 10000; i++) { char r[64]; snprintf(r, sizeof r, "wide\\w%05d", i); path_of(paths[i], r); }
+        uint64_t sum = 0;
+        QueryPerformanceCounter(&a0);
+        for (int i = 0; i < 10000; i++) { uint64_t v = 0; if (fsz_get(paths[i], &v) == FSZ_DONE) sum++; }
+        QueryPerformanceCounter(&a1);
+        free(paths);
+        double ms = (double)(a1.QuadPart - a0.QuadPart) * 1000.0 / (double)f.QuadPart;
+        printf("10,000 lookups: %.1f ms\n", ms);
+        CHECK(sum == 10000 && ms < 25.0, "ten thousand lookups take %.1f ms (limit 25)", ms);
+    }
 
     fsz_stop();
     remove_tree(root);
