@@ -1055,6 +1055,56 @@ time.sleep(600)
         kill_apps()
         assert off() == 0 and dump() == before and not launcher_file.exists()
 
+    def bridge_watches_late_explorer():
+        """A turn-off while no Explorer runs: the first TaskbarCreated names the Explorer to watch. It already lost Win+E to the
+        bridge, so the bridge keeps serving it until that Explorer ends, and then lets go."""
+        seed_rich()
+        assert on() == 0
+        pid = resident_up()
+        assert off_raw() == 0
+        wait_for('The process did not become a bridge: %r' % res_lines(), lambda: has_line('bridge'))
+        late = fake_explorer()
+        try:
+            explorer_restarts()
+            wait_for('TaskbarCreated did not arrive', lambda: has_line('taskbar-created'))
+            time.sleep(.3)
+            assert pid_alive(pid) and not has_line('bridge-exit'), 'The bridge ended at the restart that had already lost Win+E to it: %r' % res_lines()
+            post_hotkey()
+            wait_for('Win+E did not open Explorer', lambda: len(standin_lines()) == 1)
+            late.kill()
+            wait_for('The process kept Win+E after that Explorer ended', lambda: not pid_alive(pid))
+        finally:
+            late.kill()
+        sign_in()
+
+    def app_gone_with_failed_restore():
+        """Win+E with the app deleted and a command that cannot be put back: the process keeps Win+E, E and the Run entry stay,
+        this press opens Explorer, and the next press, once the key can be written, puts everything back."""
+        seed_rich()
+        before = dump()
+        gone = APP_DIR / 'gone3.exe'
+        shutil.copyfile(EXE, gone)
+        assert exe_run(['--default-fm', 'on', '--test-state', str(BASE)], exe=gone) == 0
+        pid = resident_up()
+        gone.unlink()
+        deny, allow = acl_of(CLASSES + '\\' + FOLDER_OPEN, 'SetValue')
+        assert deny() == 0, 'Could not deny writes to the command key'
+        try:
+            post_hotkey()
+            wait_for('The process did not notice the app is gone: %r' % res_lines(), lambda: has_line('hotkey-gone'))
+            wait_for('The stand-in was not called', lambda: standin_lines())
+            time.sleep(.3)
+            assert pid_alive(pid), 'The process ended with the keys still in place: Win+E does nothing'
+            assert run_value() is not None and adv_value() is not None, 'The Win+E keys went back while a command did not'
+        finally:
+            allow()
+        post_hotkey()
+        wait_for('The second press did not open Explorer', lambda: len(standin_lines()) == 2)
+        wait_for('The keys did not go back once they could', lambda: run_value() is None and adv_value() is None)
+        assert pid_alive(pid)
+        assert dump() == before, 'Keys differ from before:\n%s' % ([r for r in dump() if r not in before] + [r for r in before if r not in dump()])
+        settle()
+
     def resident_start_cost():
         """Budget: a posted Win+E shows the window at most 50 ms later than a plain launcher start (median of 7); idle CPU is 0."""
         import statistics
@@ -1125,6 +1175,8 @@ time.sleep(600)
         check('22-win-e-start-cost-and-idle-budget', resident_start_cost)
         check('23-win-e-still-works-after-turn-off-then-ends-at-explorer-restart', bridge_after_turn_off)
         check('24-turn-on-again-replaces-the-bridge', turn_on_after_turn_off)
+        check('25-bridge-watches-an-explorer-that-starts-after-the-turn-off', bridge_watches_late_explorer)
+        check('26-app-gone-with-a-failed-restore-keeps-win-e', app_gone_with_failed_restore)
     finally:
         exe_run(['--default-fm', 'off', '--test-state', str(BASE)])
         wipe()

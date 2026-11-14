@@ -206,11 +206,16 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   - **The bridge (turn-off, or the app gone).** When the process holds Win+E and the switch is turned off, Explorer
     may have started with E in `DisabledHotkeys` and so skips Win+E until its next start. The process therefore
     stays on and only changes its job: `WM_HOTKEY` opens Windows Explorer's own window in Home (each press, no loop
-    guard), and when Explorer restarts (it has then read the restored value; the process sees `TaskbarCreated`) it
-    releases the hotkey and ends. A sign-out ends it too, and the Run entry is gone, so nothing starts it again.
+    guard), and when the Explorer that ran at turn-off ends (the process waits on it, so idle CPU stays 0) it
+    releases the hotkey and ends, before the new Explorer starts: the new one registers its hotkeys while it
+    starts, before it says `TaskbarCreated`, and does not try again, so letting go at `TaskbarCreated` would leave
+    Win+E with nobody. `TaskbarCreated` alone proves nothing (it is also sent when the display scale changes); a
+    bridge that found no Explorer at turn-off watches the one the first `TaskbarCreated` names. A sign-out ends it
+    too, and the Run entry is gone, so nothing starts it again.
     The app tells the process through a window message (`resident_release`); a process that never got the hotkey
     (Explorer still owns Win+E) just ends. The same bridge starts when the process finds the app gone: the keys go
-    back, this press opens Explorer's window, and it ends at the Explorer restart. Turning the switch on again
+    back, this press opens Explorer's window, and it ends with the Explorer that ran then; when the keys cannot be put
+    back it stays as it is, with E and the Run entry kept, and tries again at the next press. Turning the switch on again
     replaces a bridge by a fresh process (`resident_end_bridge`).
   - **The launcher after a turn-off.** With no process the launcher is deleted at once. A bridge runs from it, so
     the delete waits: a `RunOnce` entry (`Dio File Manager launcher cleanup`) starts the registered app as

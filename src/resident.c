@@ -175,15 +175,20 @@ static int ask_process(UINT msg) {
 
 /* The bridge ends when the Explorer that was running at turn-off ends: the new Explorer registers its hotkeys while it
  * starts, before it says "TaskbarCreated" (which is also sent when the display scale changes), so the hotkey must be let go
- * before it starts. With no Explorer at turn-off, "TaskbarCreated" ends the bridge. */
-static bool start_bridge(void) {
+ * before it starts. With no Explorer at turn-off, the first "TaskbarCreated" names the one to watch: it has already lost
+ * Win+E to the bridge, which keeps serving it until that Explorer ends. */
+static void watch_shell(void) {
     DWORD p = 0;
-    HWND t;
-    if (!registered) return false;
-    bridge = true;
-    t = FindWindowW(L"Shell_TrayWnd", NULL);
+    HWND t = FindWindowW(L"Shell_TrayWnd", NULL);
     if (t) GetWindowThreadProcessId(t, &p);
     if (p) shell_proc = OpenProcess(SYNCHRONIZE, FALSE, p);
+}
+
+static bool start_bridge(void) {
+    if (bridge) return true;
+    if (!registered) return false;
+    bridge = true;
+    watch_shell();
     return true;
 }
 
@@ -245,10 +250,9 @@ static void open_home(void) {
             return;
         }
     }
-    defaultfm_disable();   /* in this process: it becomes the bridge */
+    defaultfm_disable();   /* in this process: it becomes the bridge; when the keys cannot be put back it stays as it is and tries again at the next press */
     dfm_explorer_open();
     log_line(L"hotkey-gone", NULL);
-    if (!bridge) PostMessageW(win, WM_CLOSE, 0, 0);   /* the keys could not be put back: nothing is held for Explorer */
 }
 
 static void end_bridge(void) {
@@ -273,7 +277,7 @@ static LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == taskbar_created && m) {
         log_line(L"taskbar-created", NULL);
         if (!bridge) try_register();
-        else if (!shell_proc) end_bridge();   /* a bridge that watches Explorer's process ends when that process does */
+        else if (!shell_proc) { watch_shell(); if (!shell_proc) end_bridge(); }   /* a bridge that watches Explorer's process ends when that process does */
         return 0;
     }
     if (m == WM_CLOSE) { DestroyWindow(h); return 0; }

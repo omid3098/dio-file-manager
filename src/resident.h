@@ -18,8 +18,8 @@ bool resident_running(void);
 void resident_start(const wchar_t *launcher, const wchar_t *extra);   /* does nothing while one runs */
 void resident_stop(void);                                            /* returns when the process and its file are free */
 /* The switch was turned off and its keys are back. A process that holds Win+E stays on as a bridge (Explorer reads
- * DisabledHotkeys only when it starts, so it may still skip Win+E): Win+E opens Explorer, and when Explorer restarts
- * (TaskbarCreated) it lets go and ends. Returns true when a process stays on; false when none runs, or the one
+ * DisabledHotkeys only when it starts, so it may still skip Win+E): Win+E opens Explorer, and when the Explorer that
+ * ran then ends it lets go and ends, before the new one starts. Returns true when a process stays on; false when none runs, or the one
  * that runs never held the hotkey and is closing (resident_stop waits for it). */
 bool resident_release(void);
 void resident_end_bridge(void);   /* a turn-on: a bridge left over from a turn-off ends, and the caller starts a fresh process */

@@ -195,8 +195,9 @@ type, and a value that already has E all come back exactly), a posted `WM_HOTKEY
 process existed gets it at the first start, an update while the process runs from the launcher (the launcher
 becomes the new build, the process restarts from it, a turn-on from a newer build works too), the app gone (check 21: the process stays on and
 opens the stand-in Explorer), and, after a turn-off while the process holds the hotkey (check 23), a posted
-`WM_HOTKEY` starts the stand-in Explorer while the registry is already restored, `TaskbarCreated` ends the process
-and frees the hotkey, and the sign-in cleanup (the RunOnce command run by the check) deletes the redirected launcher;
+`WM_HOTKEY` starts the stand-in Explorer while the registry is already restored, a `TaskbarCreated` from the same
+stand-in taskbar process changes nothing, ending that process ends the bridge and frees the hotkey with no
+`TaskbarCreated` sent, and the sign-in cleanup (the RunOnce command run by the check) deletes the redirected launcher;
 check 24 turns it on again while the bridge runs (the cleanup entry goes, a fresh process opens the app, a cleanup
 that still fires leaves the launcher alone). The helper `off()` in the checks lets Explorer restart and the sign-in
 happen after a turn-off, so the checks before 23 see the end state. The

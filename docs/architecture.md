@@ -150,9 +150,10 @@ until restoration finishes (including nested checks and exception paths).
   `resident_keys_restore` puts the saved value back exactly and removes the Run value. `defaultfm_enable` stops a
   running process before it replaces a different launcher (a bridge left over from a turn-off is ended first, and
   the pending cleanup entry is dropped), then sets the keys and starts the process;
-  `defaultfm_disable` restores the keys with the rest, then calls `resident_release`: a process that holds Win+E
-  stays on as a bridge (it sends `MSG_RELEASE` to the hidden window) that opens Explorer on Win+E and ends at
-  `TaskbarCreated`, and the launcher is then deleted by `RunOnce` -> `--cleanup-launcher` at the next sign-in
+  `defaultfm_disable` restores the keys last, only when every shell command is back, then calls `resident_release`: a
+  process that holds Win+E stays on as a bridge (it sends `MSG_RELEASE` to the hidden window) that opens Explorer on
+  Win+E and ends when the Explorer process behind `Shell_TrayWnd` ends (a wait on its handle in the message loop;
+  `TaskbarCreated` only names an Explorer to watch when there was none), and the launcher is then deleted by `RunOnce` -> `--cleanup-launcher` at the next sign-in
   (`defaultfm_cleanup_main`, run from `main()` before any UI); a process that never held it is stopped and the
   launcher deleted at once. The launcher refresh thread stops, copies over, sets the keys and starts. In a check,
   `--test-state` redirects `Advanced`, `Run` and `RunOnce` next to `Classes` and `State`, the process logs to
