@@ -179,6 +179,12 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   folder, an unknown `shell:` or `::{CLSID}` place) goes to Windows Explorer, once per 2 seconds at most so a
   place can never loop. Turning it off puts back every value that was there before, exactly. If the app's file is
   deleted, the next folder open restores Explorer's keys and hands the request to Explorer.
+  Win+E and other programs start a copy of the app, the launcher (`%LOCALAPPDATA%\dio-file-manager`). Only the
+  registered app, the exe whose full path is the saved App path (compared after normalising the path), keeps it
+  current: at each start it compares the launcher byte by byte (not only the size) beside the window, and replaces it
+  through a temporary name when it differs, and it also adds a missing open verb. Any other copy (a test build, a
+  worktree build, a moved exe) leaves the launcher and the keys alone; turning the switch on from that copy
+  registers it. Its start-up cost on the UI thread is about 0.1 ms.
   Win+E is registered on both verbs of Windows' Win+E class, `opennewwindow` and `open` (Windows' own copy sends
   `open`, the verb of a launch without a verb, to Explorer). If Win+E still opens Explorer on some Windows build,
   that build starts the window without the shell's verb lookup, and only a program that is always running can

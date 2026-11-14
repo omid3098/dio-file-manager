@@ -25,7 +25,7 @@ bool defaultfm_enabled(void);
 /* extra_args is put between the launcher and the folder in the registered commands (tests only), or NULL. */
 bool defaultfm_enable(const wchar_t *extra_args);
 bool defaultfm_disable(void);
-void defaultfm_sync(void);        /* a normal start: follow an exe that moved, refresh the launcher copy */
+void defaultfm_sync(void);        /* a normal start of the registered app only: refresh the launcher copy and the open verbs */
 
 /* Turn the command-line arguments that Explorer would get into a request. */
 void defaultfm_request(wchar_t **args, int n, dfm_request *out);

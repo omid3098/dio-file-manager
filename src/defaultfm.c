@@ -337,6 +337,32 @@ static bool same_size(const wchar_t *a, const wchar_t *b) {
            x.nFileSizeLow == y.nFileSizeLow && x.nFileSizeHigh == y.nFileSizeHigh;
 }
 
+/* Same bytes: the sizes match and every 64 KB block matches. A file that cannot be read counts as different. */
+static bool same_content(const wchar_t *a, const wchar_t *b) {
+    HANDLE x = CreateFileW(a, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+    HANDLE y = CreateFileW(b, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+    static BYTE bx[65536], by[65536];
+    LARGE_INTEGER sx, sy;
+    bool same = x != INVALID_HANDLE_VALUE && y != INVALID_HANDLE_VALUE && GetFileSizeEx(x, &sx) && GetFileSizeEx(y, &sy) && sx.QuadPart == sy.QuadPart;
+    for (DWORD nx, ny; same; ) {
+        if (!ReadFile(x, bx, sizeof bx, &nx, NULL) || !ReadFile(y, by, sizeof by, &ny, NULL)) same = false;
+        else if (nx != ny || memcmp(bx, by, nx)) same = false;
+        else if (!nx) break;
+    }
+    if (x != INVALID_HANDLE_VALUE) CloseHandle(x);
+    if (y != INVALID_HANDLE_VALUE) CloseHandle(y);
+    return same;
+}
+
+/* The same file by its full path, whatever the spelling: relative parts, case, short names. */
+static bool same_path(const wchar_t *a, const wchar_t *b) {
+    wchar_t x[MAX_PATH], y[MAX_PATH], t[MAX_PATH];
+    if (!GetFullPathNameW(a, MAX_PATH, x, NULL) || !GetFullPathNameW(b, MAX_PATH, y, NULL)) return false;
+    if (GetLongPathNameW(x, t, MAX_PATH)) wcscpy_s(x, MAX_PATH, t);
+    if (GetLongPathNameW(y, t, MAX_PATH)) wcscpy_s(y, MAX_PATH, t);
+    return !_wcsicmp(x, y);
+}
+
 static bool copy_launcher(const wchar_t *self, const wchar_t *launcher) {
     CreateDirectoryW(local_dir, NULL);
     if (CopyFileW(self, launcher, FALSE)) return true;
@@ -395,6 +421,9 @@ bool defaultfm_disable(void) {
     if (!ok || any_ours()) return false;
     const wchar_t *base = wcsrchr(launcher, L'\\');      /* the copy goes too; a running one stays */
     if (base && !_wcsicmp(base + 1, LAUNCHER_NAME) && !defaultfm_is_launcher() && DeleteFileW(launcher)) {
+        wchar_t part[MAX_PATH + 8];
+        _snwprintf_s(part, MAX_PATH + 8, _TRUNCATE, L"%s.new", launcher);
+        DeleteFileW(part);
         launcher[base - launcher] = 0;
         RemoveDirectoryW(launcher);                  /* only when nothing else is in it */
     }
@@ -404,16 +433,38 @@ bool defaultfm_disable(void) {
     return true;
 }
 
+/* The compare reads 0.5 MB twice (53 ms on the first start after the exe was written, under 1 ms later), so it runs
+ * beside the window. The new copy is written under another name and renamed over the launcher, so closing the app
+ * in the middle never leaves a half launcher. */
+static DWORD WINAPI refresh_launcher(void *arg) {
+    wchar_t *two = arg, *self = two, *launcher = two + MAX_PATH, part[MAX_PATH + 8];
+    if (!same_content(self, launcher)) {
+        _snwprintf_s(part, MAX_PATH + 8, _TRUNCATE, L"%s.new", launcher);
+        CreateDirectoryW(local_dir, NULL);
+        if (!CopyFileW(self, part, FALSE) || !MoveFileExW(part, launcher, MOVEFILE_REPLACE_EXISTING)) DeleteFileW(part);
+    }
+    free(two);
+    return 0;
+}
+
+static void refresh_launcher_later(const wchar_t *self, const wchar_t *launcher) {
+    wchar_t *two = malloc(2 * MAX_PATH * sizeof *two);
+    HANDLE t;
+    if (!two) return;
+    wcscpy_s(two, MAX_PATH, self);
+    wcscpy_s(two + MAX_PATH, MAX_PATH, launcher);
+    t = CreateThread(NULL, 0, refresh_launcher, two, 0, NULL);
+    if (t) CloseHandle(t); else free(two);
+}
+
 void defaultfm_sync(void) {
     wchar_t self[MAX_PATH], app[MAX_PATH], launcher[MAX_PATH];
     paths();
     if (!defaultfm_enabled() || !GetModuleFileNameW(NULL, self, MAX_PATH) || !launcher_path(launcher, MAX_PATH)) return;
-    if (get_string(HKEY_CURRENT_USER, state_base, L"App", app, MAX_PATH) && _wcsicmp(app, self) &&
-        GetFileAttributesW(app) == INVALID_FILE_ATTRIBUTES) {   /* the exe moved: follow it */
-        HKEY k;
-        if (!RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_WRITE, &k)) { set_string(k, L"App", self); RegCloseKey(k); }
-    }
-    if (!same_size(self, launcher)) copy_launcher(self, launcher);
+    /* Only the registered app (the saved App path) keeps the launcher and the keys up to date. A test build, a copy
+     * elsewhere or a moved exe changes nothing; turning the switch on from that copy registers it. */
+    if (!get_string(HKEY_CURRENT_USER, state_base, L"App", app, MAX_PATH) || !same_path(app, self)) return;
+    refresh_launcher_later(self, launcher);
     wchar_t args[520] = L"";
     get_string(HKEY_CURRENT_USER, state_base, L"Args", args, 520);
     if (any_ours()) register_missing(launcher, args);   /* recovery state alone, without a command of ours, registers nothing */

@@ -383,7 +383,35 @@ def inside():
         assert dump() == before, 'Keys not restored exactly:\n%s' % ([r for r in dump() if r not in before] + [r for r in before if r not in dump()])
         assert state_value('App') is None and status() == 10
 
+    def start_app(exe):
+        """Start the app on the sandbox like a normal start and wait until its start-up work, the sync included, is done."""
+        frames = Path(str(BASE) + '.frames')
+        for _ in range(60):
+            try:
+                frames.unlink(missing_ok=True)
+                break
+            except PermissionError:
+                time.sleep(.05)
+        p = subprocess.Popen([str(exe), '--path', str(sandbox), '--test-state', str(BASE)], env=env(), cwd=ROOT, creationflags=NO_WINDOW)
+        try:
+            wait_for('The app did not finish starting', lambda: frames.exists(), seconds=15)
+        except BaseException:
+            p.kill(); p.wait()
+            raise
+        time.sleep(.3)
+        return p
+
+    def stale_copy_of(exe):
+        """The launcher of another build with the same size: one byte of the exe is different."""
+        data = bytearray(exe.read_bytes())
+        data[-1] ^= 0xFF
+        return bytes(data)
+
+    launcher_file = LOCAL / 'dio-file-manager-launcher.exe'
+
     def exe_moved():
+        """The registered exe is gone and the same build starts from another folder: nothing follows it. Turning the
+        switch on from the new place registers it and brings the launcher along."""
         seed_rich()
         before = dump()
         first, second = APP_DIR / 'old' / 'dio-file-manager.exe', APP_DIR / 'new' / 'dio-file-manager.exe'
@@ -391,20 +419,55 @@ def inside():
         shutil.copyfile(EXE, first); shutil.copyfile(EXE, second)
         assert exe_run(['--default-fm', 'on', '--test-state', str(BASE)], exe=first) == 0
         assert state_value('App') == str(first)
-        (LOCAL / 'dio-file-manager-launcher.exe').write_bytes(b'stale')   # a launcher of another version
+        launcher_file.write_bytes(b'stale')   # a launcher of another version
+        registered = dump()
         first.unlink()
-        p = subprocess.Popen([str(second), '--path', str(sandbox), '--test-state', str(BASE)], env=env(), cwd=ROOT, creationflags=NO_WINDOW)
-        try:
-            wait_for('The app did not follow the moved exe', lambda: state_value('App') == str(second))
-            wait_for('The launcher copy was not refreshed',
-                     lambda: (LOCAL / 'dio-file-manager-launcher.exe').stat().st_size == second.stat().st_size)
-        finally:
-            p.kill(); p.wait()
+        start_app(second).kill()
+        assert state_value('App') == str(first), 'A copy at another path took over the registration'
+        assert launcher_file.read_bytes() == b'stale' and dump() == registered, 'A copy at another path changed the launcher or the keys'
+        assert exe_run(['--default-fm', 'on', '--test-state', str(BASE)], exe=second) == 0
+        assert state_value('App') == str(second) and launcher_file.read_bytes() == second.read_bytes()
         reset_case()
         fire(registered_prefix() + ' "%s"' % sandbox)
-        assert arrival() == ['arrive-folder\t%s\t' % sandbox], 'The launcher did not start the moved app'
+        assert arrival() == ['arrive-folder	%s	' % sandbox], 'The launcher did not start the moved app'
         reset_case()
         assert exe_run(['--default-fm', 'off', '--test-state', str(BASE)], exe=second) == 0 and dump() == before
+
+    def registered_build_updates_launcher():
+        """A build of the same size that differs in content reaches the launcher when it starts from the registered
+        path, also when that path is spelled another way."""
+        seed_rich()
+        reg = APP_DIR / 'reg' / 'dio-file-manager.exe'
+        reg.parent.mkdir(exist_ok=True)
+        shutil.copyfile(EXE, reg)
+        assert exe_run(['--default-fm', 'on', '--test-state', str(BASE)], exe=reg) == 0
+        stale = stale_copy_of(reg)
+        launcher_file.write_bytes(stale)
+        assert len(stale) == reg.stat().st_size and stale != reg.read_bytes()
+        spelled = Path(str(APP_DIR / 'old' / '..' / 'reg' / 'DIO-FILE-MANAGER.EXE'))
+        (APP_DIR / 'old').mkdir(exist_ok=True)
+        p = start_app(spelled)
+        try:
+            wait_for('The same-size launcher was not refreshed', lambda: launcher_file.read_bytes() == reg.read_bytes(), seconds=5)
+        finally:
+            p.kill(); p.wait()
+        assert not (LOCAL / 'dio-file-manager-launcher.exe.new').exists(), 'The temporary copy was left behind'
+        assert off() == 0
+
+    def other_copy_leaves_launcher_alone():
+        """A build started from any other path, and the launcher itself, leave the launcher and every key as they are."""
+        seed_rich()
+        reg, other = APP_DIR / 'reg' / 'dio-file-manager.exe', APP_DIR / 'other' / 'dio-file-manager.exe'
+        reg.parent.mkdir(exist_ok=True); other.parent.mkdir(exist_ok=True)
+        shutil.copyfile(EXE, reg)
+        assert exe_run(['--default-fm', 'on', '--test-state', str(BASE)], exe=reg) == 0
+        other.write_bytes(reg.read_bytes() + bytes(1024))   # a larger build, like an unfinished feature
+        launcher_file.write_bytes(b'launcher of the installed app')
+        registered = dump()
+        start_app(other).kill()
+        assert launcher_file.read_bytes() == b'launcher of the installed app', 'A build at another path replaced the launcher'
+        assert state_value('App') == str(reg) and dump() == registered, 'A build at another path changed the keys or the record'
+        assert off() == 0
 
     def upgrade_from_three_targets():
         """A registration made before the open verb was added: opening the new version, or turning the switch on again,
@@ -591,7 +654,7 @@ def inside():
         check('3-every-command-line-form', forms)
         check('4-loop-guard', loop_guard)
         check('5-app-gone-restores-and-hands-over', exe_gone)
-        check('6-exe-moved-is-followed', exe_moved)
+        check('6-exe-moved-is-not-followed', exe_moved)
         check('7-switch-in-main-menu', switch_in_menu)
         check('8-failed-restore-keeps-recovery', failed_restore_keeps_recovery)
         check('9-other-programs-entries-survive', other_programs_entries_survive)
@@ -599,6 +662,8 @@ def inside():
         check('11-unreadable-saved-value-keeps-recovery', unreadable_record_is_a_failure)
         check('12-failed-win-e-restore-retries-and-keeps-record', failed_win_e_restore_then_retry)
         check('13-upgrade-from-three-targets', upgrade_from_three_targets)
+        check('14-registered-build-updates-same-size-launcher', registered_build_updates_launcher)
+        check('15-other-copy-leaves-launcher-and-keys', other_copy_leaves_launcher_alone)
     finally:
         exe_run(['--default-fm', 'off', '--test-state', str(BASE)])
         wipe()
