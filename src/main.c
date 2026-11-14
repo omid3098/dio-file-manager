@@ -379,7 +379,7 @@ static void typed_letters(void) {
  * rename popover has the window first, as for a click, and the press is dropped. Any open menu or popup is
  * closed by the press and the press goes no further, as in Explorer. */
 static void mouse_nav(void) {
-    if (nav_n && !act_modal_open() && ui_popup_open_any(A.ui)) cui__close_all_popups(A.ui);
+    if (nav_n && !act_modal_open() && ui_popup_open_any(A.ui)) { cui__close_all_popups(A.ui); act_dismiss_popups(); }
     else if (nav_n && !act_modal_open())
         for (int i = 0; i < nav_n; i++) { if (nav_q[i] < 0) app_back(); else app_forward(); }
     nav_n = 0;

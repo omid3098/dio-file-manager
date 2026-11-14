@@ -573,6 +573,12 @@ void act_job_button(void) {
     if (!cui_popover_is_open(ui, "jobpop")) G.job_pop_open = false;
 }
 
+/* A side-button press closes every popup, the operations popover too: its flag reopens it every frame, so the flag goes with it. */
+void act_dismiss_popups(void) {
+    G.job_pop_open = false;
+    cui_popover_close(A.ui, "jobpop");
+}
+
 /* Observation only: input still goes through the window. */
 void act_jobs_snapshot(FILE *f) {
     fprintf(f, ",\"job_button\":[%.2f,%.2f,%.2f,%.2f],\"job_pop\":%d,\"jobs\":[", G.job_rect.x, G.job_rect.y, G.job_rect.w, G.job_rect.h, G.job_pop_open);

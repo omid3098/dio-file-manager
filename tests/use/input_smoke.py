@@ -338,6 +338,24 @@ def inside():
         back(); at(fixture/'A', 'step')
         back(); at(fixture, 'step')
         back(); at(fixture, 'Back at the first folder stays')
+        # The File Operations popup is a popup too: the press closes it for good (its own flag used to reopen it).
+        src, dst = WORK/'copy-src', WORK/'copy-dst'
+        with preserved_clipboard(a.hwnd):
+            a.path(src); a.cell(0); a.key(ord('C'), (17,))
+            a.path(dst); a.key(ord('V'), (17,))
+            a.until('Copy not running', lambda: a.snap()['job']['active'])
+            def job_button(index):
+                x, y, w, h = a.snap()['action_rects'][index]
+                assert w > 0 and h > 0, ('Button has no hit area', index)
+                a.click(x+w/2, y+h/2)
+            job_button(0)
+            a.until('File Operations popup did not open', lambda: a.snap()['job']['popover'])
+            back(); at(dst, 'Back button with File Operations open must not change folder')
+            time.sleep(.3)
+            s = a.snap()
+            assert not s['job']['popover'] and not s['popups'], 'Back button did not close the File Operations popup'
+            job_button(0); a.until('File Operations popup did not open again', lambda: a.snap()['job']['popover'])
+            job_button(1); a.until('Copy did not end', lambda: not a.snap()['job']['active'], 15)
 
     def selection(a):
         a.cell(0); assert a.snap()['selected'] == 1, 'Click'
@@ -573,7 +591,15 @@ def inside():
     check('2-list-wheel', WORK/'big', wheel, 'list')
     check('3-navigation', WORK/'fixture', navigation)
     check('4-selection', WORK/'fixture', selection)
-    check('14-mouse-navigation', WORK/'fixture', mouse_navigation)
+    def prepare_copy():
+        import shutil
+        for d in ('copy-src', 'copy-dst'):
+            shutil.rmtree(WORK/d, ignore_errors=True); (WORK/d).mkdir(parents=True)
+        block = b'copy popup check' + bytes(1) + b'x' * (1024*1024 - 17)
+        with (WORK/'copy-src'/'big.bin').open('wb') as f:
+            for _ in range(64): f.write(block)
+        os.environ['DFM_TEST_COPY_DELAY_MS'] = '50'   # slow enough that the copy outlives the checks
+    check('14-mouse-navigation', WORK/'fixture', mouse_navigation, prep=prepare_copy)
     check('5-shortcuts', WORK/'fixture', shortcuts)
     check('6-sidebar', WORK/'fixture', sidebar)
     check('7-narrow', WORK/'fixture', narrow)
