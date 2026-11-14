@@ -151,13 +151,30 @@ static void clipboard(void) {
     CloseClipboard();
     puts("PASS Explorer-compatible CF_HDROP/Preferred DropEffect copy and cut round trips");
 }
+/* The `$I` metadata file beside a recycled `$R` item; a restore must not leave it behind. */
+static int bin_meta_exists(const char *id) {
+    wchar_t *w = wide(id), *leaf; int found;
+    CHECK(w); leaf = wcsrchr(w, L'\\'); CHECK(leaf && leaf[1] == L'$' && leaf[2] == L'R'); leaf[2] = L'I';
+    found = GetFileAttributesW(w) != INVALID_FILE_ATTRIBUTES; free(w); return found;
+}
 static void recycle(void) {
-    const char *paths[] = {ROOT "\\recycle-me.txt"}; HRESULT hr; trash_items list; size_t i; int found = 0;
+    const char *paths[] = {ROOT "\\recycle-me.txt"}; HRESULT hr; trash_items list; size_t i; int found = 0; char *undo_id = NULL;
     file(paths[0], "undo me"); hr = trash_move(paths, 1); if (FAILED(hr)) fprintf(stderr, "trash HRESULT %08lx\n", (unsigned long)hr); CHECK(SUCCEEDED(hr)); CHECK(!exists(paths[0]));
     CHECK(SUCCEEDED(trash_list(&list)));
     for(i=0;i<list.count;++i) if(!strcmp(list.items[i].original_path, paths[0])) { found = 1; CHECK(!strcmp(list.items[i].name, "recycle-me.txt")); CHECK(list.items[i].size == 7); }
     CHECK(found); trash_list_free(&list);
+    CHECK(SUCCEEDED(trash_list(&list))); found = 0;
+    for(i=0;i<list.count;++i) if(!strcmp(list.items[i].original_path, paths[0])) { found = 1; CHECK(bin_meta_exists(list.items[i].id)); undo_id = _strdup(list.items[i].id); CHECK(undo_id); }
+    CHECK(found); trash_list_free(&list);
     hr = trash_undo(); if (FAILED(hr)) fprintf(stderr, "undo HRESULT %08lx\n", (unsigned long)hr); CHECK(SUCCEEDED(hr)); content(paths[0], "undo me");
+    /* Undo and Restore both leave no `$I` orphan in the bin. */
+    CHECK(!bin_meta_exists(undo_id)); free(undo_id);
+    hr = trash_move(paths, 1); CHECK(SUCCEEDED(hr)); CHECK(SUCCEEDED(trash_list(&list))); found = 0;
+    for(i=0;i<list.count;++i) if(!strcmp(list.items[i].original_path, paths[0])) {
+        const char *id = list.items[i].id; found = 1; CHECK(bin_meta_exists(id));
+        hr = trash_restore(&id, 1); CHECK(SUCCEEDED(hr)); content(paths[0], "undo me"); CHECK(!bin_meta_exists(id)); break;
+    }
+    CHECK(found); trash_list_free(&list);
     puts("PASS sandbox-only Recycle Bin listing, trash and exact-item undo/restore");
 }
 static void cross_volume(void) {

@@ -153,6 +153,19 @@ done:
     ReleaseSRWLockExclusive(&undo_lock); if (SUCCEEDED(init)) CoUninitialize(); return hr;
 }
 HRESULT trash_move(const char *const *paths, size_t count) { return dfm_trash_move_cancel(paths, count, NULL); }
+/* The shell keeps each recycled item as a `$R<id>` payload plus a `$I<id>` metadata
+   file beside it. Moving the payload out leaves `$I` behind as a hidden orphan, so
+   drop it once the restore has succeeded (Explorer does the same). */
+static void drop_metadata(const wchar_t *id) {
+    wchar_t *meta = _wcsdup(id); const wchar_t *leaf;
+    if (!meta) return;
+    leaf = dfm_leaf(meta);
+    if (leaf[0] == L'$' && leaf[1] == L'R' && leaf[2] && wcsstr(meta, L"$RECYCLE.BIN")) {
+        meta[leaf - meta + 1] = L'I';
+        SetFileAttributesW(meta, FILE_ATTRIBUTE_NORMAL); DeleteFileW(meta);
+    }
+    free(meta);
+}
 static HRESULT restore_one(const char *id, const char *original) {
     wchar_t *w = dfm_wide(id), *path = dfm_wide(original), *parent = NULL;
     IShellItem *item = NULL, *folder = NULL; IFileOperation *op = NULL; HRESULT hr = E_OUTOFMEMORY;
@@ -166,6 +179,7 @@ static HRESULT restore_one(const char *id, const char *original) {
     if (SUCCEEDED(hr)) hr = IFileOperation_SetOperationFlags(op, FOF_SILENT | FOF_NOERRORUI | FOF_NOCONFIRMATION | FOF_RENAMEONCOLLISION | FOFX_EARLYFAILURE);
     if (SUCCEEDED(hr)) hr = IFileOperation_MoveItem(op, item, folder, dfm_leaf(path), NULL);
     if (SUCCEEDED(hr)) hr = perform(op);
+    if (SUCCEEDED(hr)) drop_metadata(w);
 done:
     if (op) IFileOperation_Release(op); if (folder) IShellItem_Release(folder); if (item) IShellItem_Release(item);
     free(w); free(path); free(parent); return hr;
