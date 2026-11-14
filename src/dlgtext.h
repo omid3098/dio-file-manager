@@ -15,6 +15,10 @@ void dlg_short_name(const char *name, char *out, size_t cap);
    from the path with this, never through a smaller buffer first: a buffer cuts a name of 2-byte letters in half. */
 void dlg_short_leaf(const char *path, char *out, size_t cap);
 
+/* `out` = a curly-quoted `dlg_short_leaf` of `path`, then `tail`. The name gives way to fit `cap`, never the tail:
+   a toast keeps its words and its name stays valid UTF-8. */
+void dlg_quoted_leaf(const char *path, const char *tail, char *out, size_t cap);
+
 /* Width in pixels of the first `len` bytes of `s`. */
 typedef float (*dlg_measure_fn)(void *ctx, const char *s, int len);
 

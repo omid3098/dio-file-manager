@@ -393,6 +393,12 @@ static void dialog_names(void) {
     CHECK(!strcmp(out, "a \"abcdefghi\njklmnopqrs\ntuvwxyz\" b"));
     dlg_break_words("fits well", out, sizeof out, 100.0f, mono, NULL); CHECK(!strcmp(out, "fits well"));
     dlg_break_words("e\xCC\x81" "e\xCC\x81" "e\xCC\x81" "e\xCC\x81", out, sizeof out, 40.0f, mono, NULL); CHECK(!strcmp(out, "e\xCC\x81" "e\xCC\x81\n" "e\xCC\x81" "e\xCC\x81"));
+    {   /* a toast with a name of 140 wide characters (over its 400-byte buffer) keeps whole characters and its message words */
+        char nm[600], toast[400];
+        nm[0] = 'a'; nm[1] = 0; for (int i = 0; i < 140; i++) cat(nm, "\xE4\xB8\xAD"); cat(nm, ".txt");
+        dlg_quoted_leaf(nm, " moved to Trash", toast, sizeof toast);
+        CHECK(valid_utf8(toast) && !strcmp(toast + strlen(toast) - 15, " moved to Trash") && !strncmp(toast, "\xE2\x80\x9C" "a", 4) && strstr(toast, ".txt"));
+    }
     puts("PASS dialog names");
 }
 

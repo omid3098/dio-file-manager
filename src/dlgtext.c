@@ -1,5 +1,6 @@
 #include "dlgtext.h"
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 static int decode(const unsigned char *s, size_t left, uint32_t *cp) {
@@ -80,6 +81,16 @@ void dlg_short_name(const char *name, char *out, size_t cap) {
 void dlg_short_leaf(const char *path, char *out, size_t cap) {
     const char *l = strrchr(path, '\\');
     dlg_short_name(l ? l + 1 : path, out, cap);   /* straight from the path: no buffer in between can cut the name */
+}
+
+void dlg_quoted_leaf(const char *path, const char *tail, char *out, size_t cap) {
+    enum { QUOTES = 6 };   /* two curly quotes of 3 bytes */
+    size_t room = strlen(tail) + QUOTES + 1;
+    char name[256];
+    if (!cap) return;
+    if (cap <= room + 3) { snprintf(out, cap, "%s", tail); return; }   /* no room for a name: the words stay */
+    dlg_short_leaf(path, name, cap - room < sizeof name ? cap - room : sizeof name);
+    snprintf(out, cap, "\xE2\x80\x9C%s\xE2\x80\x9D%s", name, tail);
 }
 
 void dlg_break_words(const char *in, char *out, size_t cap, float max_w, dlg_measure_fn measure, void *ctx) {

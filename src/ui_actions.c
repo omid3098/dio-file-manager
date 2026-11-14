@@ -76,8 +76,11 @@ static void error_text(DWORD code, const char *path, char *out, size_t cap) {
     if (!n || !fs_w_to_u8(msg, m, sizeof m)) snprintf(m, sizeof m, "Error %lu", (unsigned long)code);
     const char *leaf = path ? strrchr(path, '\\') : NULL;
     leaf = leaf ? leaf + 1 : path;
-    if (leaf && leaf[0]) snprintf(out, cap, "\xE2\x80\x9C%s\xE2\x80\x9D: %s", leaf, m);
-    else snprintf(out, cap, "%s", m);
+    if (leaf && leaf[0]) {
+        char tail[520];
+        snprintf(tail, sizeof tail, ": %s", m);
+        dlg_quoted_leaf(leaf, tail, out, cap);   /* a long name is shortened at whole characters, never the message */
+    } else snprintf(out, cap, "%s", m);
 }
 
 static void toast_error(const char *title, DWORD code, const char *path) {
@@ -193,7 +196,7 @@ static void job_done(file_job *j) {
     if (kind == OPS_MOVE && !errors && !cancelled) clear_cut_clipboard(j->clipboard_sequence);
     if (kind == OPS_TRASH && trashed) {   /* only what reached the bin can be undone, also after a later failure or Cancel */
         char t[400];
-        if (j->n == 1) snprintf(t, sizeof t, "\xE2\x80\x9C%s\xE2\x80\x9D moved to Trash", j->first);
+        if (j->n == 1) dlg_quoted_leaf(j->first, " moved to Trash", t, sizeof t);
         else snprintf(t, sizeof t, trashed == 1 ? "%u item moved to Trash" : "%u items moved to Trash", trashed);
         G.undo_toast = cui_toast(A.ui, t, .action = "Undo", .show_timer = true, .duration = 8);
     }
