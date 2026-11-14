@@ -745,7 +745,7 @@ def inside():
         fire(registered_prefix() + ' "%s"' % deep)
         got = arrival()
         assert len(got) == 1 and got[0].startswith('arrive-folder\t' + str(sandbox)), \
-            f'The long folder did not arrive as a folder: {got!r}'   # the log is ANSI: it ends at the first CJK letter
+            f'The long folder did not arrive as a folder: {got!r}'   # the log is ANSI: its CJK letters are "?"
         assert off() == 0
         real = base.subprocess.Popen
         base.EXE = APP_EXE

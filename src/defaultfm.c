@@ -89,9 +89,13 @@ void dfm_log_text(const wchar_t *file, const char *line) {
 }
 
 static void log_line(const wchar_t *what, const wchar_t *a, const wchar_t *b) {
+    wchar_t wide[2048];
     char line[4096];
     if (!test_on || !test_log[0]) return;
-    _snprintf_s(line, sizeof line, _TRUNCATE, "%ls\t%ls\t%ls\n", what, a ? a : L"", b ? b : L"");   /* the %ls output is the wide text in the ANSI page */
+    _snwprintf_s(wide, 2048, _TRUNCATE, L"%s\t%s\t%s\n", what, a ? a : L"", b ? b : L"");
+    /* The log is in the ANSI page; a letter the page lacks (CJK, in the long-name check) becomes '?'. snprintf's %ls gives up
+     * at such a letter and returns an empty line, which made that arrival vanish. */
+    if (!WideCharToMultiByte(CP_ACP, 0, wide, -1, line, sizeof line, NULL, NULL)) return;
     dfm_log_text(test_log, line);
 }
 
