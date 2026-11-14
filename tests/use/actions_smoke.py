@@ -128,9 +128,11 @@ def put_cut(path):
         U.CloseClipboard()
 
 
-def hold_then_write(hwnd, moved, text):
+def hold_then_write(hwnd, clicked, moved, text):
     """Another program: holds the clipboard open until the move is done and the app is stuck waiting for it,
-    then replaces the contents with text and closes it."""
+    then replaces the contents with text and closes it. Its waits count from the click that starts the move
+    (the `clicked` event), not from when it opened the clipboard: a loaded machine can take seconds to answer
+    the check's state request and deliver that click."""
     from clipboard_guard import open_clipboard, U, K   # the wrappers whose argument and result types are set
     K.GlobalAlloc.argtypes = [W.UINT, C.c_size_t]
     K.GlobalAlloc.restype = W.HGLOBAL
@@ -141,10 +143,12 @@ def hold_then_write(hwnd, moved, text):
         return not U.SendMessageTimeoutW(hwnd, 0, 0, 0, 2, 30, C.byref(r))  # SMTO_ABORTIFHUNG, 30 ms
     open_clipboard(None)
     try:
-        end = time.monotonic()+5
+        clicked.wait()
+        end = time.monotonic()+15  # as long as finished() waits for the job
         while not moved():  # the job's worker has moved the file; the window thread now ends the job
             assert time.monotonic() < end, 'The move did not finish'
             time.sleep(.005)
+        end = time.monotonic()+5
         while not (stuck() and stuck()):
             assert time.monotonic() < end, 'The app never waited for the clipboard'
         time.sleep(.05)
@@ -311,13 +315,15 @@ def inside():
             (dest/name).write_text('original', encoding='utf-8')
             a.path(dest); a.key(ord('V'), (17,))
             a.until('No name conflict dialog', lambda: a.snap()['act'] & 8)  # the move waits here
-            errors = []
+            errors, clicked = [], threading.Event()
             def other_program():
-                try: hold_then_write(a.hwnd, lambda: (dest/name).read_text(encoding='utf-8') == 'incoming', 'copied elsewhere')
+                try: hold_then_write(a.hwnd, clicked, lambda: (dest/name).read_text(encoding='utf-8') == 'incoming', 'copied elsewhere')
                 except BaseException as e: errors.append(e)
             hold = threading.Thread(target=other_program)
             hold.start(); time.sleep(.05)  # the other program has the clipboard open
-            click_rect(a, 4); finished(a); hold.join()
+            try: click_rect(a, 4)
+            finally: clicked.set()
+            finished(a); hold.join()
             assert not errors, ('The other program failed', errors)
             assert (dest/name).read_text(encoding='utf-8') == 'incoming' and not (source/name).exists(), 'Move did not happen'
             state = clipboard_state(a.hwnd)
