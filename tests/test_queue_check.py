@@ -63,6 +63,26 @@ class QueueBuildTest(unittest.TestCase):
             self.assertIn('/nodeReuse:false', build)
             self.assertNotIn('--target', build)  # app's POST_BUILD size guard and console tests
 
+    def test_cui_source_follows_the_candidates_pinned_tag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cmake = root / 'CMakeLists.txt'
+            cmake.write_text('FetchContent_Declare(cui GIT_REPOSITORY https://example.test/CUI.git '
+                             'GIT_TAG 76a5f1f48fa7934288f71d91f0014c09209d083f)\n', encoding='utf-8')
+            self.assertEqual(queue_check.cui_source(root, cmake), root / '.agent-work/cui-src-76a5f1f')
+            cmake.write_text('FetchContent_Declare(cui GIT_REPOSITORY https://example.test/CUI.git GIT_TAG v1.4.0)\n',
+                             encoding='utf-8')
+            self.assertEqual(queue_check.cui_source(root, cmake), root / '.agent-work/cui-src-v1.4.0')
+            cmake.write_text('project(none)\n', encoding='utf-8')
+            with self.assertRaises(ValueError):
+                queue_check.cui_source(root, cmake)
+
+    def test_missing_cache_names_the_folder(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(FileNotFoundError, 'cui-src-76a5f1f'):
+                queue_check.build_candidate(root / 'build', root / 'cui-src-76a5f1f', root / 'console')
+
     def test_missing_cache_refuses_download(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

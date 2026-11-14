@@ -5,7 +5,7 @@
    between characters (GNOME Files: eel_str_middle_truncate at 50, Pango WRAP_WORD_CHAR). Pure string work. */
 enum { DLG_NAME_MAX = 50 };
 
-/* What CUI v1.4.0 keeps of a toast (cui_toast_item in src/cui_internal.h:419-420, copied by snprintf in cui_overlay.c:730-731):
+/* What CUI keeps of a toast (title[128] and desc[256] in cui_toast_item, src/cui_internal.h, copied by snprintf in cui_overlay.c):
    the title is cut at 127 bytes, the description at 255. Format a toast's text for these, never a bigger buffer:
    what CUI cuts is lost, whole message words included. */
 enum { DLG_TOAST_TITLE_CAP = 128, DLG_TOAST_DESC_CAP = 256 };

@@ -2,6 +2,7 @@
 import argparse
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -19,9 +20,19 @@ def run(argv, **kwargs):
                           creationflags=subprocess.CREATE_NO_WINDOW, **kwargs)
 
 
+def cui_source(main_root, cmake=ROOT / 'CMakeLists.txt'):
+    """The read-only CUI tree for the GIT_TAG the candidate's CMakeLists.txt pins."""
+    found = re.search(r'FetchContent_Declare\(\s*cui[^)]*?GIT_TAG\s+(\S+?)\s*\)',
+                      cmake.read_text(encoding='utf-8'), re.S)
+    if not found:
+        raise ValueError(f'No CUI GIT_TAG in {cmake}')
+    return main_root / '.agent-work' / f'cui-src-{found.group(1)[:7]}'
+
+
 def build_candidate(build, cui, console):
     if not (cui / 'CMakeLists.txt').is_file():
-        raise FileNotFoundError(f'Local CUI v1.4.0 source required: {cui}')
+        raise FileNotFoundError(f'Local CUI source required for the GIT_TAG in CMakeLists.txt, '
+                                f'a read-only copy of that commit at {cui}; the queue never downloads it')
     run(['cmake', '-S', ROOT, '-B', build, '-G', 'Visual Studio 17 2022', '-A', 'x64',
          '-DCMAKE_BUILD_TYPE=MinSizeRel', f'-DFETCHCONTENT_SOURCE_DIR_CUI={cui}',
          '-DFETCHCONTENT_FULLY_DISCONNECTED=ON', f'-DDFM_TEST_WORK={console}'])
@@ -69,7 +80,7 @@ def check_candidate(args, main_root, work):
     (work / 'tmp').mkdir()
     os.environ.update(TEMP=str(work / 'tmp'), TMP=str(work / 'tmp'), TMPDIR=str(work / 'tmp'))
     build = work / 'build'
-    build_candidate(build, main_root / '.agent-work/cui-src', work / 'console')
+    build_candidate(build, cui_source(main_root), work / 'console')
     if args.mode == 'typecheck':
         return
     os.environ['DFM_EXE'] = str(build / 'MinSizeRel/dio-file-manager.exe')

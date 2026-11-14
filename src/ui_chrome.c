@@ -119,7 +119,7 @@ void ui_sidebar_header(void) {
 }
 
 static bool place_row(const char *label, const char *icon, bool selected) {
-    /* CUI 1.4.0 keeps a group's last selection even when none is selected. */
+    /* Each selected place is its own group, so its highlight appears in place instead of gliding from the one before. */
     return cui_nav_item(A.ui, label, .icon = icon, .selected = selected, .group = selected ? label : "places");
 }
 

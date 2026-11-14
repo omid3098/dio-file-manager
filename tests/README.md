@@ -11,8 +11,9 @@ All use checks pass `--test-state`, so default file opens only write `.opened`
 instead of starting a real app. The action checks use
 explicit stand-ins for file opens, Open With and Terminal; their hidden desktop
 job closes the complete process tree after the run, including on failure.
-The read-only CUI v1.4.0 tree in the main checkout's `.agent-work/cui-src` is
-required; the queue never downloads it. Build products and use-check artifacts
+The read-only CUI tree for the candidate's `GIT_TAG` is required in the main checkout's
+`.agent-work/cui-src-<first 7 characters of the GIT_TAG>` (now `cui-src-76a5f1f`); a missing
+folder stops the check with its path, and the queue never downloads it. Build products and use-check artifacts
 use a unique folder under the main checkout's `.agent-work/merge-queue-checks/`.
 Each helper run removes its own folder on success or failure and copies the
 hidden checks' output into the queue log before cleanup.

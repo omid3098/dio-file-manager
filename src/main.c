@@ -109,7 +109,7 @@ void app_path_of(int i, char *out, size_t cap) {
     snprintf(out, cap, "%s%s%s", A.path, (bl && A.path[bl - 1] == '\\') ? "" : "\\", app_item_name(i));
 }
 
-/* CUI 1.4.0 can only follow the system theme from the start, so the three choices are applied here. */
+/* The app applies the three theme choices itself: it must know whether the result is dark for the window chrome. */
 static bool system_is_dark(void) {
     DWORD v = 1, n = sizeof v;
     if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",

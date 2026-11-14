@@ -56,7 +56,7 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   for removable drives; "Other Locations" last (all drives with their used and free space).
   Rows are 36 px, a 16 px Lucide icon and 14 px text, radius 10, 6 px inside the pane edge.
   The current place is filled with the `selected` colour; hover with `hover`.
-  Trash shows an item-count badge when nonempty. CUI 1.4.0 has no empty-bin icon,
+  Trash shows an item-count badge when nonempty. CUI has no empty-bin icon,
   so the icon stays the same when the bin is empty or full.
 - **Grid view (default):** cells about 112 px wide; a 64 px icon above the name; the name centred,
   up to two lines (GNOME Files 47 has three: lines 3, wrap word-char, ellipsize middle; three lines make the

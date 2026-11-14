@@ -1,7 +1,7 @@
 # Architecture
 
-One Windows executable in C, built with CMake and MSVC 2022 (Build Tools), CUI v1.4.0 fetched with
-FetchContent. All text is UTF-8 inside the app; convert to UTF-16 only at Win32 calls.
+One Windows executable in C, built with CMake and MSVC 2022 (Build Tools), CUI fetched with
+FetchContent at the commit `CMakeLists.txt` pins (76a5f1f, master after v1.4.0). All text is UTF-8 inside the app; convert to UTF-16 only at Win32 calls.
 
 ## Files and owners
 
@@ -27,7 +27,7 @@ The window code calls the other modules; they never call CUI. Work that can take
 move, trash, search, folder sizes, thumbnails) runs on its own thread, and the window polls
 its state each frame (`cui_request_wakeup` while it runs).
 
-`ui_ctxmenu.c` isolates the CUI 1.4.0 internal popup and list-row hit calls. CUI's
+`ui_ctxmenu.c` isolates the CUI internal popup and list-row hit calls. CUI's
 data-grid row does not update `last_id`, so `cui_last_rect` cannot identify that row.
 The same adapter registers the window's frame callback for CUI's native modal
 resize loop. It finishes pending layout before allocating screenshot buffers,
@@ -109,7 +109,7 @@ installed executable on `correct/hidden.py`'s private desktop with isolated `APP
 The window has no native caption; the border colour and the system menu follow the app's Light/Dark/System choice. System mode handles
 `WM_SETTINGCHANGE` immediately, including while the app is idle. Sidebar highlights
 belong only to the current or hovered row; unselected navigation groups never inherit
-CUI 1.4.0's retained selection. List rename anchors use the actual visible row rectangle,
+CUI's retained selection. List rename anchors use the actual visible row rectangle,
 including the header and scroll offset, to open below their row.
 
 `tests/use/input_smoke.py` checks three pixel sizes during Windows' modal sizing
