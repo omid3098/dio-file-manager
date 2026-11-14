@@ -118,7 +118,9 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 - Alt+Left and Alt+Right go back and forward; Alt+Up goes to the parent; Alt+Home goes Home.
 - The mouse's back and forward buttons (and the keyboard's browser keys) do the same, as in Explorer, wherever the
   pointer is in the window. Windows reports a press as `WM_XBUTTONUP` or as `WM_APPCOMMAND`; the window answers
-  both with TRUE, so one press moves one step. A dialog, menu or popover that is open takes the press instead.
+  both with TRUE, and takes the browser keys' `WM_KEYDOWN` itself, so one press moves one step (a held key repeats,
+  as in Explorer). With a dialog or the rename popover open the press is dropped; with any menu or popup open it
+  closes that popup and goes no further, as in Explorer.
 - History is Explorer's: every folder change (double click, sidebar, path bar, typed path, Alt+Up) is one step; the
   same folder again, in any letter case, is none; a new step after Back drops Forward; the first folder of a window
   has no Back.

@@ -70,6 +70,12 @@ void ui_popup_tooltips(cui_ctx *ui) {
     }
 }
 
+/* Any menu, popover, path-bar menu or view-options popup is open: one check over every CUI popup. */
+bool ui_popup_open_any(cui_ctx *ui) {
+    for (int i = 0; i < ui->popup_count; i++) if (ui->popups[i].open) return true;
+    return false;
+}
+
 /* Inspect the rendered tooltip surface, including any fading tooltip. */
 void ui_popup_snapshot(FILE *f) {
     cui_ctx *ui = A.ui;

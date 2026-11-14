@@ -306,8 +306,24 @@ def inside():
         back(300, 700); at(fixture/'A', 'Back button over the bottom')
         command(1); at(fixture, 'WM_APPCOMMAND browser backward')
         command(2); at(fixture/'A', 'WM_APPCOMMAND browser forward')
-        a.msg(0x319, int(a.hwnd), 1 << 16); at(fixture, 'Browser back key')
-        a.msg(0x319, int(a.hwnd), 2 << 16); at(fixture/'A', 'Browser forward key')
+        a.msg(0x319, int(a.hwnd), 1 << 16); at(fixture, 'WM_APPCOMMAND without the mouse flag')
+        a.msg(0x319, int(a.hwnd), 2 << 16); at(fixture/'A', 'WM_APPCOMMAND forward without the mouse flag')
+        # The keyboard's Browser Back/Forward keys arrive as real key messages, which CUI would otherwise consume.
+        def browser_key(vk):
+            a.msg(0x100, vk, 1); time.sleep(.05); a.msg(0x101, vk, 0xC0000001)
+        browser_key(0xA6); at(fixture, 'VK_BROWSER_BACK key: one step')
+        browser_key(0xA7); at(fixture/'A', 'VK_BROWSER_FORWARD key: one step')
+        # While a menu is open the press closes it and goes no further, as in Explorer.
+        a.path(fixture/'B'); back(); at(fixture/'A', 'step')
+        a.click(212, 23)
+        assert a.snap()['popups'], 'Main menu did not open'
+        back(); at(fixture/'A', 'Back button with the main menu open must not change folder')
+        a.until('Back button did not close the open main menu', lambda: not a.snap()['popups'])
+        a.click(212, 23); assert a.snap()['popups'], 'Main menu did not open'
+        browser_key(0xA6); at(fixture/'A', 'Browser Back key with the main menu open must not change folder')
+        a.until('Browser Back key did not close the open main menu', lambda: not a.snap()['popups'])
+        forward(); at(fixture/'B', 'Forward button after the menu closed')
+        back(); at(fixture/'A', 'step')
         # Explorer's history: every way to change folder is a step, a new step after Back drops Forward.
         a.click(90, 46+4*34+16)                                       # sidebar place
         s = a.wait_ready(); docs = s['documents']; assert s['path'] == docs, 'Sidebar'

@@ -55,6 +55,14 @@ static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         int b = GET_XBUTTON_WPARAM(w);
         if (b == XBUTTON1 || b == XBUTTON2) return TRUE;   /* the file view must not take a side button as a click */
     }
+    /* The browser keys: CUI takes WM_KEYDOWN and WM_KEYUP, so Windows would never turn them into WM_APPCOMMAND.
+     * Handled here, a press moves once; a held key repeats, as in Explorer. */
+    if (m == WM_KEYDOWN || m == WM_KEYUP) {
+        if (w == VK_BROWSER_BACK || w == VK_BROWSER_FORWARD) {
+            if (m == WM_KEYDOWN) nav_press(w == VK_BROWSER_BACK ? -1 : 1);
+            return 0;
+        }
+    }
     if (m == WM_APPCOMMAND) {
         int c = GET_APPCOMMAND_LPARAM(l);
         if (c == APPCOMMAND_BROWSER_BACKWARD || c == APPCOMMAND_BROWSER_FORWARD) {
@@ -367,14 +375,13 @@ static void typed_letters(void) {
     typed_n = 0;
 }
 
-/* A side-button press waits for a frame in which nothing else owns the window: a dialog, a menu or a popover
- * has the pointer first, as a click would, and the press is dropped. */
+/* A side-button or browser-key press waits for a frame in which nothing else owns the window. A dialog or a
+ * rename popover has the window first, as for a click, and the press is dropped. Any open menu or popup is
+ * closed by the press and the press goes no further, as in Explorer. */
 static void mouse_nav(void) {
-    bool idle = !act_modal_open() && !ctxmenu_is_open(A.ui) && !ui_view_options_open();
-    for (int i = 0; i < nav_n; i++) {
-        if (!idle) break;
-        if (nav_q[i] < 0) app_back(); else app_forward();
-    }
+    if (nav_n && !act_modal_open() && ui_popup_open_any(A.ui)) cui__close_all_popups(A.ui);
+    else if (nav_n && !act_modal_open())
+        for (int i = 0; i < nav_n; i++) { if (nav_q[i] < 0) app_back(); else app_forward(); }
     nav_n = 0;
 }
 

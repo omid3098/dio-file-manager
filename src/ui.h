@@ -118,6 +118,7 @@ bool ui_view_options_open(void);
 void ui_popup_tooltips(cui_ctx *ui);
 void ui_text_clipboard(cui_ctx *ui);        /* text fields copy and paste through clip_open (retries while another program holds the clipboard) */
 void ui_popup_snapshot(FILE *f);
+bool ui_popup_open_any(cui_ctx *ui);
 void app_path_of(int vis_index, char *out, size_t cap);
 bool app_is_narrow(void);
 void app_set_theme(int pref);              /* 0 system, 1 light, 2 dark */
