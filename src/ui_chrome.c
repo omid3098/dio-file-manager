@@ -425,13 +425,16 @@ void ui_search_bar(void) {}   /* the field lives in the content header now */
 
 /* ---- states and the status pill ---- */
 
-/* A whole view with nothing to show: CUI's empty state, centred in the content pane. Only an unreadable folder passes an action
- * ("Try Again"); the button is drawn here because CUI's own action button carries a plus icon. */
+/* A whole view with nothing to show. Only an unreadable folder passes an action ("Try Again"): a normal button under the reason. */
 bool ui_state_view(const char *icon, const char *title, const char *detail, const char *action) {
     cui_ctx *ui = A.ui;
+    bool tight = A.content_h < 260;   /* a short window (360x280 leaves 188 px): a smaller picture, so the text still fits */
     bool clicked = false;
-    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_CENTER, .justify = CUI_JUSTIFY_CENTER) {
-        cui_empty_state(ui, title, .icon = icon, .description = detail && detail[0] ? detail : NULL);
+    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_CENTER, .justify = CUI_JUSTIFY_CENTER, .gap = 10, .pad = tight ? 8.0f : 24.0f) {
+        cui_icon(ui, icon, tight ? 56.0f : 96.0f, cui_alpha(CUI_COLOR_TEXT_MUTED, 0.7f));
+        cui_gap(ui, tight ? 0.0f : 6.0f);
+        cui_text(ui, title, .font = CUI_FONT_MEDIUM, .size = 22, .align = CUI_TEXT_CENTER, .width = CUI_FILL);
+        if (detail && detail[0]) cui_text(ui, detail, .color = CUI_COLOR_TEXT_SECONDARY, .align = CUI_TEXT_CENTER, .width = CUI_FILL);
         if (action) clicked = cui_button(ui, action, .icon = CUI_ICON_REFRESH_CW);
     }
     return clicked;

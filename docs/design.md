@@ -138,8 +138,15 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   "Loading…". It floats, so it has the popover shadow. A selected folder counts with its measured size; while any selected
   folder is still being measured the pill ends with "…" inside the brackets ("“src” selected (…)", "2 items selected
   (3.0 MB…)": the sum so far, then the dots).
+- **Loading:** a listing that has run 200 ms (a quicker one never flashes) shows placeholder shapes in the form of the view
+  that will replace them: tiles in Grid, a header with its column titles and rows of bars in Details, short rows in
+  columns in List. They are CUI's skeleton shapes in one group, so one shine runs across them; with animations off
+  (Windows' setting) they stay still. The real items fade in over them in 120 ms. The pill keeps "Loading…". Frames are
+  requested only while the shapes show, so an idle window draws none.
 - **Empty folder:** a large muted folder icon and "Folder is Empty", centred.
-- **Unreadable folder:** a large muted icon, "Unable to access “Name”" and the reason.
+- **Unreadable folder:** a large muted icon, "Unable to access “Name”" and the reason, and a "Try Again" button under it
+  (refresh icon; it asks for the listing again, as F5 does). A name too long for the pane is cut in the middle. No other
+  empty state has a button.
 - **Narrow window (< 683 px, GNOME Files 47: max-width 682sp):** the sidebar leaves; a sidebar button appears at the left of the
   content header and opens it as an overlay. Back, Forward and view options move from the header into a bottom bar
   (46 px, header colours): history on the left, the view-options button (view icon and chevron) on the right. Back and Forward are never in a menu.

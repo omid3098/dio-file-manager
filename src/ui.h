@@ -272,6 +272,7 @@ void app_resort_keep(void);                                   /* main.c: sort ag
 /* ui_grid.c, ui_list.c */
 void ui_grid_view(void);
 #define UI_NAME_BYTES 1028   /* a file name is at most 1023 bytes (fs.c add_entry); a label line adds an ellipsis and the end 0 */
+void ui_fit_name(const char *name, float maxw, float size, char out[UI_NAME_BYTES]);   /* a name cut in the middle to one line of maxw points */
 int ui_grid_label_lines(int idx, char out[][UI_NAME_BYTES]);   /* the lines of an item's grid label as they are drawn (test probe) */
 void ui_column_view(void);
 void ui_grid_skeleton(void);               /* loading placeholders in the form of ui_grid_view and ui_column_view */

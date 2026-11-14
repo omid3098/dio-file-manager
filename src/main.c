@@ -484,8 +484,9 @@ static void list_body(void) {
     if (st == FS_FAILED) {
         if (A.loc != LOC_FOLDER) { ui_state_view(CUI_ICON_LOCK, "Unable to load this view", "Try again in a moment.", NULL); return; }
         const char *base = strrchr(A.path, '\\');
-        char t[300];
-        snprintf(t, sizeof t, "Unable to access \xE2\x80\x9C%s\xE2\x80\x9D", (base && base[1]) ? base + 1 : A.path);
+        char t[UI_NAME_BYTES + 40], nm[UI_NAME_BYTES];
+        ui_fit_name((base && base[1]) ? base + 1 : A.path, A.content_w - 64, 22, nm);   /* a long name with no spaces would run out of the pane */
+        snprintf(t, sizeof t, "Unable to access \xE2\x80\x9C%s\xE2\x80\x9D", nm);
         if (ui_state_view(CUI_ICON_LOCK, t, A.list ? fs_error_text(A.list->error) : "", "Try Again")) app_reload();   /* what F5 does */
         return;
     }

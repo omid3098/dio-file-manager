@@ -316,3 +316,13 @@ glides over 1,000 files, and with `--strips` saves frame pictures of the whole w
 frame with `DFM_TEST_STRIP_EVERY`) and joins them into strips: a 1.5 s slowed resize glide (`DFM_TEST_GLIDE_MS`), a
 slow drag across 2.5 (compact rows turning into tiles) and a slider drag, each in dark and light. Numbers are in
 `docs/view-slider-validation.md`.
+
+## Loading placeholders and the unreadable-folder page
+
+`loading_smoke.py` runs on the hidden desktop and writes pictures of the whole window to `shots/`. A slow listing is made with
+`DFM_TEST_LIST_DELAY_MS=n` (read only with `--test-state`: every listing waits n ms); the state dump's `skel` is the number of
+frames that drew placeholders for the current listing. Checks: placeholders appear after 200 ms in Grid and Details, light and
+dark, at 1280, 600 and 360 px wide, and with animations off; a quick folder, a 100 ms listing, an empty folder, a search with no
+results and 5,200 files draw none; after loading no frame is drawn while idle; "Unable to access" (`C:\System Volume Information`,
+and a long Persian folder name that the check denies List Folder on and resets afterwards) shows Try Again, and a click on it
+lists again.

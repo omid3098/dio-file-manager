@@ -71,6 +71,15 @@ static void middle_cut(cui_ctx *ui, const char *rest, int rl, float maxw, char *
     memcpy(out + e + 3, rest + t, (size_t)(rl - t) + 1);
 }
 
+/* A name on one line of at most maxw points when drawn at `size`: itself, or its start, an ellipsis and its end.
+ * (Measured in the label font, whose widths scale with the size; the medium weight of a title is a little wider, hence the 0.9.) */
+void ui_fit_name(const char *name, float maxw, float size, char out[UI_NAME_BYTES]) {
+    int n = (int)strlen(name);
+    maxw *= 0.9f * NAME_SIZE / size;
+    if (text_w(A.ui, name, n) <= maxw) memcpy(out, name, (size_t)n + 1);
+    else middle_cut(A.ui, name, n, maxw, out);
+}
+
 static void layout_name(cui_ctx *ui, const char *name, float maxw, name_lines *out) {
     const char *rest = name;   /* the name itself: a copy into a fixed buffer cut a long name in the middle of a letter */
     out->n = 0; out->cut = false;
