@@ -88,7 +88,12 @@ void dlg_quoted_leaf(const char *path, const char *tail, char *out, size_t cap) 
     size_t room = strlen(tail) + QUOTES + 1;
     char name[256];
     if (!cap) return;
-    if (cap <= room + 3) { snprintf(out, cap, "%s", tail); return; }   /* no room for a name: the words stay */
+    if (cap <= room + 3) {   /* no room for a name: the words stay, cut at a whole character if even they are too long */
+        snprintf(out, cap, "%s", tail);
+        size_t l = strlen(out), t = strlen(tail);
+        if (l < t) { while (l && ((unsigned char)tail[l] & 0xC0) == 0x80) l--; out[l] = 0; }
+        return;
+    }
     dlg_short_leaf(path, name, cap - room < sizeof name ? cap - room : sizeof name);
     snprintf(out, cap, "\xE2\x80\x9C%s\xE2\x80\x9D%s", name, tail);
 }

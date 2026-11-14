@@ -84,7 +84,7 @@ static void error_text(DWORD code, const char *path, char *out, size_t cap) {
 }
 
 static void toast_error(const char *title, DWORD code, const char *path) {
-    char d[700];
+    char d[DLG_TOAST_DESC_CAP];   /* CUI keeps 255 bytes of a description */
     error_text(code, path, d, sizeof d);
     cui_toast(A.ui, title, .description = d, .tone = CUI_TONE_DANGER, .duration = 7);
 }
@@ -189,13 +189,13 @@ static void job_done(file_job *j) {
     ops_free(j->job);
     if (G.conflict == j) { G.conflict = NULL; G.conflict_open = false; }
     if (errors) {
-        char t[400];
+        char t[DLG_TOAST_TITLE_CAP];   /* CUI keeps 127 bytes of a title */
         snprintf(t, sizeof t, errors > 1 ? "%s: %u problems" : "%s failed", j->title, errors);
         toast_error(t, code, epath);
     }
     if (kind == OPS_MOVE && !errors && !cancelled) clear_cut_clipboard(j->clipboard_sequence);
     if (kind == OPS_TRASH && trashed) {   /* only what reached the bin can be undone, also after a later failure or Cancel */
-        char t[400];
+        char t[DLG_TOAST_TITLE_CAP];   /* the name gives way so " moved to Trash" fits what CUI keeps */
         if (j->n == 1) dlg_quoted_leaf(j->first, " moved to Trash", t, sizeof t);
         else snprintf(t, sizeof t, trashed == 1 ? "%u item moved to Trash" : "%u items moved to Trash", trashed);
         G.undo_toast = cui_toast(A.ui, t, .action = "Undo", .show_timer = true, .duration = 8);
