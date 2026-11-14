@@ -733,6 +733,16 @@ def inside():
         a.until('View options did not close', lambda: a.snap()['popups'] == 0)
         a.key(50, (17,)); a.until('Ctrl+2 did not switch to the list', lambda: a.snap()['zoom'] <= 1)
         a.key(49, (17,)); a.until('Ctrl+1 did not switch to the grid', lambda: a.snap()['zoom'] >= 2)
+        a.click(*g.mid(hdr[4]))   # the keyboard: Down highlights a sort row, Tab and Right move to the list toggle, Enter picks only that toggle
+        a.until('View options did not open', lambda: a.snap()['popups'] >= 1)
+        time.sleep(.4)
+        for k in (0x28, 9, 0x27, 13):
+            a.key(k)
+        a.until('Enter on the list toggle did not switch to the list', lambda: a.snap()['zoom'] <= 1)
+        time.sleep(.3)
+        assert a.snap()['popups'] >= 1, 'Enter on the list toggle also picked the highlighted sort row and closed the menu'
+        a.key(0x1B)
+        a.key(49, (17,)); a.until('Ctrl+1 did not switch to the grid', lambda: a.snap()['zoom'] >= 2)
         set_client(a, 600, 700)
         if os.environ.get('DFM_CHROME_PICTURES'):
             a.click(*g.mid(bottom_bar(a)[2]))

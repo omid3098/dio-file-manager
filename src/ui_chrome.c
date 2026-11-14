@@ -306,7 +306,10 @@ static void view_options_menu(cui_placement where) {
         static const char *const modes[2] = { "Grid view", "List view" };
         static const char *const mode_icons[2] = { CUI_ICON_GRID_3X3, CUI_ICON_LIST };
         bool on[2] = { A.zoom >= Z_SMALL, A.zoom <= Z_LIST };
-        if (cui_toggle_group(ui, "viewmode", modes, 2, on, .icons = mode_icons, .exclusive = true, .icon_only = true)) app_set_view(on[0] ? VIEW_GRID : VIEW_LIST);
+        if (cui_toggle_group(ui, "viewmode", modes, 2, on, .icons = mode_icons, .exclusive = true, .icon_only = true)) {
+            app_set_view(on[0] ? VIEW_GRID : VIEW_LIST);
+            ui_menu_eat_activation();   /* a key that pressed a toggle must not also pick the sort row the arrow keys highlight */
+        }
         view_mode_rect = cui_get_rect(ui, cui_make_id(ui, "viewmode"));
     }
     float value = A.zv;   /* continuous: the ticks only mark the six stops */

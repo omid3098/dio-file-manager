@@ -223,6 +223,8 @@ bool ctxmenu_is_open(cui_ctx *ui) {
 
 void ui_search_focus(void) { A.ui->focus = cui_make_id(A.ui, "searchfield"); }
 
+void ui_menu_eat_activation(void) { A.ui->kpressed[CUI_KEY_ENTER] = A.ui->kpressed[CUI_KEY_SPACE] = 0; }
+
 void ui_view_options_surface(void) {
     cui_node *n = &A.ui->nodes[cui__current(A.ui)];
     n->opacity = 1; n->scale = 1; n->ty = 0;

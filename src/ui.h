@@ -175,6 +175,7 @@ bool ctxmenu_begin(cui_ctx *ui, const char *id, bool open_here);
 void ctxmenu_end(cui_ctx *ui);
 bool ctxmenu_is_open(cui_ctx *ui);
 void ui_search_focus(void);
+void ui_menu_eat_activation(void);   /* Enter and Space belong to the control that took them: the menu's highlighted row must not take them too */
 void ui_view_options_surface(void);
 void ui_columns_begin(int *rows, int *first, int *last);
 void ui_columns_end(void);
