@@ -54,7 +54,9 @@ static void remove_tree(const wchar_t *path) {
     }
     CHECK(RemoveDirectoryW(path));
 }
+static wchar_t *extended(const char *plain);
 static void cleanup(void) {
+    if (sandbox_created) { wchar_t *x = extended(ROOT "\\long"); if (GetFileAttributesW(x) != INVALID_FILE_ATTRIBUTES) remove_tree(x); free(x); }
     if (sandbox_created) { wchar_t *w = wide(ROOT); sandbox_created = 0; remove_tree(w); free(w); }
 }
 static void basic(void) {
@@ -177,6 +179,75 @@ static void recycle(void) {
     CHECK(found); trash_list_free(&list);
     puts("PASS sandbox-only Recycle Bin listing, trash and exact-item undo/restore");
 }
+/* A path of 260+ characters cannot go to the Recycle Bin: the shell then deletes it for good and says nothing.
+   Trash must leave such an item alone until the user answers Delete, and must still recycle ordinary ones. */
+static wchar_t *extended(const char *plain) {
+    size_t n_; wchar_t *w = wide(plain), *x = malloc((wcslen(w) + 8) * sizeof(*x)); CHECK(x); n_ = wcslen(w) + 8; wcscpy_s(x, n_, L"\\\\?\\"); wcscat_s(x, n_, w); free(w); return x;
+}
+/* Makes ROOT\long\dddd...\ so that `name` inside it has exactly `total` characters. Returns the plain UTF-8 path. */
+static char *long_file(size_t total, const char *name, const char *content_text) {
+    char dir[1024]; size_t n = strlen(ROOT "\\long"); wchar_t *x; char *path; DWORD written; HANDLE h;
+    mkdir_u(ROOT "\\long"); strcpy_s(dir, sizeof dir, ROOT "\\long");
+    { long d = (long)total - (long)(n + 1 + strlen(name));
+      while (d > 0) {
+        long seg = d - 1 > 60 ? 60 : d - 1;
+        CHECK(d >= 2); if (d - 1 - seg == 1) seg--;   /* a leftover gap of one character could not be filled */
+        dir[n++] = '\\'; memset(dir + n, 'd', (size_t)seg); n += (size_t)seg; dir[n] = 0; d -= 1 + seg;
+        x = extended(dir); CHECK(CreateDirectoryW(x, NULL) || GetLastError() == ERROR_ALREADY_EXISTS); free(x);
+      }
+      CHECK(d == 0); }
+    path = malloc(n + strlen(name) + 2); CHECK(path); sprintf_s(path, n + strlen(name) + 2, "%s\\%s", dir, name);
+    CHECK(strlen(path) == total);
+    x = extended(path); h = CreateFileW(x, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL); free(x);
+    CHECK(h != INVALID_HANDLE_VALUE); CHECK(WriteFile(h, content_text, (DWORD)strlen(content_text), &written, NULL)); CloseHandle(h);
+    return path;
+}
+static int long_exists(const char *plain) { wchar_t *x = extended(plain); int yes = GetFileAttributesW(x) != INVALID_FILE_ATTRIBUTES; free(x); return yes; }
+static int in_bin(const char *leaf) {
+    trash_items list; size_t i; int found = 0;
+    CHECK(SUCCEEDED(trash_list(&list)));
+    for (i = 0; i < list.count; ++i) if (!strcmp(list.items[i].name, leaf)) found = 1;
+    trash_list_free(&list); return found;
+}
+/* Runs a trash job; answers the first cannot-trash question with `answer` (or cancels on -1) and returns the final state. */
+static void trash_job(const char *const *paths, size_t count, int answer) {
+    ULONGLONG start = GetTickCount64(); ops_job *j = ops_start(OPS_TRASH, paths, count, NULL, NULL); int asked = 0;
+    CHECK(j);
+    for (;;) {
+        ops_poll(j, state);
+        if (state->waiting_conflict) {
+            CHECK(state->cannot_trash); asked++;
+            if (answer < 0) ops_cancel(j); else ops_resolve(j, (ops_answer)answer, 0);
+        }
+        if (state->finished) break;
+        CHECK(GetTickCount64() - start < 30000); Sleep(1);
+    }
+    CHECK(asked >= 1); ops_free(j);
+}
+static void unrecyclable(void) {
+    char *bad = long_file(285, "dfm-nuke-probe-a.txt", "keep me");
+    char *edge = long_file(259, "dfm-nuke-probe-e.txt", "edge");
+    char *bad2 = long_file(260, "dfm-nuke-probe-b.txt", "exactly 260");
+    const char *one[1], *mixed[2]; HRESULT hr;
+    /* The API itself refuses and touches nothing. */
+    one[0] = bad; hr = trash_move(one, 1); CHECK(FAILED(hr)); CHECK(long_exists(bad)); CHECK(!in_bin("dfm-nuke-probe-a.txt"));
+    one[0] = bad2; hr = trash_move(one, 1); CHECK(FAILED(hr)); CHECK(long_exists(bad2)); CHECK(!in_bin("dfm-nuke-probe-b.txt"));
+    /* 259 characters is still recycled (and undone), so the guard does not over-block. */
+    one[0] = edge; hr = trash_move(one, 1); CHECK(SUCCEEDED(hr)); CHECK(!long_exists(edge)); CHECK(in_bin("dfm-nuke-probe-e.txt"));
+    CHECK(SUCCEEDED(trash_undo())); CHECK(long_exists(edge)); CHECK(!in_bin("dfm-nuke-probe-e.txt"));
+    /* The job asks; Skip and Cancel leave the item, Delete removes it for good. */
+    one[0] = bad; trash_job(one, 1, OPS_SKIP); CHECK(long_exists(bad)); CHECK(state->trashed == 0 && state->deleted == 0 && !state->errors);
+    trash_job(one, 1, -1); CHECK(long_exists(bad)); CHECK(state->cancelled && state->deleted == 0);
+    /* A mixed batch: the ordinary item goes to the bin, the long one stays. */
+    file(ROOT "\\ordinary-trash-me.txt", "ordinary"); mixed[0] = bad; mixed[1] = ROOT "\\ordinary-trash-me.txt";
+    trash_job(mixed, 2, OPS_SKIP); CHECK(long_exists(bad)); CHECK(!exists(mixed[1])); CHECK(state->trashed == 1 && !state->errors);
+    CHECK(in_bin("ordinary-trash-me.txt")); CHECK(SUCCEEDED(trash_undo())); content(mixed[1], "ordinary");
+    one[0] = bad; trash_job(one, 1, OPS_DELETE_NOW); CHECK(!long_exists(bad)); CHECK(state->deleted == 1 && state->trashed == 0 && !state->errors);
+    CHECK(!in_bin("dfm-nuke-probe-a.txt"));
+    { wchar_t *x = extended(ROOT "\\long"); remove_tree(x); free(x); }
+    free(bad); free(edge); free(bad2);
+    puts("PASS a trash request never deletes an item the Recycle Bin cannot take: it asks, and Skip/Cancel keep it");
+}
 static void cross_volume(void) {
     wchar_t drives[512], *p; wchar_t our_root[MAX_PATH]; int ran = 0;
     CHECK(GetVolumePathNameW(L"E:\\w\\dio-file-manager", our_root, MAX_PATH)); CHECK(GetLogicalDriveStringsW(512, drives));
@@ -196,6 +267,6 @@ int main(void) {
     mkdir_u(DFM_TEST_WORK);
     mkdir_u(DFM_TEST_WORK "\\ops");
     CHECK(!exists(ROOT)); CHECK(CreateDirectoryW(root, NULL)); sandbox_created = 1; atexit(cleanup); state = calloc(1, sizeof(*state)); CHECK(state);
-    basic(); conflicts(); names(); cancellation(); searching(); clipboard(); recycle(); cross_volume();
+    basic(); conflicts(); names(); cancellation(); searching(); clipboard(); recycle(); unrecyclable(); cross_volume();
     cleanup(); free(root); free(state); puts("ALL CHECKS PASSED; sandboxes removed"); return 0;
 }

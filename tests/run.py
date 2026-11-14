@@ -16,9 +16,9 @@ sources = [project / 'tests' / 'test_ops.c']
 sources += [project / 'src' / f'{name}.c' for name in ['ops', 'clip', 'trash', 'search', 'recent', 'shell']]
 args = ['cl', '/nologo', '/std:c17', '/W4', '/WX', '/utf-8', '/O1', '/MD',
         '/DUNICODE', '/D_UNICODE', '/DWIN32_LEAN_AND_MEAN', '/DNOMINMAX',
-        '/DDFM_TEST_WORK="' + task.as_posix() + '"',
+        '/DDFM_TEST_WORK="' + str(task).replace('\\', '\\\\') + '"',
         '/I' + str(project / 'src'), *map(str, sources), '/Fe:ops-tests.exe', '/link',
-        'user32.lib', 'shell32.lib', 'ole32.lib', 'oleaut32.lib', 'uuid.lib', 'shlwapi.lib', 'propsys.lib']
+        'user32.lib', 'shell32.lib', 'ole32.lib', 'oleaut32.lib', 'uuid.lib', 'shlwapi.lib', 'propsys.lib', 'advapi32.lib']
 script = build / 'run.cmd'
 script.write_text('@echo off\ncall "' + vc + '" >nul\nif errorlevel 1 exit /b %errorlevel%\n' +
                   subprocess.list2cmdline(args) + '\nif errorlevel 1 exit /b %errorlevel%\n.\\ops-tests.exe\n', encoding='utf-8')

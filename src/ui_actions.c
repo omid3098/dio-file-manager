@@ -180,6 +180,7 @@ static void job_done(file_job *j) {
     snprintf(epath, sizeof epath, "%s", j->st.error_path);
     bool cancelled = j->st.cancelled;
     ops_kind kind = j->kind;
+    unsigned trashed = j->st.trashed;
     ops_free(j->job);
     if (G.conflict == j) { G.conflict = NULL; G.conflict_open = false; }
     if (errors) {
@@ -188,10 +189,10 @@ static void job_done(file_job *j) {
         toast_error(t, code, epath);
     }
     if (kind == OPS_MOVE && !errors && !cancelled) clear_cut_clipboard(j->clipboard_sequence);
-    if (kind == OPS_TRASH && !errors && !cancelled) {
+    if (kind == OPS_TRASH && !errors && !cancelled && trashed) {   /* only what reached the bin can be undone */
         char t[400];
         if (j->n == 1) snprintf(t, sizeof t, "\xE2\x80\x9C%s\xE2\x80\x9D moved to Trash", j->first);
-        else snprintf(t, sizeof t, "%d items moved to Trash", j->n);
+        else snprintf(t, sizeof t, "%u items moved to Trash", trashed);
         G.undo_toast = cui_toast(A.ui, t, .action = "Undo", .show_timer = true, .duration = 8);
     }
     if ((strcmp(j->dir, A.path) == 0 || ((kind == OPS_COPY || kind == OPS_MOVE) && A.loc == LOC_FOLDER && shows_receiving(j))) && A.loc != LOC_OTHER) {
@@ -469,6 +470,28 @@ static void conflict_dialog(void) {
     cui_ctx *ui = A.ui;
     if (!G.conflict_open || !G.conflict) return;
     char nm[260], dir[FS_PATH_MAX], t[400], d[700];
+    if (G.conflict->st.cannot_trash) {
+        /* GNOME Files' question for an item the Trash cannot take. The item stays put until the answer is Delete. */
+        name_of(G.conflict->st.conflict_source, nm, sizeof nm);
+        snprintf(d, sizeof d, "\xE2\x80\x9C%s\xE2\x80\x9D cannot be moved to the Trash. If you delete it, it will be permanently lost.", nm);
+        bool shown = true;
+        if (cui_dialog_begin(ui, "Cannot move file to trash, do you want to delete immediately?", &shown,
+                             &(cui_dialog_opts){ .description = d, .width = 440, .persistent = true, .no_close_button = true })) {
+            if (G.conflict->n > 1) cui_checkbox(ui, "Apply this action to all files", &G.apply_all);
+            cui_dialog_footer_begin(ui);
+            int ans = -1;
+            if (cui_button(ui, "Cancel")) { ops_cancel(G.conflict->job); G.conflict_open = false; G.conflict = NULL; }
+            G.conflict_buttons[0] = cui_last_rect(ui);
+            if (G.conflict && cui_button(ui, "Skip")) ans = OPS_SKIP;
+            G.conflict_buttons[1] = cui_last_rect(ui);
+            if (G.conflict && cui_button(ui, "Delete", .variant = CUI_BUTTON_DANGER)) ans = OPS_DELETE_NOW;
+            G.conflict_buttons[2] = cui_last_rect(ui);
+            cui_dialog_footer_end(ui);
+            cui_dialog_end(ui);
+            if (ans >= 0 && G.conflict) { ops_resolve(G.conflict->job, (ops_answer)ans, G.apply_all); G.conflict_open = false; G.conflict = NULL; }
+        }
+        return;
+    }
     name_of(G.conflict->st.conflict_target, nm, sizeof nm);
     if (!fs_parent(G.conflict->st.conflict_target, dir, sizeof dir)) dir[0] = 0;
     const char *dn = strrchr(dir, '\\');

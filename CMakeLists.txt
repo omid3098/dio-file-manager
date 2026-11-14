@@ -21,7 +21,7 @@ target_include_directories(dio-file-manager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/
 set_source_files_properties(src/ui_ctxmenu.c PROPERTIES INCLUDE_DIRECTORIES ${cui_SOURCE_DIR}/src
   COMPILE_DEFINITIONS CUI_TEXT_SHAPING)
 target_compile_definitions(dio-file-manager PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_link_libraries(dio-file-manager PRIVATE cui::cui shell32 ole32 oleaut32 uuid shlwapi propsys comctl32 dwmapi setupapi cfgmgr32)
+target_link_libraries(dio-file-manager PRIVATE cui::cui shell32 ole32 oleaut32 uuid shlwapi propsys advapi32 comctl32 dwmapi setupapi cfgmgr32)
 cui_app_target(dio-file-manager)
 
 # The release exe stays within the size budget of docs/design.md (800 KB).

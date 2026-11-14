@@ -7,6 +7,7 @@
 #include <wchar.h>
 #include <wctype.h>
 HRESULT dfm_trash_move_cancel(const char *const *paths, size_t count, volatile LONG *cancel);
+HRESULT dfm_trash_blocker(const wchar_t *w);
 
 wchar_t *dfm_wide(const char *s) {
     int n; wchar_t *w;
@@ -128,16 +129,16 @@ static void scan(ops_job *j, const wchar_t *path, uint64_t *files, uint64_t *byt
 static void completed(ops_job *j, uint64_t files, uint64_t bytes) {
     EnterCriticalSection(&j->lock); j->state.files_done += files; j->state.bytes_done += bytes; LeaveCriticalSection(&j->lock);
 }
-static int conflict(ops_job *j, const wchar_t *src, const wchar_t *dst) {
+static int conflict(ops_job *j, const wchar_t *src, const wchar_t *dst, int cannot_trash) {
     int answer;
     EnterCriticalSection(&j->lock);
     if (j->all_answer >= 0) { answer = j->all_answer; LeaveCriticalSection(&j->lock); return answer; }
-    ResetEvent(j->answer_event); j->answer = -1; j->state.waiting_conflict = 1;
+    ResetEvent(j->answer_event); j->answer = -1; j->state.waiting_conflict = 1; j->state.cannot_trash = cannot_trash;
     text_path(j->state.conflict_source, sizeof(j->state.conflict_source), src);
     text_path(j->state.conflict_target, sizeof(j->state.conflict_target), dst);
     LeaveCriticalSection(&j->lock);
     WaitForSingleObject(j->answer_event, INFINITE);
-    EnterCriticalSection(&j->lock); answer = j->answer; j->state.waiting_conflict = 0; LeaveCriticalSection(&j->lock);
+    EnterCriticalSection(&j->lock); answer = j->answer; j->state.waiting_conflict = 0; j->state.cannot_trash = 0; LeaveCriticalSection(&j->lock);
     return answer;
 }
 static wchar_t *copy_name(const wchar_t *path, int directory) {
@@ -187,6 +188,17 @@ static int remove_node(ops_job *j, const wchar_t *path, int progress) {
     else if (progress) completed(j, 1, (a.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? 0 : ((uint64_t)a.nFileSizeHigh << 32) | a.nFileSizeLow);
     return ok;
 }
+/* Permanent delete of a top-level item. A plain path of MAX_PATH characters or more is reachable only with the extended prefix. */
+static int delete_item(ops_job *j, const wchar_t *path) {
+    int ok;
+    if (wcslen(path) >= MAX_PATH && path[0] && path[1] == L':' && path[2] == L'\\') {
+        size_t cap = wcslen(path) + 5; wchar_t *x = malloc(cap * sizeof(*x));
+        if (!x) { fail(j, path, ERROR_NOT_ENOUGH_MEMORY); return 0; }
+        wcscpy_s(x, cap, L"\\\\?\\"); wcscat_s(x, cap, path);
+        ok = remove_node(j, x, 1); free(x); return ok;
+    }
+    return remove_node(j, path, 1);
+}
 static int copy_node(ops_job *j, const wchar_t *src, const wchar_t *requested, int move) {
     WIN32_FILE_ATTRIBUTE_DATA a; DWORD target_attrs, error; wchar_t *dst = NULL; int replace = 0, ok = 1;
     if (cancelled(j)) return 0;
@@ -203,7 +215,7 @@ static int copy_node(ops_job *j, const wchar_t *src, const wchar_t *requested, i
 retry_target:
     target_attrs = GetFileAttributesW(dst);
     if (target_attrs != INVALID_FILE_ATTRIBUTES) {
-        int answer = conflict(j, src, dst);
+        int answer = conflict(j, src, dst, 0);
         if (cancelled(j) || answer < 0 || answer == OPS_SKIP) { free(dst); return 0; }
         if (answer == OPS_KEEP_BOTH) {
             free(dst); dst = copy_name(requested, (a.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);
@@ -264,7 +276,7 @@ retry_target:
             for (;;) {
                 ok = MoveFileExW(temp, dst, replace ? MOVEFILE_REPLACE_EXISTING : 0); error = GetLastError();
                 if (ok || cancelled(j) || (error != ERROR_ALREADY_EXISTS && error != ERROR_FILE_EXISTS)) break;
-                int answer = conflict(j, src, dst);
+                int answer = conflict(j, src, dst, 0);
                 if (cancelled(j) || answer < 0 || answer == OPS_SKIP) { skipped = 1; break; }
                 if (answer == OPS_REPLACE) {
                     DWORD attrs = GetFileAttributesW(dst);
@@ -298,17 +310,27 @@ static unsigned __stdcall run(void *context) {
         if (!p) fail(j, j->destination, ERROR_NOT_ENOUGH_MEMORY);
         else { if (!cancelled(j)) { if (!CreateDirectoryW(p, NULL)) fail(j, p, GetLastError()); else completed(j, 1, 0); } free(p); }
     } else if (j->kind == OPS_TRASH && !cancelled(j)) {
-        char **paths = calloc(j->count, sizeof(*paths)); HRESULT hr = E_OUTOFMEMORY;
+        char **paths = calloc(j->count, sizeof(*paths)); HRESULT hr = E_OUTOFMEMORY; size_t n = 0;
         if (paths) {
-            for (i = 0; i < j->count; ++i) { paths[i] = dfm_utf8(j->sources[i]); if (!paths[i]) break; }
-            if (i == j->count) hr = dfm_trash_move_cancel((const char *const *)paths, j->count, &j->cancel);
-            for (i = 0; i < j->count; ++i) free(paths[i]);
+            hr = S_OK;
+            /* An item the bin cannot take is the user's call: Delete removes it for good, Skip and Cancel leave it. */
+            for (i = 0; i < j->count && !cancelled(j); ++i) {
+                if (SUCCEEDED(dfm_trash_blocker(j->sources[i]))) { paths[n] = dfm_utf8(j->sources[i]); if (!paths[n]) { hr = E_OUTOFMEMORY; break; } ++n; }
+                else if (conflict(j, j->sources[i], L"", 1) == OPS_DELETE_NOW && !cancelled(j)) {
+                    if (delete_item(j, j->sources[i])) { EnterCriticalSection(&j->lock); ++j->state.deleted; LeaveCriticalSection(&j->lock); }
+                }
+            }
+            if (SUCCEEDED(hr) && n && !cancelled(j)) {
+                hr = dfm_trash_move_cancel((const char *const *)paths, n, &j->cancel);
+                if (SUCCEEDED(hr)) { EnterCriticalSection(&j->lock); j->state.trashed = (unsigned)n; LeaveCriticalSection(&j->lock); }
+            }
+            for (i = 0; i < n; ++i) free(paths[i]);
             free(paths);
         }
         if (FAILED(hr)) fail(j, j->sources[0], (DWORD)hr);
         else completed(j, files, bytes);
     } else for (i = 0; i < j->count && !cancelled(j); ++i) {
-        if (j->kind == OPS_DELETE) remove_node(j, j->sources[i], 1);
+        if (j->kind == OPS_DELETE) delete_item(j, j->sources[i]);
         else if (j->kind == OPS_RENAME) {
             const wchar_t *leaf = dfm_leaf(j->sources[i]); size_t n = (size_t)(leaf - j->sources[i]);
             wchar_t *parent = _wcsdup(j->sources[i]), *dst;
@@ -366,7 +388,7 @@ void ops_poll(ops_job *j, ops_state *state) { EnterCriticalSection(&j->lock); *s
 void ops_cancel(ops_job *j) { InterlockedExchange(&j->cancel, 1); if (j->answer_event) SetEvent(j->answer_event); }
 void ops_resolve(ops_job *j, ops_answer answer, int all) {
     EnterCriticalSection(&j->lock);
-    if (j->state.waiting_conflict && j->answer < 0 && answer >= OPS_REPLACE && answer <= OPS_KEEP_BOTH) {
+    if (j->state.waiting_conflict && j->answer < 0 && answer >= OPS_REPLACE && answer <= OPS_DELETE_NOW) {
         j->answer = answer; if (all) j->all_answer = answer; SetEvent(j->answer_event);
     }
     LeaveCriticalSection(&j->lock);

@@ -8,6 +8,7 @@
 #include <propkey.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 
 /* Recycle Bin's published shell detail keys (not in all SDK propkey.h files). */
 static const PROPERTYKEY deleted_from = {{0x9b174b33,0x40ff,0x11d2,{0xa2,0x7e,0x00,0xc0,0x4f,0xc3,0x08,0x71}},2};
@@ -119,6 +120,44 @@ static IFileOperationProgressSinkVtbl sink_vtable = {
     qi, addref, release, noop, finish, pre_rename, post_rename, pre_transfer, post_transfer,
     pre_transfer, post_transfer, pre_delete, post_delete, pre_new, post_new, progress, noop, noop, noop
 };
+/* Whether the shell will really recycle an item. Without FOF_WANTNUKEWARNING (which would draw the shell's own
+   dialog) IFileOperation deletes what the bin cannot take for good, and says nothing. So ask first, and treat
+   every "no" as a question for the user, never as a reason to delete. */
+static int tree_over(const wchar_t *path, uint64_t limit, uint64_t *sum) {
+    WIN32_FILE_ATTRIBUTE_DATA a;
+    if (!GetFileAttributesExW(path, GetFileExInfoStandard, &a)) return 0;
+    if (!(a.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || (a.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        *sum += ((uint64_t)a.nFileSizeHigh << 32) | a.nFileSizeLow; return *sum > limit;
+    } else {
+        wchar_t *pattern = dfm_join(path, L"*"); WIN32_FIND_DATAW d; HANDLE h; int over = 0;
+        if (!pattern) return 0;
+        h = FindFirstFileW(pattern, &d); free(pattern);
+        if (h == INVALID_HANDLE_VALUE) return 0;
+        do {
+            if (wcscmp(d.cFileName, L".") && wcscmp(d.cFileName, L"..")) {
+                wchar_t *c = dfm_join(path, d.cFileName);
+                if (c) { over = tree_over(c, limit, sum); free(c); }
+            }
+        } while (!over && FindNextFileW(h, &d));
+        FindClose(h); return over;
+    }
+}
+HRESULT dfm_trash_blocker(const wchar_t *w) {
+    wchar_t root[MAX_PATH], vol[64], key[200]; DWORD nuke = 0, mb = 0, n = sizeof(DWORD); uint64_t limit = 0, sum = 0;
+    ULARGE_INTEGER total;
+    /* Explorer's own rule: a path of MAX_PATH characters or more is deleted, not recycled. */
+    if (wcslen(wcsncmp(w, L"\\\\?\\", 4) ? w : w + 4) >= MAX_PATH) return HRESULT_FROM_WIN32(ERROR_FILENAME_EXCED_RANGE);
+    /* Do not silently fall back to permanent deletion on network/removable drives. */
+    if (!GetVolumePathNameW(w, root, MAX_PATH) || GetDriveTypeW(root) != DRIVE_FIXED) return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+    if (!GetVolumeNameForVolumeMountPointW(root, vol, 64) || wcsncmp(vol, L"\\\\?\\Volume", 10)) return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+    _snwprintf_s(key, 200, _TRUNCATE, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\BitBucket\\Volume\\%.*s", (int)wcslen(vol + 10) - 1, vol + 10);
+    if (RegGetValueW(HKEY_CURRENT_USER, key, L"NukeOnDelete", RRF_RT_REG_DWORD, NULL, &nuke, &n) == ERROR_SUCCESS && nuke) return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+    n = sizeof(DWORD);
+    if (RegGetValueW(HKEY_CURRENT_USER, key, L"MaxCapacity", RRF_RT_REG_DWORD, NULL, &mb, &n) == ERROR_SUCCESS) limit = (uint64_t)mb << 20;
+    else if (GetDiskFreeSpaceExW(root, NULL, &total, NULL)) limit = total.QuadPart / 20 / 10 * 9;   /* the shell's default is about 5% of the drive */
+    if (limit && tree_over(w, limit, &sum)) return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
+    return S_OK;
+}
 HRESULT dfm_trash_move_cancel(const char *const *paths, size_t count, volatile LONG *cancel) {
     HRESULT init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED), hr = S_OK;
     size_t i;
@@ -130,11 +169,10 @@ HRESULT dfm_trash_move_cancel(const char *const *paths, size_t count, volatile L
     for (i = 0; i < count; ++i) {
         IFileOperation *op = NULL; IShellItem *item = NULL; wchar_t *w = dfm_wide(paths[i]);
         sink s = {{&sink_vtable}, 1, E_FAIL, NULL, cancel};
-        wchar_t root[MAX_PATH];
         if (cancel && InterlockedCompareExchange(cancel, 0, 0)) { free(w); hr = HRESULT_FROM_WIN32(ERROR_CANCELLED); break; }
         if (!w) { hr = E_INVALIDARG; break; }
-        /* Do not silently fall back to permanent deletion on network/removable drives. */
-        if (!GetVolumePathNameW(w, root, MAX_PATH) || GetDriveTypeW(root) != DRIVE_FIXED) { free(w); hr = HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED); break; }
+        /* Never let the shell delete for good on a trash request; the caller asks the user about such items. */
+        hr = dfm_trash_blocker(w); if (FAILED(hr)) { free(w); break; }
         hr = SHCreateItemFromParsingName(w, NULL, &IID_IShellItem, (void **)&item); free(w);
         if (SUCCEEDED(hr)) hr = operation(&op);
         if (SUCCEEDED(hr)) hr = IFileOperation_DeleteItem(op, item, &s.iface);
