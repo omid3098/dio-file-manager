@@ -128,36 +128,43 @@ def put_cut(path):
         U.CloseClipboard()
 
 
-def hold_then_write(hwnd, clicked, moved, text):
-    """Another program: holds the clipboard open until the move is done and the app is stuck waiting for it,
-    then replaces the contents with text and closes it. Its waits count from the click that starts the move
-    (the `clicked` event), not from when it opened the clipboard: a loaded machine can take seconds to answer
-    the check's state request and deliver that click."""
+def hold_then_write(base, ready, clicked, text):
+    """Another program: holds the clipboard open, then replaces its contents with text, in a fixed order with the app.
+    It arms the app's test handshake (two named events, DFM_TEST_CLIP_HANDSHAKE) and sets `ready`. After the click it
+    waits for "blocked", which the app sets at its first refused OpenClipboard, so the app is certainly waiting for us.
+    It then writes and closes the clipboard and sets "released", and the app goes on. No timing is guessed: every wait
+    is for a signal and is bounded."""
     from clipboard_guard import open_clipboard, U, K   # the wrappers whose argument and result types are set
     K.GlobalAlloc.argtypes = [W.UINT, C.c_size_t]
     K.GlobalAlloc.restype = W.HGLOBAL
-    U.SendMessageTimeoutW.argtypes = [W.HWND, W.UINT, W.WPARAM, W.LPARAM, W.UINT, W.UINT, C.POINTER(C.c_size_t)]
-    U.SendMessageTimeoutW.restype = C.c_ssize_t
-    def stuck():  # the app's window thread is inside clip_open's wait and takes no messages
-        r = C.c_size_t()
-        return not U.SendMessageTimeoutW(hwnd, 0, 0, 0, 2, 30, C.byref(r))  # SMTO_ABORTIFHUNG, 30 ms
-    open_clipboard(None)
+    K.CreateEventW.argtypes = [C.c_void_p, W.BOOL, W.BOOL, W.LPCWSTR]
+    K.CreateEventW.restype = W.HANDLE
+    K.SetEvent.argtypes = [W.HANDLE]
+    K.CloseHandle.argtypes = [W.HANDLE]
+    K.WaitForSingleObject.argtypes = [W.HANDLE, W.DWORD]
+    K.WaitForSingleObject.restype = W.DWORD
+    blocked = released = None
     try:
-        clicked.wait()
-        end = time.monotonic()+15  # as long as finished() waits for the job
-        while not moved():  # the job's worker has moved the file; the window thread now ends the job
-            assert time.monotonic() < end, 'The move did not finish'
-            time.sleep(.005)
-        end = time.monotonic()+5
-        while not (stuck() and stuck()):
-            assert time.monotonic() < end, 'The app never waited for the clipboard'
-        time.sleep(.05)
-        data = (text+'\0').encode('utf-16-le')
-        h = K.GlobalAlloc(2, len(data))
-        C.memmove(K.GlobalLock(h), data, len(data)); K.GlobalUnlock(h)
-        assert U.EmptyClipboard() and U.SetClipboardData(13, h), C.get_last_error()
+        open_clipboard(None)
+        try:
+            blocked = K.CreateEventW(None, True, False, base+'-blocked')
+            released = K.CreateEventW(None, True, False, base+'-released')
+            assert blocked and released, C.get_last_error()
+            ready.set()
+            assert clicked.wait(20), 'The check never clicked'
+            # the click, the move and the window thread reaching the clipboard: a loaded machine can take seconds
+            assert K.WaitForSingleObject(blocked, 30000) == 0, 'The app never waited for the clipboard'
+            data = (text+chr(0)).encode('utf-16-le')
+            h = K.GlobalAlloc(2, len(data))
+            C.memmove(K.GlobalLock(h), data, len(data)); K.GlobalUnlock(h)
+            assert U.EmptyClipboard() and U.SetClipboardData(13, h), C.get_last_error()
+        finally:
+            U.CloseClipboard()
+            if released: K.SetEvent(released)   # always let the app go on, also when this program failed
     finally:
-        U.CloseClipboard()
+        ready.set()
+        for e in (blocked, released):
+            if e: K.CloseHandle(e)
 
 
 def put_text(text, hold=0):
@@ -197,6 +204,7 @@ def inside():
     os.environ['DFM_TEST_OPEN_WITH'] = command+' open-with'
     os.environ['DFM_TEST_TERMINAL'] = command+' terminal'
     os.environ['DFM_TEST_OPEN'] = command+' unexpected-open'
+    os.environ['DFM_TEST_CLIP_HANDSHAKE'] = 'Local' + chr(92) + 'DfmClipHandshake-%d' % os.getpid()  # the apps read it in test mode
 
     def check(name, fn):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
@@ -315,12 +323,14 @@ def inside():
             (dest/name).write_text('original', encoding='utf-8')
             a.path(dest); a.key(ord('V'), (17,))
             a.until('No name conflict dialog', lambda: a.snap()['act'] & 8)  # the move waits here
-            errors, clicked = [], threading.Event()
+            errors, ready, clicked = [], threading.Event(), threading.Event()
             def other_program():
-                try: hold_then_write(a.hwnd, clicked, lambda: (dest/name).read_text(encoding='utf-8') == 'incoming', 'copied elsewhere')
+                try: hold_then_write(os.environ['DFM_TEST_CLIP_HANDSHAKE'], ready, clicked, 'copied elsewhere')
                 except BaseException as e: errors.append(e)
             hold = threading.Thread(target=other_program)
-            hold.start(); time.sleep(.05)  # the other program has the clipboard open
+            hold.start()
+            assert ready.wait(20), 'The other program did not get the clipboard'
+            assert not errors, ('The other program failed', errors)
             try: click_rect(a, 4)
             finally: clicked.set()
             finished(a); hold.join()

@@ -13,6 +13,7 @@
 #include "starred.h"
 #include "recent.h"
 #include "ops.h"
+#include "clip.h"
 #include "defaultfm.h"
 
 /* dwmapi.h imports visual-style macros that collide with our LOC_* enum. */
@@ -635,6 +636,7 @@ int main(void) {
         static char opened[FS_PATH_MAX + 16];
         snprintf(opened, sizeof opened, "%s.opened", o.test_state);
         shell_test_log(opened);
+        clip_test_handshake(getenv("DFM_TEST_CLIP_HANDSHAKE"));
         recent_test_source(getenv("DFM_TEST_RECENT"));
         fs_test_drives(getenv("DFM_TEST_DRIVES"), getenv("DFM_TEST_EJECT_LOG"));
     }
