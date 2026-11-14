@@ -34,6 +34,9 @@ static struct {
     file_job *jobs, *conflict;
     int serial;
     bool conflict_open, apply_all, job_pop_open;
+    bool batch_ok, batch_failed;   /* since the header last had no job: one ended well / one failed (a cancelled one counts as neither) */
+    cui_status job_mark;           /* the check or cross the header holds after the last job */
+    int mark_serial;               /* each mark starts its own CUI status spinner */
     cui_rect job_rect, conflict_buttons[3], delete_buttons[2];
     char dialog_text[700];   /* the text the last "Cannot move file to trash" dialog showed; for the test snapshot */
     HANDLE recent_thread;
@@ -184,6 +187,7 @@ static void job_done(file_job *j) {
     char epath[FS_PATH_MAX];
     snprintf(epath, sizeof epath, "%s", j->st.error_path);
     bool cancelled = j->st.cancelled;
+    if (!cancelled) { if (errors) G.batch_failed = true; else G.batch_ok = true; }
     ops_kind kind = j->kind;
     unsigned trashed = j->st.trashed;
     ops_free(j->job);
@@ -554,11 +558,22 @@ static float job_progress(const ops_state *s) {
 }
 
 /* The header summarizes all active jobs; each row owns its cancel action. */
-bool act_jobs_active(void) { return G.jobs != NULL; }
+bool act_jobs_active(void) { return G.jobs != NULL || G.job_mark != CUI_STATUS_IDLE; }
 
 void act_job_button(void) {
     cui_ctx *ui = A.ui;
-    if (!G.jobs) return;
+    if (!G.jobs) {   /* the last job ended: a check or a cross takes the ring's place, holds, and dissolves */
+        if (G.job_mark == CUI_STATUS_IDLE) return;
+        bool shown = true;
+        cui_row(ui, .width = CUI_PX(36), .height = CUI_PX(36), .align = CUI_ALIGN_CENTER, .justify = CUI_JUSTIFY_CENTER) {
+            cui_push_id_int(ui, G.mark_serial);
+            shown = cui_status_spinner(ui, "job-end", G.job_mark);
+            cui_pop_id(ui);
+        }
+        if (!shown) { G.job_mark = CUI_STATUS_IDLE; cui_request_redraw(ui); }   /* the header gives the 36 px back */
+        return;
+    }
+    G.job_mark = CUI_STATUS_IDLE;
     uint64_t done = 0, total = 0;
     int count = 0;
     for (file_job *j = G.jobs; j; j = j->next) {
@@ -611,7 +626,7 @@ void act_dismiss_popups(void) {
 
 /* Observation only: input still goes through the window. */
 void act_jobs_snapshot(FILE *f) {
-    fprintf(f, ",\"job_button\":[%.2f,%.2f,%.2f,%.2f],\"job_pop\":%d,\"jobs\":[", G.job_rect.x, G.job_rect.y, G.job_rect.w, G.job_rect.h, G.job_pop_open);
+    fprintf(f, ",\"job_button\":[%.2f,%.2f,%.2f,%.2f],\"job_pop\":%d,\"job_mark\":%d,\"jobs\":[", G.job_rect.x, G.job_rect.y, G.job_rect.w, G.job_rect.h, G.job_pop_open, (int)G.job_mark);
     bool comma = false;
     for (file_job *j = G.jobs; j; j = j->next) {
         fprintf(f, "%s{\"id\":%d,\"done\":%llu,\"total\":%llu,\"waiting\":%d,\"cancel\":[%.2f,%.2f,%.2f,%.2f]}",
@@ -648,7 +663,15 @@ void act_frame(void) {
             cui_request_wakeup(ui, 0.05f);
         }
     }
-    if (!G.jobs) { G.job_pop_open = false; cui_popover_close(ui, "jobpop"); }
+    if (!G.jobs) {
+        G.job_pop_open = false; cui_popover_close(ui, "jobpop");
+        if (G.batch_ok || G.batch_failed) {
+            G.job_mark = G.batch_failed ? CUI_STATUS_ERROR : CUI_STATUS_SUCCESS;
+            G.batch_ok = G.batch_failed = false;
+            G.mark_serial++;
+            cui_request_redraw(ui);
+        }
+    }
     if (G.recent_thread) {
         cui_request_wakeup(ui, .05f);
         if (InterlockedCompareExchange(&G.recent_done, 0, 0)) {

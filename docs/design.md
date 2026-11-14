@@ -163,9 +163,16 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   The search field takes the place of the path bar; the search runs 0.25 s after the last key, below
   the folder, at most 10,000 results. Results list in the grid or the list; the list adds a Location
   column with the folder of the result relative to the searched folder. No match shows "No Results
-  Found". Results open and take the item menu, with Open Item Location.
+  Found". While the search runs, a radar sweep (CUI's dither spinner, 18 px beside the field, 32 px in the empty view)
+  shows it; the spinner asks for frames only while it is on screen. Results open and take the item menu, with Open Item Location.
   Moving a result to Trash keeps the query open and removes missing results. Undo restores the
   file and refreshes the same search; Esc returns to a refreshed folder listing.
+- The File Operations button in the header exists only while a file job runs and for a moment after the last one ends.
+  While jobs run it is the progress ring (accent arc over a border track, 36 px, clickable: the popover lists each job with its
+  own progress and Cancel). When the last job ends, CUI's status spinner takes its place in the same 36 px: a check in the
+  success colour, or a cross in the danger colour when any job failed, holds for CUI's default moment (about 2.4 s) and dissolves
+  away; then the button is gone as before. A job that was cancelled ends without a mark, also next to a finished one. Windows
+  animations off show the mark at once, and it goes at once after the same hold. It asks for frames only while it shows.
 - Ctrl+1 grid, Ctrl+2 list; Ctrl+H hidden files; F5 reload; Ctrl+A select all.
 - F2 renames in a small popover under the item ("Rename" field and button); Ctrl+Shift+N makes a
   folder through a popover ("New Folder" name field and Create).

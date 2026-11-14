@@ -370,7 +370,7 @@ void ui_content_header(void) {
             int f = cui_search(ui, "searchfield", A.search, sizeof A.search, .placeholder = "Search Current Folder", .width = CUI_FILL, .autofocus = true, .clearable = true);
             chrome_nodrag_last();
             if (f & CUI_CHANGED) fsearch_changed();
-            if (fsearch_running()) cui_spinner(ui, 18);
+            if (fsearch_running()) cui_spinner(ui, 18, .style = CUI_SPINNER_RADAR);
         } else {
         const char *segs[32];
         for (int i = 0; i < n; i++) segs[i] = seg_label[i];

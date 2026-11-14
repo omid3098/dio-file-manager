@@ -39,7 +39,8 @@ Mouse back and forward (`WM_XBUTTONUP`, `WM_APPCOMMAND`) and the keyboard's `VK_
 run through the same history as Alt+Left and Alt+Right in the next frame (`mouse_nav`). With a popup open the press closes it instead, and the operations popover's own flag is cleared too (`act_dismiss_popups`), or the header would reopen it every frame.
 Alt+Enter opens only Properties; plain Enter opens an item only without modifiers.
 The running-job header control is one clickable progress ring; its popover names
-the copy and offers Cancel. Real-input action checks and private-desktop shell
+the copy and offers Cancel. When the last job ends, `cui_status_spinner` shows a check (or a cross if a job
+failed; a cancelled job counts for neither) in its place until it dissolves. Real-input action checks and private-desktop shell
 substitutions are documented in `tests/README.md`.
 `ui_zoom.c` owns the continuous view value `A.zv` (0 to 5; `A.zoom` is the stop it rounds to and selects the mode and
 layout style), the 150 ms ease-out glide of the shortcuts, the 120 ms fade-in of a mode switch, the animations setting

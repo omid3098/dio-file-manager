@@ -168,7 +168,7 @@ void fsearch_empty_view(void) {
     cui_ctx *ui = A.ui;
     if (fsearch_running()) {
         cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_CENTER, .justify = CUI_JUSTIFY_CENTER, .gap = 14) {
-            cui_spinner(ui, 32);
+            cui_spinner(ui, 32, .style = CUI_SPINNER_RADAR);
             cui_text(ui, "Searching\xE2\x80\xA6", .color = CUI_COLOR_TEXT_SECONDARY, .align = CUI_TEXT_CENTER, .width = CUI_FILL);
         }
         return;
