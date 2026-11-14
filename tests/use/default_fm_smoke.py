@@ -841,14 +841,8 @@ def inside():
             stop.set(); t.join()
             user32.RegisterWindowMessageW.restype = ctypes.c_uint
             msg = user32.RegisterWindowMessageW('TaskbarCreated')
-            for _ in range(3):   # Explorer sends it once; a check on a loaded machine has seen it go unanswered, so it may ask again
-                user32.SendNotifyMessageW(ctypes.c_void_p(0xFFFF), msg, 0, 0)   # as Explorer does
-                try:
-                    wait_for('The hotkey was not taken after TaskbarCreated: %r' % res_lines(), lambda: has_line('hotkey-ok'), seconds=3)
-                    break
-                except AssertionError:
-                    if _ == 2:
-                        raise
+            user32.SendNotifyMessageW(ctypes.c_void_p(0xFFFF), msg, 0, 0)   # as Explorer does, once
+            wait_for('The hotkey was not taken after TaskbarCreated: %r' % res_lines(), lambda: has_line('hotkey-ok'), seconds=5)
         finally:
             stop.set(); t.join()
         assert off() == 0

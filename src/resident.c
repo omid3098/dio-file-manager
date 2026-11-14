@@ -25,10 +25,10 @@ static wchar_t tail[1200];        /* what follows --resident: handed to the app 
 
 static void log_line(const wchar_t *what, const wchar_t *a) {
     const wchar_t *file = dfm_test_resident_log();
-    FILE *f;
-    if (!file || _wfopen_s(&f, file, L"ab") || !f) return;
-    fprintf(f, "%ls\t%ls\n", what, a ? a : L"");
-    fclose(f);
+    char line[1024];
+    if (!file) return;
+    _snprintf_s(line, sizeof line, _TRUNCATE, "%ls\t%ls\n", what, a ? a : L"");
+    dfm_log_text(file, line);
 }
 
 /* One instance per user. A check adds its redirected registry root, so it never meets the owner's process. */

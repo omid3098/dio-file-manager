@@ -73,11 +73,26 @@ const wchar_t *dfm_adv_base(void) { paths(); return adv_base; }
 const wchar_t *dfm_run_base(void) { paths(); return run_base; }
 const wchar_t *dfm_test_resident_log(void) { return test_on ? test_res_log : NULL; }
 
+/* One line appended to a check's log. fopen_s opens a file for its writer alone, so a check that was reading the log at
+ * that moment made the open fail and the line vanish (1 in 30 runs of the Win+E checks). The file is opened shared in
+ * every way, and an open that still fails is tried again for a moment. Only checks write logs. */
+void dfm_log_text(const wchar_t *file, const char *line) {
+    HANDLE f = INVALID_HANDLE_VALUE;
+    DWORD n;
+    for (int tries = 0; tries < 100 && f == INVALID_HANDLE_VALUE; tries++) {
+        f = CreateFileW(file, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (f == INVALID_HANDLE_VALUE) Sleep(2);
+    }
+    if (f == INVALID_HANDLE_VALUE) return;
+    WriteFile(f, line, (DWORD)strlen(line), &n, NULL);
+    CloseHandle(f);
+}
+
 static void log_line(const wchar_t *what, const wchar_t *a, const wchar_t *b) {
-    FILE *f;
-    if (!test_on || !test_log[0] || _wfopen_s(&f, test_log, L"ab") || !f) return;
-    fprintf(f, "%ls\t%ls\t%ls\n", what, a ? a : L"", b ? b : L"");   /* the %ls output is the wide text in the ANSI page */
-    fclose(f);
+    char line[4096];
+    if (!test_on || !test_log[0]) return;
+    _snprintf_s(line, sizeof line, _TRUNCATE, "%ls\t%ls\t%ls\n", what, a ? a : L"", b ? b : L"");   /* the %ls output is the wide text in the ANSI page */
+    dfm_log_text(test_log, line);
 }
 
 /* ---- registry helpers ---- */
