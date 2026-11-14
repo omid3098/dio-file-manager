@@ -66,6 +66,8 @@ void sizes_selection(uint64_t *bytes, bool *pending) {
     c.key = key; c.ver = ver; c.list = A.list; c.vis_n = A.vis_n; c.n = n; c.bytes = *bytes; c.pending = *pending;
 }
 
+void sizes_forget(void) { req_list = NULL; }   /* the listing was dropped: a new one at the same address is a new listing */
+
 void sizes_frame(void) {
     if (!wanted()) return;
     if (req_list != A.list) {

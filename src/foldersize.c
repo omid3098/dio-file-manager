@@ -1,13 +1,10 @@
-/* Folder sizes: see foldersize.h. Every directory found is its own task in one pool of 4 below-normal workers
- * (NtQueryDirectoryFile, a big buffer, no per-file calls); a folder's total is final when its own files and all its
- * subfolders are done. Junctions and symlinks are not followed. Every finished folder keeps its own files' size and its
- * total in an LRU cache. One ReadDirectoryChangesW per drive turns a change into a small request: the changed folder's
- * own entries are read again (one directory read) and the difference is added to its cached ancestors; a new subfolder
- * is walked on its own, a removed one is subtracted. Only data that is missing (evicted, or a watcher overflow) is
- * walked again, no sooner than max(1 s, 3 x the last walk), and only when it is shown again: a change under a part of
- * the tree that is no longer in the cache (or a watcher overflow over a tree bigger than the cache) only marks the
- * cached folders above it stale ("lost"); no walk starts for them while they stay shown. Everything is guarded by one
- * lock held only for table work. */
+/* Folder sizes: see foldersize.h. Entering a folder measures every child folder again; nothing is kept up to date
+ * while a folder stays open, and nothing runs when nothing is being measured (no watcher, no timer).
+ * Every directory found is its own task in one pool of 4 below-normal workers (NtQueryDirectoryFile, a big buffer, no
+ * per-file calls); a folder's total is final when its own files and all its subfolders are done. Junctions and symlinks
+ * are not followed. Every finished folder keeps its total in an LRU cache; a shown folder is never evicted. A child that
+ * was measured a few seconds ago (by itself, or inside the walk of a folder above it) is not walked again, and a child
+ * inside a walk that is still running waits for that walk. Everything is guarded by one lock held only for table work. */
 #include <windows.h>
 #include <process.h>
 #include <stdlib.h>
@@ -16,14 +13,11 @@
 #include <wctype.h>
 #include "foldersize.h"
 
-#define WORKERS 4
+#define WORKERS 8
 #define BUCKETS (1u << 17)
-#define REQ_MAX 8192
 #define DEPTH_MAX 1500
 #define PATH_W 32768
 #define WALK_BUF (128 * 1024)
-#define DEBOUNCE_MS 250
-#define REWALK_MIN_MS 1000
 
 typedef LONG (NTAPI *nt_query_t)(HANDLE, HANDLE, PVOID, PVOID, void *, PVOID, ULONG, int, BOOLEAN, PVOID, BOOLEAN);
 typedef struct { LONG status; ULONG_PTR info; } iosb_t;
@@ -31,64 +25,58 @@ typedef struct {
     ULONG next, index; LARGE_INTEGER created, accessed, written, changed, eof, alloc; ULONG attrs, name_len; WCHAR name[1];
 } dirinfo_t;   /* FILE_DIRECTORY_INFORMATION */
 
-enum { ST_DONE, ST_STALE, ST_PENDING };   /* STALE: the data is missing or untrusted, it needs a walk */
-enum { Q_REQ = 1, Q_RUN = 2, Q_REW = 4 }; /* a refresh request is queued, a refresh task runs, a re-walk request is queued */
-enum { RQ_REFRESH, RQ_NEWP, RQ_GONE, RQ_REWALK };
-enum { K_WALK, K_REFRESH };
+enum { ST_DONE, ST_PENDING };   /* PENDING: being measured (its own walk, or the walk of a folder above it: adopt) */
+
+typedef struct walk {            /* one shown folder's measurement, shared by its tasks */
+    struct walk *next;
+    wchar_t *root;
+    size_t len;
+    volatile LONG cancel;
+    uint32_t start;
+} walk;
 
 typedef struct entry {
     struct entry *hnext, *prev, *next;
     wchar_t *key;
     uint32_t hash, len;
-    uint64_t size, own;          /* the folder's total, and its own direct files */
+    uint64_t size;               /* the folder's total; the last known one while it is measured again */
     uint32_t walk_ms, last_end;  /* how long its last walk took, and when it ended (ms ticks, low 32 bits) */
-    uint32_t tid;                /* the task that owns its PENDING state */
-    LONG open_gen;               /* the view generation that counts this folder as open work */
-    uint8_t state, have, pinned, drive, incomplete, inlru, qbits, lost;   /* lost: stale for good until it is shown again */
+    uint32_t tid;                /* the task that owns its PENDING state (0: waits for a walk above it) */
+    LONG open_gen;               /* the view generation that counts this folder as open work (0: not counted) */
+    uint8_t state, have, pinned, inlru, adopt;
 } entry;
 
 typedef struct task {
     struct task *next, *parent;
     wchar_t *path;
     uint32_t len, id, depth;
-    LONG gen, pend;              /* gen 0: never cancelled; pend: unfinished children */
-    uint64_t sum, own;
+    LONG pend;                   /* unfinished children */
+    uint64_t sum;
     ULONGLONG t0;
-    LONG orphans0;
-    uint8_t kind, root, counted, isnew, failed;
+    walk *w;
+    uint8_t root, failed;
 } task;
-
-typedef struct req { wchar_t *path; uint32_t len; uint32_t due; uint8_t kind; } req;
-
-typedef struct drive {
-    HANDLE h, ev, th;
-    OVERLAPPED ov;
-    DWORD buf[16384];
-    bool broken;
-} drive;
 
 static struct {
     CRITICAL_SECTION cs;
     bool inited, started, stopping;
     fsz_notify_fn notify;
     nt_query_t nt;
-    HANDLE sem, mgr_ev, stop_ev, mgr, workers[WORKERS];
+    HANDLE sem, mgr_ev, mgr, workers[WORKERS];
     entry **buckets, *head, *tail;
     size_t count, bytes;
     size_t cap_entries;
     task *qhead, *qtail;
-    volatile LONG gen;
-    uint32_t tid;
+    walk *walks;
+    LONG gen;
+    long adopters;
+    uint32_t tid, recent_ms;
     wchar_t *parent;
     wchar_t **shown; size_t shown_n, shown_cap;
     long open;
     volatile LONG version;
-    volatile LONG orphans;
     bool notify_pending;
     ULONGLONG notify_at, last_notify;
-    req *reqs; size_t req_n, req_cap;
-    ULONGLONG req_wake;
-    drive *drives[26];
     unsigned delay_ms;
     volatile LONG reads, active, peak;
 } G;
@@ -105,9 +93,12 @@ static size_t canon(wchar_t *p, size_t n) {
     while (n > 3 && p[n - 1] == L'\\') p[--n] = 0;
     return n;
 }
-
-static int drive_of(const wchar_t *k) { wchar_t c = lc(k[0]); return c >= L'a' && c <= L'z' && k[1] == L':' ? c - L'a' : -1; }
 static uint32_t tick32(void) { return (uint32_t)GetTickCount64(); }
+
+/* p is below root (a proper descendant). */
+static bool under(const wchar_t *root, size_t rl, const wchar_t *p, size_t n) {
+    return n > rl && keq(root, p, rl) && (rl == 3 || p[rl] == L'\\');
+}
 
 /* The folders on the way down to a path: "C:\", "C:\a", "C:\a\b" ... with their key hashes. */
 typedef struct { const wchar_t *p; size_t pl, k; uint32_t h; } chain;
@@ -145,9 +136,9 @@ static void lru_front(entry *e) {
     if (G.head) G.head->prev = e; else G.tail = e;
     G.head = e;
 }
-/* Only entries that may leave are in the LRU list: not shown, not being measured, no request waiting on them. */
+/* Only entries that may leave are in the LRU list: not shown, not being measured. */
 static void relist(entry *e) {
-    bool want = !e->pinned && e->state != ST_PENDING && !e->qbits;
+    bool want = !e->pinned && e->state != ST_PENDING;
     if (want && !e->inlru) { lru_front(e); e->inlru = 1; }
     else if (!want && e->inlru) { lru_unlink(e); e->inlru = 0; }
 }
@@ -164,21 +155,8 @@ static void erase(entry *e) {
     free(e->key); free(e);
 }
 
-/* A folder left the cache: its parent no longer knows every subfolder (lock held). */
-static void note_evicted(const entry *v) {
-    size_t i = v->len;
-    while (i > 3 && v->key[i - 1] != L'\\') i--;
-    size_t pl = i <= 3 ? 3 : i - 1;
-    entry *par = v->len > 3 ? find(v->key, pl, hash_of(v->key, pl)) : NULL;
-    if (par) par->incomplete = 1; else InterlockedIncrement(&G.orphans);
-}
-
 static void evict(void) {
-    while ((G.count > G.cap_entries || G.bytes > FSZ_CACHE_BYTES) && G.tail) {
-        entry *v = G.tail;
-        note_evicted(v);
-        erase(v);
-    }
+    while ((G.count > G.cap_entries || G.bytes > FSZ_CACHE_BYTES) && G.tail) erase(G.tail);
 }
 
 static entry *add(const wchar_t *k, size_t n, uint32_t h) {
@@ -186,10 +164,10 @@ static entry *add(const wchar_t *k, size_t n, uint32_t h) {
     wchar_t *key = malloc((n + 1) * sizeof *key);
     if (!e || !key) { free(e); free(key); return NULL; }
     memcpy(key, k, n * sizeof *key); key[n] = 0;
-    e->key = key; e->hash = h; e->len = (uint32_t)n; e->drive = (uint8_t)(drive_of(k) < 0 ? 0 : drive_of(k)); e->state = ST_PENDING;
+    e->key = key; e->hash = h; e->len = (uint32_t)n; e->state = ST_PENDING;
     e->hnext = G.buckets[h & (BUCKETS - 1)]; G.buckets[h & (BUCKETS - 1)] = e;
     G.count++; G.bytes += cost_of(e);
-    return e;   /* PENDING: not in the LRU list, so the eviction below cannot take it */
+    return e;   /* PENDING: not in the LRU list, so the eviction cannot take it */
 }
 
 /* ---- wake-ups (lock held) ---- */
@@ -203,216 +181,12 @@ static void request_notify(void) {
 }
 static void bump(void) { InterlockedIncrement(&G.version); request_notify(); }
 
-/* ---- requests (lock held) ---- */
-
-static void req_push(int kind, const wchar_t *p, size_t n, uint32_t due) {
-    if (G.req_n == REQ_MAX) return;   /* the caller checks */
-    if (G.req_n == G.req_cap) {
-        size_t nc = G.req_cap ? G.req_cap * 2 : 256;
-        req *nr = realloc(G.reqs, nc * sizeof *nr);
-        if (!nr) return;
-        G.reqs = nr; G.req_cap = nc;
-    }
-    wchar_t *c = malloc((n + 1) * sizeof *c);
-    if (!c) return;
-    memcpy(c, p, n * sizeof *c); c[n] = 0;
-    req *r = &G.reqs[G.req_n++];
-    r->path = c; r->len = (uint32_t)n; r->kind = (uint8_t)kind; r->due = due;
+/* The folder's measurement is over: it no longer counts as open work of the view. */
+static void open_done(entry *e) {
+    if (e->open_gen == G.gen) { G.open--; e->open_gen = 0; request_notify(); }
 }
-
-static bool mark_drive(int d);
-
-static void req_clear_all(void) {
-    for (size_t i = 0; i < G.req_n; i++) free(G.reqs[i].path);
-    G.req_n = 0;
-    for (size_t b = 0; b < BUCKETS; b++)
-        for (entry *e = G.buckets[b]; e; e = e->hnext) if (e->qbits & (Q_REQ | Q_REW)) { e->qbits &= (uint8_t)~(Q_REQ | Q_REW); relist(e); }
-}
-
-/* Too many waiting requests: nothing is trusted on any watched drive any more. */
-static void req_overflow(void) {
-    req_clear_all();
-    for (int d = 0; d < 26; d++) if (G.drives[d]) mark_drive(d);
-}
-
-static void req_add(int kind, const wchar_t *p, size_t n, uint32_t due) {
-    if (G.req_n == REQ_MAX) { req_overflow(); return; }
-    if (!G.req_n) { G.req_wake = GetTickCount64() + DEBOUNCE_MS; SetEvent(G.mgr_ev); }
-    req_push(kind, p, n, due);
-}
-
-static uint32_t rewalk_due(const entry *e) {
-    uint32_t gap = 3 * e->walk_ms; if (gap < REWALK_MIN_MS) gap = REWALK_MIN_MS;
-    return e->have ? e->last_end + gap : tick32();
-}
-
-static void queue_rewalk(entry *e) {
-    if (e->qbits & Q_REW) return;
-    e->qbits |= Q_REW; relist(e);
-    req_add(RQ_REWALK, e->key, e->len, rewalk_due(e));
-}
-
-/* A folder's size is unknown, or all of one drive's: it is walked when shown, or when it is shown now. */
-static bool mark_drive(int d) {
-    bool any = false;
-    for (size_t b = 0; b < BUCKETS; b++)
-        for (entry *e = G.buckets[b]; e; e = e->hnext)
-            if (e->drive == d && e->state == ST_DONE) {
-                e->state = ST_STALE; any = true;
-                if (e->pinned) { if (e->incomplete) e->lost = 1; else queue_rewalk(e); }   /* a tree bigger than the cache waits to be shown again */
-            }
-    return any;
-}
-
-/* ---- changes (lock held) ---- */
-
-static bool any_cached(const wchar_t *p, size_t pl) {
-    chain c; size_t len; uint32_t h;
-    chain_init(&c, p, pl);
-    while (chain_next(&c, &len, &h)) if (find(p, len, h)) return true;
-    return false;
-}
-
-/* False while a walk is running at or above the path: the change is looked at when it has finished. */
-static bool chain_ready(const wchar_t *p, size_t pl, bool include_self) {
-    chain c; size_t len; uint32_t h;
-    chain_init(&c, p, pl);
-    while (chain_next(&c, &len, &h)) {
-        if (!include_self && len == pl) break;
-        entry *e = find(p, len, h);
-        if (e && e->state == ST_PENDING) return false;
-    }
-    return true;
-}
-
-/* Adds a difference to the cached folders above a path (not the path itself). */
-static void apply_up(const wchar_t *p, size_t pl, int64_t delta) {
-    chain c; size_t len; uint32_t h; bool shown = false;
-    if (!delta) return;
-    chain_init(&c, p, pl);
-    while (chain_next(&c, &len, &h)) {
-        if (len == pl) break;
-        entry *e = find(p, len, h);
-        if (!e || !e->have || e->state == ST_PENDING) continue;
-        if (delta < 0 && (uint64_t)(-delta) > e->size) e->size = 0; else e->size += (uint64_t)delta;
-        if (e->pinned) shown = true;
-    }
-    if (shown) bump();
-}
-
-static void parent_of(const wchar_t *p, size_t pl, size_t *xl) {
-    size_t i = pl;
-    while (i > 3 && p[i - 1] != L'\\') i--;
-    *xl = i <= 4 ? 3 : i - 1;
-}
-
-/* A change where the data is not in the cache: every cached folder above the path (and the path itself when asked)
- * no longer shows the right total. They are marked stale and "lost": no walk starts for them; the next time one of
- * them is shown it is measured again (fsz_want), no sooner than max(1 s, 3 x its last walk). */
-static void lose_chain(const wchar_t *p, size_t pl, bool include_self) {
-    chain c; size_t len; uint32_t h; bool shown = false;
-    chain_init(&c, p, pl);
-    while (chain_next(&c, &len, &h)) {
-        if (!include_self && len == pl) break;
-        entry *e = find(p, len, h);
-        if (!e || !e->have) continue;
-        if (e->state == ST_DONE) { e->state = ST_STALE; e->lost = 1; if (e->pinned) shown = true; }
-        else if (e->state == ST_STALE && !(e->qbits & Q_REW)) e->lost = 1;
-        relist(e);
-    }
-    if (shown) bump();
-}
-
-typedef struct fni { DWORD next, action, name_len; WCHAR name[1]; } fni;
-
-/* One change: remember what has to be looked at again. */
-static void note_change(DWORD action, const wchar_t *p, size_t pl) {
-    size_t xl;
-    if (pl <= 3 || !any_cached(p, pl)) return;
-    parent_of(p, pl, &xl);
-    if (action == FILE_ACTION_ADDED || action == FILE_ACTION_RENAMED_NEW_NAME) {
-        if (G.req_n && G.reqs[G.req_n - 1].kind == RQ_NEWP && G.reqs[G.req_n - 1].len == pl && keq(G.reqs[G.req_n - 1].path, p, pl)) return;
-        req_add(RQ_NEWP, p, pl, 0);
-    } else if (action == FILE_ACTION_REMOVED || action == FILE_ACTION_RENAMED_OLD_NAME) {
-        if (G.req_n && G.reqs[G.req_n - 1].kind == RQ_GONE && G.reqs[G.req_n - 1].len == pl && keq(G.reqs[G.req_n - 1].path, p, pl)) return;
-        req_add(RQ_GONE, p, pl, 0);
-    } else {
-        entry *x = find(p, xl, hash_of(p, xl));
-        if (x) { if (x->qbits & Q_REQ) return; x->qbits |= Q_REQ; relist(x); }
-        else if (G.req_n && G.reqs[G.req_n - 1].kind == RQ_REFRESH && G.reqs[G.req_n - 1].len == xl && keq(G.reqs[G.req_n - 1].path, p, xl)) return;
-        req_add(RQ_REFRESH, p, xl, 0);
-    }
-}
-
-static void process_batch(int d, bool overflow, wchar_t *scratch) {
-    wchar_t root[4] = { (wchar_t)(L'A' + d), L':', L'\\', 0 };
-    EnterCriticalSection(&G.cs);
-    if (overflow) {
-        req_clear_all();
-        mark_drive(d);
-    } else {
-        const BYTE *b = (const BYTE *)G.drives[d]->buf;
-        for (const fni *f = (const fni *)b;;) {
-            size_t nl = f->name_len / 2;
-            if (nl && nl < PATH_W - 4) {
-                memcpy(scratch, root, 3 * sizeof *scratch); memcpy(scratch + 3, f->name, nl * sizeof *scratch); scratch[3 + nl] = 0;
-                size_t pl = canon(scratch, 3 + nl);
-                note_change(f->action, scratch, pl);
-            }
-            if (!f->next) break;
-            f = (const fni *)((const BYTE *)f + f->next);
-        }
-    }
-    LeaveCriticalSection(&G.cs);
-}
-
-static unsigned __stdcall watch_thread(void *arg) {
-    int d = (int)(INT_PTR)arg;
-    drive *w = G.drives[d];
-    wchar_t *scratch = malloc(PATH_W * sizeof *scratch);
-    for (; scratch;) {
-        HANDLE hs[2] = { w->ev, G.stop_ev };
-        if (WaitForMultipleObjects(2, hs, FALSE, INFINITE) != WAIT_OBJECT_0) break;
-        DWORD n = 0;
-        BOOL ok = GetOverlappedResult(w->h, &w->ov, &n, FALSE);
-        bool overflow = !ok || n == 0;
-        if (!ok && GetLastError() != ERROR_NOTIFY_ENUM_DIR) { w->broken = true; }
-        process_batch(d, overflow, scratch);
-        if (w->broken) break;
-        ResetEvent(w->ev);
-        if (!ReadDirectoryChangesW(w->h, w->buf, sizeof w->buf, TRUE,
-                                   FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_SIZE,
-                                   NULL, &w->ov, NULL)) { w->broken = true; process_batch(d, true, scratch); break; }
-        if (WaitForSingleObject(G.stop_ev, 100) == WAIT_OBJECT_0) break;   /* a busy drive is read ten times a second */
-    }
-    free(scratch);
-    return 0;
-}
-
-/* The watcher must be reading before the first walk of that drive starts. Window thread only. */
-static drive *ensure_watcher(int d) {
-    if (d < 0 || d > 25) return NULL;
-    if (G.drives[d]) return G.drives[d];
-    drive *w = calloc(1, sizeof *w);
-    wchar_t root[4] = { (wchar_t)(L'A' + d), L':', L'\\', 0 };
-    if (!w) return NULL;
-    w->h = CreateFileW(root, FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
-                       FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, NULL);
-    w->ev = CreateEventW(NULL, TRUE, FALSE, NULL);
-    w->ov.hEvent = w->ev;
-    if (w->h == INVALID_HANDLE_VALUE || !w->ev ||
-        !ReadDirectoryChangesW(w->h, w->buf, sizeof w->buf, TRUE,
-                               FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_SIZE, NULL, &w->ov, NULL)) {
-        w->broken = true;   /* sizes are still computed, but nothing is reused: nothing would tell us it went stale */
-        if (w->h != INVALID_HANDLE_VALUE) CloseHandle(w->h);
-        if (w->ev) CloseHandle(w->ev);
-        w->h = NULL; w->ev = NULL;
-        G.drives[d] = w;
-        return w;
-    }
-    G.drives[d] = w;
-    w->th = (HANDLE)_beginthreadex(NULL, 0, watch_thread, (void *)(INT_PTR)d, 0, NULL);
-    return w;
+static void open_count(entry *e) {
+    if (e->open_gen != G.gen) { e->open_gen = G.gen; G.open++; }
 }
 
 /* ---- tasks ---- */
@@ -484,23 +258,18 @@ static void push_back(task *t) {
     G.qtail = t;
 }
 
-/* The shown folder's (or a background) walk: the entry becomes PENDING and its root task is queued (lock held). */
-static void enqueue_root(entry *e, LONG gen, bool counted, bool isnew) {
+/* A shown folder is measured: its entry becomes PENDING (a value it had stays readable) and its root task is queued (lock held). */
+static void enqueue_root(entry *e) {
     task *t = new_task(e->key, e->len, NULL, 0);
-    if (!t) { e->state = ST_STALE; return; }
-    t->root = 1; t->gen = gen; t->counted = counted; t->isnew = isnew; t->kind = K_WALK;
+    walk *w = calloc(1, sizeof *w);
+    wchar_t *rp = _wcsdup(e->key);
+    if (!t || !w || !rp) { if (t) { free(t->path); free(t); } free(w); free(rp); e->state = ST_DONE; relist(e); return; }
+    w->root = rp; w->len = e->len; w->start = tick32(); w->next = G.walks; G.walks = w;
+    t->w = w; t->root = 1;
     t->id = e->tid = ++G.tid;
-    e->state = ST_PENDING; e->qbits &= (uint8_t)~Q_REW; e->incomplete = 0; e->lost = 0;
-    if (counted) { G.open++; e->open_gen = G.gen; }
+    e->state = ST_PENDING; e->adopt = 0;
+    open_count(e);
     relist(e);
-    push_back(t);
-    ReleaseSemaphore(G.sem, 1, NULL);
-}
-
-static void enqueue_refresh(entry *e) {
-    task *t = new_task(e->key, e->len, NULL, 0);
-    if (!t) { e->qbits &= (uint8_t)~Q_RUN; relist(e); return; }
-    t->root = 1; t->kind = K_REFRESH;
     push_back(t);
     ReleaseSemaphore(G.sem, 1, NULL);
 }
@@ -510,22 +279,16 @@ static void store_dir(task *t, uint64_t total) {
     uint32_t h = hash_of(t->path, t->len);
     entry *e = find(t->path, t->len, h);
     if (t->root) {
-        if (!e || e->tid != t->id) return;   /* another task owns it */
-    } else {
-        if (e && e->state == ST_PENDING) return;
-        if (!e) { e = add(t->path, t->len, h); if (!e) return; }
-    }
-    bool had = e->have; uint64_t old = e->size;
-    e->size = total; e->own = t->own; e->have = 1; e->state = ST_DONE;
-    e->incomplete = (uint8_t)(G.orphans != t->orphans0 || (t->root && e->incomplete));
-    uint32_t now = tick32();
-    e->walk_ms = (uint32_t)(GetTickCount64() - t->t0); e->last_end = now;
+        if (!e || e->tid != t->id || e->state != ST_PENDING) return;
+    } else if (!e) {
+        e = add(t->path, t->len, h); if (!e) return;
+    } else if (e->state == ST_PENDING && !e->adopt) return;   /* it has a walk of its own running */
+    if (e->adopt) { e->adopt = 0; G.adopters--; }
+    e->size = total; e->have = 1; e->state = ST_DONE;
+    e->walk_ms = (uint32_t)(GetTickCount64() - t->t0); e->last_end = tick32();
+    open_done(e);
     relist(e); touch(e);
-    if (t->root) {
-        if (had) apply_up(t->path, t->len, (int64_t)(total - old));
-        else if (t->isnew) apply_up(t->path, t->len, (int64_t)total);
-        InterlockedIncrement(&G.version); request_notify();
-    }
+    if (t->root || e->pinned) bump();
     evict();
 }
 
@@ -533,7 +296,24 @@ static void store_dir(task *t, uint64_t total) {
 static void drop_root(task *t) {
     entry *e = find(t->path, t->len, hash_of(t->path, t->len));
     if (!e || e->state != ST_PENDING || e->tid != t->id) return;
-    if (e->have) { e->state = ST_STALE; relist(e); } else erase(e);
+    open_done(e);
+    if (e->have) { e->state = ST_DONE; relist(e); } else erase(e);
+}
+
+/* The walk is over: children that waited for it and were not reached go back to what they were (lock held). */
+static void end_walk(walk *w) {
+    for (walk **pp = &G.walks; *pp; pp = &(*pp)->next) if (*pp == w) { *pp = w->next; break; }
+    if (G.adopters > 0) {
+        for (size_t b = 0; b < BUCKETS && G.adopters > 0; b++)
+            for (entry *e = G.buckets[b], *nx; e; e = nx) {
+                nx = e->hnext;
+                if (!e->adopt || !under(w->root, w->len, e->key, e->len)) continue;
+                e->adopt = 0; G.adopters--;
+                open_done(e);
+                if (e->have) { e->state = ST_DONE; relist(e); } else erase(e);
+            }
+    }
+    free(w->root); free(w);
 }
 
 /* t has no unfinished children: its total is final, and so may be its parent's (lock held). */
@@ -542,10 +322,8 @@ static void finalize(task *t) {
         task *par = t->parent;
         uint64_t total = t->sum;
         bool failed = t->failed;
-        if (t->kind == K_WALK) {
-            if (!failed) store_dir(t, total); else if (t->root) drop_root(t);
-            if (t->root && t->counted && t->gen == G.gen) { G.open--; request_notify(); }
-        }
+        if (!failed) store_dir(t, total); else if (t->root) drop_root(t);
+        if (t->root) { request_notify(); end_walk(t->w); }
         free(t->path); free(t);
         if (!par) break;
         par->sum += total; par->failed = (uint8_t)(par->failed | failed);
@@ -554,50 +332,10 @@ static void finalize(task *t) {
     }
 }
 
-/* A refresh: the folder's own files were read again (lock held). */
-static void finish_refresh(task *t, listing *L, wchar_t *scratch) {
-    entry *e = find(t->path, t->len, hash_of(t->path, t->len));
-    if (!e) return;
-    e->qbits &= (uint8_t)~Q_RUN;
-    if (e->state != ST_DONE) { relist(e); return; }
-    int64_t delta = (int64_t)(L->own - e->own);
-    bool shown = e->pinned;
-    if (delta) {
-        e->own = L->own;
-        if (delta < 0 && (uint64_t)(-delta) > e->size) e->size = 0; else e->size += (uint64_t)delta;
-        apply_up(t->path, t->len, delta);
-    }
-    e->last_end = tick32();
-    for (size_t at = 0; at < L->nlen; ) {
-        size_t nl = wcslen(L->names + at);
-        at += nl + 1;
-        if (t->len + 1 + nl + 1 >= PATH_W) continue;
-        size_t k = t->len;
-        memcpy(scratch, t->path, k * sizeof *scratch);
-        if (scratch[k - 1] != L'\\') scratch[k++] = L'\\';
-        memcpy(scratch + k, L->names + at - nl - 1, nl * sizeof *scratch); k += nl; scratch[k] = 0;
-        uint32_t ch = hash_of(scratch, k);
-        if (find(scratch, k, ch)) continue;
-        if (e->incomplete) { lose_chain(t->path, t->len, true); break; }   /* a subfolder we may have held: this folder and the ones above wait to be shown again */
-        entry *c = add(scratch, k, ch);
-        if (c) enqueue_root(c, 0, false, true);   /* a new subfolder: walked on its own, its total moves up when done */
-    }
-    relist(e);
-    if (delta && shown) bump();
-}
-
 static void run_task(task *t, BYTE *buf, wchar_t *scratch) {
     listing L = { 0 };
     t->t0 = GetTickCount64();
-    t->orphans0 = G.orphans;
     read_dir(t->path, t->len, buf, &L, scratch);
-    if (t->kind == K_REFRESH) {
-        EnterCriticalSection(&G.cs);
-        finish_refresh(t, &L, scratch);
-        LeaveCriticalSection(&G.cs);
-        free(t->path); free(t); free(L.names);
-        return;
-    }
     task *first = NULL, *last = NULL; LONG n = 0;
     if (t->depth < DEPTH_MAX) {
         for (size_t at = 0; at < L.nlen; ) {
@@ -605,7 +343,7 @@ static void run_task(task *t, BYTE *buf, wchar_t *scratch) {
             if (t->len + 1 + nl + 1 < PATH_W) {
                 task *c = new_task(t->path, t->len, L.names + at, nl);
                 if (c) {
-                    c->parent = t; c->gen = t->gen; c->depth = t->depth + 1; c->kind = K_WALK;
+                    c->parent = t; c->w = t->w; c->depth = t->depth + 1;
                     if (last) last->next = c; else first = c;
                     last = c; n++;
                 }
@@ -615,7 +353,7 @@ static void run_task(task *t, BYTE *buf, wchar_t *scratch) {
     }
     free(L.names);
     EnterCriticalSection(&G.cs);
-    t->own = t->sum = L.own;
+    t->sum = L.own;
     t->pend = n;
     if (n) { push_front(first, last); ReleaseSemaphore(G.sem, n, NULL); }
     else finalize(t);
@@ -633,8 +371,7 @@ static unsigned __stdcall worker_thread(void *arg) {
         EnterCriticalSection(&G.cs);
         task *t = G.qhead;
         if (t) { G.qhead = t->next; if (!G.qhead) G.qtail = NULL; }
-        bool dead = t && t->gen && t->gen != G.gen;   /* an older view's work */
-        if (dead) { t->failed = 1; t->pend = 0; finalize(t); t = NULL; }
+        if (t && t->w->cancel) { t->failed = 1; t->pend = 0; finalize(t); t = NULL; }   /* a walk nobody waits for any more */
         LeaveCriticalSection(&G.cs);
         if (t) run_task(t, buf, scratch);
     }
@@ -642,82 +379,7 @@ static unsigned __stdcall worker_thread(void *arg) {
     return 0;
 }
 
-/* Queued tasks of an older view are dropped by the workers when they pop them; running ones stop at the next folder. */
-
-/* ---- the manager: wake-ups for the window and the waiting requests ---- */
-
-/* Returns true when the request is used up (lock held). */
-static bool req_do(req *r) {
-    const wchar_t *p = r->path; size_t pl = r->len;
-    switch (r->kind) {
-    case RQ_REWALK: {
-        entry *e = find(p, pl, hash_of(p, pl));
-        if (!e) return true;
-        if (e->state != ST_STALE) { e->qbits &= (uint8_t)~Q_REW; relist(e); return true; }
-        if ((int32_t)(tick32() - r->due) < 0) return false;
-        if (!chain_ready(p, pl, false)) return false;
-        enqueue_root(e, 0, false, false);
-        return true;
-    }
-    case RQ_REFRESH: {
-        if (!chain_ready(p, pl, true)) return false;
-        entry *e = find(p, pl, hash_of(p, pl));
-        if (!e) {
-            wchar_t lp[600];
-            if (pl < 580) {   /* a folder that is gone needs nothing: its removal is its own request */
-                memcpy(lp, L"\\?\\", 4 * sizeof *lp); memcpy(lp + 4, p, pl * sizeof *lp); lp[4 + pl] = 0;
-                if (GetFileAttributesW(lp) == INVALID_FILE_ATTRIBUTES) return true;
-            }
-            /* It exists but is not held (a new subfolder written into at once): its parent reads again and walks it as
-               a new root. Only when the parent is not held or not complete is the nearest folder above walked again. */
-            size_t xl; parent_of(p, pl, &xl);
-            entry *x = find(p, xl, hash_of(p, xl));
-            if (x && !x->incomplete) { if (!(x->qbits & Q_REQ)) { x->qbits |= Q_REQ; relist(x); req_push(RQ_REFRESH, p, xl, 0); } }
-            else lose_chain(p, pl, false);
-            return true;
-        }
-        if (e->state == ST_STALE) { e->qbits &= (uint8_t)~Q_REQ; if (!e->lost) queue_rewalk(e); relist(e); return true; }
-        if (e->qbits & Q_RUN) return false;
-        e->qbits = (uint8_t)((e->qbits & ~Q_REQ) | Q_RUN);
-        relist(e);
-        enqueue_refresh(e);
-        return true;
-    }
-    case RQ_NEWP: {   /* something appeared at p: its parent reads again and walks a subfolder it does not know */
-        if (!chain_ready(p, pl, true)) return false;
-        size_t xl; parent_of(p, pl, &xl);
-        entry *x = find(p, xl, hash_of(p, xl));
-        if (x) { if (!(x->qbits & Q_REQ)) { x->qbits |= Q_REQ; relist(x); req_push(RQ_REFRESH, p, xl, 0); } }
-        else req_push(RQ_REFRESH, p, xl, 0);   /* the parent is not held either (a new folder): its own parent reads again */
-        return true;
-    }
-    case RQ_GONE: {   /* something at p is gone: a cached folder is subtracted; a file only changes its parent's own size */
-        if (!chain_ready(p, pl, true)) return false;
-        entry *e = find(p, pl, hash_of(p, pl));
-        if (e) { if (e->have) apply_up(p, pl, -(int64_t)e->size); erase(e); return true; }
-        size_t xl; parent_of(p, pl, &xl);
-        entry *x = find(p, xl, hash_of(p, xl));
-        if (x && !x->incomplete) { if (!(x->qbits & Q_REQ)) { x->qbits |= Q_REQ; relist(x); req_push(RQ_REFRESH, p, xl, 0); } }
-        else lose_chain(p, pl, false);   /* it may have been a folder we no longer hold */
-        return true;
-    }
-    }
-    return true;
-}
-
-static void process_reqs(void) {
-    req *old = G.reqs; size_t n = G.req_n;
-    G.reqs = NULL; G.req_n = 0; G.req_cap = 0;
-    ULONGLONG now = GetTickCount64();
-    for (size_t i = 0; i < n; i++) {
-        if (req_do(&old[i])) { free(old[i].path); continue; }
-        if (G.req_n == REQ_MAX) { free(old[i].path); continue; }
-        req_push(old[i].kind, old[i].path, old[i].len, old[i].due);
-        free(old[i].path);
-    }
-    free(old);
-    if (G.req_n) G.req_wake = now + DEBOUNCE_MS;   /* what waits (a busy walk above it, or a re-walk not due yet) is looked at again */
-}
+/* ---- the manager: only the throttled wake-up of the window; it sleeps until one is due ---- */
 
 static unsigned __stdcall manager_thread(void *arg) {
     (void)arg;
@@ -726,7 +388,6 @@ static unsigned __stdcall manager_thread(void *arg) {
         EnterCriticalSection(&G.cs);
         ULONGLONG now = GetTickCount64();
         if (G.notify_pending) wait = G.notify_at > now ? (DWORD)(G.notify_at - now) : 0;
-        if (G.req_n) { DWORD r = G.req_wake > now ? (DWORD)(G.req_wake - now) : 0; if (r < wait) wait = r; }
         LeaveCriticalSection(&G.cs);
         WaitForSingleObject(G.mgr_ev, wait);
         if (G.stopping) break;
@@ -734,7 +395,6 @@ static unsigned __stdcall manager_thread(void *arg) {
         EnterCriticalSection(&G.cs);
         now = GetTickCount64();
         if (G.notify_pending && now >= G.notify_at) { G.notify_pending = false; G.last_notify = now; fire = true; }
-        if (G.req_n && now >= G.req_wake) process_reqs();
         LeaveCriticalSection(&G.cs);
         if (fire && G.notify) G.notify();
     }
@@ -751,8 +411,8 @@ static int to_wide(const char *s, wchar_t *w, int cap) {
 void fsz_start(fsz_notify_fn notify) {
     if (G.inited) return;
     InitializeCriticalSection(&G.cs);
-    G.inited = true; G.notify = notify;
-    G.cap_entries = FSZ_CACHE_MAX;
+    G.inited = true; G.notify = notify; G.gen = 1;
+    G.cap_entries = FSZ_CACHE_MAX; G.recent_ms = FSZ_RECENT_MS;
     G.nt = (nt_query_t)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryDirectoryFile");
 }
 
@@ -761,8 +421,7 @@ static void ensure_threads(void) {
     G.buckets = calloc(BUCKETS, sizeof *G.buckets);
     G.sem = CreateSemaphoreW(NULL, 0, 1 << 24, NULL);
     G.mgr_ev = CreateEventW(NULL, FALSE, FALSE, NULL);
-    G.stop_ev = CreateEventW(NULL, TRUE, FALSE, NULL);
-    if (!G.buckets || !G.sem || !G.mgr_ev || !G.stop_ev) return;
+    if (!G.buckets || !G.sem || !G.mgr_ev) return;
     for (int i = 0; i < WORKERS; i++) G.workers[i] = (HANDLE)_beginthreadex(NULL, 0, worker_thread, NULL, 0, NULL);
     G.mgr = (HANDLE)_beginthreadex(NULL, 0, manager_thread, NULL, 0, NULL);
     G.started = true;
@@ -771,16 +430,12 @@ static void ensure_threads(void) {
 void fsz_stop(void) {
     if (!G.started) return;
     G.stopping = true;
-    InterlockedIncrement(&G.gen);
-    SetEvent(G.stop_ev);
     ReleaseSemaphore(G.sem, WORKERS, NULL);
     SetEvent(G.mgr_ev);
-    for (int i = 0; i < 26; i++) if (G.drives[i] && G.drives[i]->h) CancelIoEx(G.drives[i]->h, NULL);
-    HANDLE all[WORKERS + 1 + 26]; int n = 0;
+    HANDLE all[WORKERS + 1]; int n = 0;
     for (int i = 0; i < WORKERS; i++) if (G.workers[i]) all[n++] = G.workers[i];
     if (G.mgr) all[n++] = G.mgr;
-    for (int i = 0; i < 26; i++) if (G.drives[i] && G.drives[i]->th) all[n++] = G.drives[i]->th;
-    for (int i = 0; i < n; i += MAXIMUM_WAIT_OBJECTS) WaitForMultipleObjects((DWORD)(n - i < MAXIMUM_WAIT_OBJECTS ? n - i : MAXIMUM_WAIT_OBJECTS), all + i, TRUE, 1500);
+    WaitForMultipleObjects((DWORD)n, all, TRUE, 1500);
     /* nothing is freed: the process is ending */
 }
 
@@ -813,13 +468,33 @@ void fsz_view(const char *parent) {
     EnterCriticalSection(&G.cs);
     bool same = G.parent && n && wcslen(G.parent) == n && keq(G.parent, w, n);
     if (!same) {
-        InterlockedIncrement(&G.gen);
+        G.gen++;
         G.open = 0;
         free(G.parent);
         G.parent = n ? _wcsdup(w) : NULL;
+        /* walks of folders that are not on the way to the new one are cancelled; one that is on the way keeps going,
+           it measures the children the new view will ask for */
+        for (walk *x = G.walks; x; x = x->next)
+            if (!(n && ((x->len == n && keq(x->root, w, n)) || under(x->root, x->len, w, n)))) x->cancel = 1;
     }
     unpin_shown_locked();
     LeaveCriticalSection(&G.cs);
+}
+
+/* Measured a moment ago, by itself or inside a walk that ended a moment ago or is still running? */
+static bool fresh(const entry *e, const wchar_t *p, size_t n, uint32_t now) {
+    if (!e->have) return false;
+    if (now - e->last_end < G.recent_ms) return true;
+    chain c; size_t len; uint32_t h;
+    chain_init(&c, p, n);
+    while (chain_next(&c, &len, &h)) {
+        if (len == n) break;
+        const entry *a = find(p, len, h);
+        if (a && a->have && a->state == ST_DONE && now - a->last_end < G.recent_ms && (int32_t)(e->last_end - (a->last_end - a->walk_ms)) >= 0) return true;
+    }
+    for (const walk *x = G.walks; x; x = x->next)
+        if (!x->cancel && under(x->root, x->len, p, n) && (int32_t)(e->last_end - x->start) >= 0) return true;
+    return false;
 }
 
 void fsz_want(const char *path) {
@@ -828,8 +503,6 @@ void fsz_want(const char *path) {
     int k = to_wide(path, w, 2200);
     if (k <= 0) return;
     size_t n = canon(w, (size_t)k);
-    drive *dr = ensure_watcher(drive_of(w));
-    if (!dr) return;
     uint32_t h = hash_of(w, n);
     EnterCriticalSection(&G.cs);
     if (G.shown_n == G.shown_cap) {
@@ -840,13 +513,15 @@ void fsz_want(const char *path) {
     }
     G.shown[G.shown_n++] = _wcsdup(w);
     entry *e = find(w, n, h);
-    if (!e) {
-        e = add(w, n, h);
-        if (e) enqueue_root(e, G.gen, true, false);
-    } else if (e->state == ST_STALE && e->have && (int32_t)(rewalk_due(e) - tick32()) > 0) {
-        e->lost = 0; queue_rewalk(e);   /* shown again, but walked again no sooner than max(1 s, 3 x its last walk) */
-    } else if (e->state == ST_STALE || (e->state == ST_DONE && dr->broken) || (e->state == ST_PENDING && !e->have && e->open_gen != G.gen)) {
-        enqueue_root(e, G.gen, true, false);
+    if (e && e->state == ST_PENDING) open_count(e);          /* being measured already: the view waits for it */
+    else if (!e || !fresh(e, w, n, tick32())) {
+        bool covered = false;
+        for (const walk *x = G.walks; x; x = x->next) if (!x->cancel && under(x->root, x->len, w, n)) { covered = true; break; }
+        if (!e) e = add(w, n, h);
+        if (e && covered) {                                    /* inside a walk that is still running: it will bring the value */
+            e->state = ST_PENDING; e->adopt = 1; e->tid = 0; G.adopters++;
+            open_count(e);
+        } else if (e) enqueue_root(e);
     }
     if (e) { e->pinned = 1; relist(e); }
     LeaveCriticalSection(&G.cs);
@@ -880,7 +555,7 @@ int fsz_open(void) {
 
 unsigned fsz_version(void) { return (unsigned)InterlockedCompareExchange(&G.version, 0, 0); }
 
-bool fsz_stale(const char *path) {
+bool fsz_stale(const char *path) {   /* the value shown is the last known one: a new measurement is running */
     wchar_t w[2200];
     if (!G.started) return false;
     int k = to_wide(path, w, 2200);
@@ -888,13 +563,14 @@ bool fsz_stale(const char *path) {
     size_t n = canon(w, (size_t)k);
     EnterCriticalSection(&G.cs);
     entry *e = find(w, n, hash_of(w, n));
-    bool r = e && (e->state == ST_STALE || e->qbits || (e->state == ST_PENDING && e->have));
+    bool r = e && e->state == ST_PENDING && e->have;
     LeaveCriticalSection(&G.cs);
     return r;
 }
 
 void fsz_test_delay(unsigned ms) { G.delay_ms = ms; }
 void fsz_test_cap(unsigned max_entries) { G.cap_entries = max_entries ? max_entries : FSZ_CACHE_MAX; }
+void fsz_test_recent(unsigned ms) { G.recent_ms = ms; }
 unsigned fsz_test_reads(void) { return (unsigned)InterlockedCompareExchange(&G.reads, 0, 0); }
 unsigned fsz_test_entries(unsigned long long *bytes) {   /* checks only: entries held and the bytes their keys and records take */
     EnterCriticalSection(&G.cs);

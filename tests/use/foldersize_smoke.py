@@ -149,13 +149,20 @@ def inside():
         assert a.sizes()['c'] == (1, '10.0 kB')
         with (FIX / 'c' / 'small.bin').open('ab') as f:
             f.write(b'\0' * 2_000_000)
+        time.sleep(1.5)
+        assert a.sizes()['c'] == (1, '10.0 kB'), 'A folder changed while it stays open must not update by itself'
+        time.sleep(6)                                  # longer than the few seconds a measurement counts as recent
+        a.click(*a.row_xy('a')); a.click(*a.row_xy('a'))
+        assert a.wait_ready()['path'].endswith('\\a'), 'Double click did not open a'
+        a.key(37, (18,))                               # back: the folders inside are measured again
+        assert a.wait_ready()['path'].endswith('fsz'), 'Back'
         a.until('The changed folder never showed its new size', lambda: a.sizes()['c'] == (1, '2.0 MB'), 12)
 
     check('1-measuring-then-values', measuring_then_values, 1200)
     check('2-nested-and-files', nested_and_files)
     check('3-size-sort-one-resort', size_sort, 1200)
     check('4-pill', pill, 1200)
-    check('5-change-recomputes', changes)
+    check('5-change-shows-when-entered-again', changes)
     (WORK / 'foldersize-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 

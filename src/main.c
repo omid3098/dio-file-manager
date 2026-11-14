@@ -236,6 +236,7 @@ static void load_entry(const char *entry) {
     quiet_cleanup();
     fsearch_end();
     if (A.list) { fs_list_release(A.list); A.list = NULL; }
+    sizes_forget();
     A.last_click_idx = -1;
     A.list_seen = false; A.vis_n = 0; A.sel_n = 0; A.cursor = A.anchor = -1; A.reset_scroll = true;
     A.search[0] = 0; A.search_open = false; A.sidebar_open = false;

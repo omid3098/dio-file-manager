@@ -111,14 +111,21 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   symbolic links not followed), measured in the background, the folders on screen first. While a folder is still being
   measured its cell shows a muted "…" at the right edge; the number replaces it when it is in. Sorting by Size puts folders
   first and sorts them by size among themselves (files by size among themselves); it orders by size once, when every shown
-  folder is in, and keeps the selection and the scroll where they were. A folder that changes on disk while it is shown
-  is updated in place: the engine reads only the changed directory again, moves the difference up to the cached folders
-  above it, and walks a new subfolder on its own; nothing is measured again from the top. A folder whose tree is bigger
-  than the cache keeps the size it was measured at while it stays shown: a change in a part that left the cache only
-  marks it stale, and it is measured again the next time it is shown (opened again, reloaded, or returned to from a
-  subfolder), no sooner than the longer of 1 s and 3 times its last walk. This is a deliberate limit that keeps the
-  idle cost near zero. Local drives only (network and removable drives keep the empty
-  cell), folders in a normal listing only (not search, Recent, Starred or Trash), grid view unchanged. On by default.
+  folder is in, and keeps the selection and the scroll where they were. Local drives only (network and removable drives
+  keep the empty cell), folders in a normal listing only (not search, Recent, Starred or Trash), grid view unchanged. On by
+  default. The rule, in Omid's words (2026-11-14): «برای اندازه پوشه‌ها نیاز نداریم که ریل تایم سایزشون دیده بشه و آپدیت
+  بشه کافیه همون موقعی که وارد هر دایرکتوری می‌شیم ساب دایرکتوری‌های داخلش سایزشون به درستی دیده بشه». So:
+  - Every time a folder is entered (opened, back, forward, parent, reload) each folder inside it is measured again. Until
+    the new number arrives its cell shows the last known one (the pill says it is being measured), or "…" when there is none.
+  - Nothing is kept up to date while a folder stays open: no drive watcher, no timer, no re-walk after a change on disk.
+    With nothing being measured the engine does nothing (idle CPU below 0.1 % of one core, also while other programs write
+    to the drive). A folder changed on disk shows its new size the next time its parent is entered.
+  - A folder measured less than 5 s ago (by itself or inside the walk of a folder above it) is not walked again, and a
+    folder inside a walk that is still running waits for that walk: entering E:\ and, right after, E:\w costs one walk of
+    E:\w, not two.
+  - Leaving a folder cancels the walks that are not on the way to the new one; a walk of a folder above the new one
+    keeps going and brings the sizes the new view asks for. The window's thread never waits for a measurement (it only
+    takes a lock held for table work; the longest call in the console check is about 1 ms).
 - **Floating status pill:** bottom right of the content pane, over the files, only while something
   is selected or loading: "“report.pdf” selected (2.4 MB)", "3 items selected (5.1 MB)",
   "Loading…". It floats, so it has the popover shadow. A selected folder counts with its measured size; while any selected
@@ -248,26 +255,16 @@ The release exe is at most 800 KB (CUI's own hello app is about 250 KB). The bui
 ## Memory budget
 
 Folder sizes keep an in-memory cache (`src/foldersize.c`, nothing is written to disk): at most 65,536 entries and 24 MB for
-their path keys and records, about 1 MB for the hash table, and 4 walk buffers of 128 KB, one per worker. Each folder's
-entry holds its own files' size and its total (about 80 bytes plus its path). The oldest entries leave first, never one
-that is shown or one with a change waiting, so a shown folder may keep the cache above its cap until it is left. Measured
-on the hidden desktop, 1280x800, Details, all sizes in: about 105 MB working set with no sizes, 107 MB with
-E:\w\dio-file-manager (2,423 folders, 0.6 MB of cache), 164 MB for E:\w (539,000 folders: the cache sits at its cap of
-65,536 entries and 24.5 MB, the rest of the working set is the walk and the window). Every directory is its own task for
-4 below-normal workers, so one big shown folder uses all four; E:\w is all in after 14 s on the engine alone (warm), 57 s in
-the window while other programs change that drive.
-A tree with more folders than the cache holds cannot keep its totals up to date by reading single directories. A folder
-with more subfolders than the cache holds therefore keeps the size measured when it was shown; it is measured again the
-next time it is shown. A change in a folder that left the cache marks the cached folders above it stale and starts no
-walk (a watcher overflow over such a tree does the same); a change in a cached folder is still one directory read and a
-difference moved up. When it is shown again the walk waits for the rate limit (no sooner than the longer of 1 s and 3
-times its own last walk). The cache cap and the memory budget are unchanged. Before this rule a change under an evicted
-part walked the nearest cached folder again: 12 to 28 % of one core for E:\w while other programs changed that drive,
-19 % with a writer of 20 small writes a second. Now: E:\w idle 0.05 % and 0.16 % with the writer; E:\w\dio-file-manager
-opened by itself (a tree that fits) keeps its live updates, 0.3 to 0.5 % of one core with the writer, and a 400 MB write
-shows in its row within about a second. The cache is shared by every folder that is shown: a small folder shown as a row
-next to a huge one (E:\w\dio-file-manager inside the listing of E:\w) can lose its cached subfolders to the huge one's
-walk, and then keeps its measured size until it is shown again.
+their path keys and records (an entry is about 80 bytes plus its path), about 1 MB for the hash table, and 8 walk buffers of
+128 KB, one per worker. The oldest entries leave first, never one that is shown or being measured, so a shown folder may keep
+the cache above its cap until it is left. Budget, Details view, 1280x800, all sizes in: working set at most 120 MB for a
+small folder and at most 175 MB for E:\w (539,000 folders; the cache sits at its cap, the rest is the walk and the window).
+Measured: 106 to 110 MB for E:\w\dio-file-manager, 164 MB for E:\w.
+
+Time and CPU budgets, each a check that fails over it: entering E:\w, every child size is in within 30 s (9.4 s with 8 workers
+on this 16-core machine, 40 s with 4; a walk is below-normal priority and costs about 55 CPU-seconds once); idle CPU below
+0.1 % of one core when no measurement runs (0.0 %, also with a writer of 20 writes a second on the drive); the longest
+message delay of the window below 50 ms.
 
 ## Window: the header is the title bar
 

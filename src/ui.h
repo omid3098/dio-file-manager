@@ -254,7 +254,8 @@ void ui_status_pill(void);
 const char *ui_pill_text(void);             /* test state: the pill's text of the last frame */
 
 /* ui_sizes.c: folder sizes (engine: foldersize.c) */
-void sizes_frame(void);                                       /* once per frame: ask for the shown folders, one re-sort when all are in */
+void sizes_forget(void);                                      /* the listing was dropped: the next one is asked about again */
+void sizes_frame(void);                                      /* once per frame: ask for the shown folders, one re-sort when all are in */
 void sizes_fill(void);                                        /* before a size sort: the known folder sizes into the entries */
 int sizes_cell(const fs_entry *e, const char *name, char *buf, size_t cap);   /* 0 nothing to show, 1 text in buf, 2 still measuring */
 void sizes_selection(uint64_t *bytes, bool *pending);         /* the selected folders' total */

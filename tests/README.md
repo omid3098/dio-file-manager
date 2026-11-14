@@ -162,16 +162,18 @@ only after restoration. `clipboard_guard.clipboard_test_lock` waits up to 15 min
 `clipboard_guard.preserved_clipboard` always takes it, including nested checks.
 ## Folder size checks
 
-`test_foldersize.c` (CTest target `dfm-foldersize-tests`, console, 48 checks) builds a sandbox under the task folder and checks
-the engine alone: exact sizes, nested totals, a junction not followed, a changed folder updating in place, a moved folder,
-and a walk cancelled when the view moves on. Since the directory-task rewrite it also checks: one shown folder is walked
-by several threads at once (peak >= 3), a change in a deep file reads at most 3 directories and moves up through the
-folders between, a new and a removed subfolder read at most 6 directories (a write into a brand-new subfolder refreshes the
-parent, no re-walk), ten shown folders survive a cache cap of 4, a change under a part that left the cache marks the shown folder
-stale and reads nothing while it stays shown (1.8 s with no re-walk, zero reads), it is walked once when shown again, and
-10,000 lookups take under 25 ms. Four of these fail on 6ac6ed2 (peak 1, 16 reads, shown folders evicted, 3 reads); six
-fail on e3d71bb (the re-walk after a change under an evicted part). Run it hidden through the bounded runner like the other console tests; run the exe ten times for the timing
-checks.
+`test_foldersize.c` (CTest target `dfm-foldersize-tests`, console, 33 checks) builds a sandbox under the task folder and checks
+the engine alone: exact sizes, nested totals, a junction not followed, a walk cancelled when the view moves on, one shown folder
+walked by several threads at once (peak >= 3), ten shown folders surviving a cache cap of 4, and 10,000 lookups under 25 ms.
+Entering a folder again: the same folder asked again at once reads no directory; a file changed while another folder is shown
+gives the new size when the parent is entered again, the old size stays readable and marked as being measured meanwhile; a
+folder entered while its walk still runs, and its children entered right after, cost exactly one read per directory (10 for
+the test tree), and the same again after the walk ended reads none; no call of the window thread (`fsz_want` for 10,000 folders,
+`fsz_get`, `fsz_open`) takes 20 ms or more while the workers are busy (about 0.3 to 1.4 ms measured); and writes while nothing is
+measured read no directory (no watcher). Removed with the live updates (their feature is gone): the checks of a changed folder
+updating in place, a moved folder, a deep change moving up through the ancestors with at most 3 reads, a new and a removed
+subfolder, and missing data walked again after a second. Run it hidden through the bounded runner like the other console tests;
+run the exe ten times for the timing checks.
 
 `use/foldersize_smoke.py` runs 5 checks on the private desktop, on a fixture it creates (`a` 3,000,000 bytes, `b` 1,000,000 plus
 a nested 500,000, `c` 10,000, `d` empty, and a file), with `DFM_TEST_FSZ_DELAY_MS=1200` where the measuring state is read:
@@ -180,7 +182,7 @@ a nested 500,000, `c` 10,000, `d` empty, and a file), with `DFM_TEST_FSZ_DELAY_M
 a nested folder counts in its parent; (3) a click on the Size header sorts folders first and by size, and the one re-sort when
 the sizes are in changes the order exactly once and keeps the selected folder selected with the cursor on it, then the other
 direction; (4) the status pill reads `“a” selected (…)` and `2 items selected (…)` while measuring and `2 items selected (4.5 MB)`
-and `“a” selected (3.0 MB)` after; (5) a folder that grows on disk shows its new size within 12 s. Each of the five fails on the
+and `“a” selected (3.0 MB)` after; (5) a folder that grows on disk keeps its old size while its parent stays open (1.5 s), and shows the new size within 12 s after the parent is entered again (a folder and back). Each of the five fails on the
 build before the folder sizes (the state has no `sizes`): it was run against main's older MinSizeRel exe and failed 5 of 5.
 `DFM_EXE` and `DFM_USE_WORK` apply as for the other suites; `USE_ONLY=<prefix>` runs one check. The window checks do not
 cover scroll position after the re-sort (the fixture fits on one screen).
