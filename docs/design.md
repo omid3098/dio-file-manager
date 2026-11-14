@@ -126,8 +126,10 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
     and a folder inside a walk that is still running waits for that
     walk: entering E:\ and, right after, E:\w costs one walk of E:\w, not two. A folder made after that walk read its
     parent is measured when the walk ends.
-  - A folder or file the program may not read counts as 0 bytes (what can be read is counted; the same as the folder
-    properties in Explorer). A junction or symbolic link inside is not followed.
+  - A file or folder the program may not read counts as 0 bytes in the folder above it, which sums what it can read (the
+    same as the folder properties in Explorer), so C:\Users still shows a size. The folder that cannot be listed (for example
+    C:\System Volume Information, or a path too long for the walk's buffer) shows no number: its Size cell stays empty, never
+    a finished "0 bytes", and the status pill shows no size for it. A junction or symbolic link inside is not followed.
   - Leaving a folder cancels the walks that are not on the way to the new one; a walk of a folder above the new one
     keeps going and brings the sizes the new view asks for. The window's thread never waits for a measurement (it only
     takes a lock held for table work; the longest call in the console check is about 1 ms).

@@ -44,6 +44,7 @@ typedef struct entry {
     uint32_t tid;                /* the task that owns its PENDING state (0: waits for a walk above it) */
     LONG open_gen;               /* the view generation that counts this folder as open work (0: not counted) */
     uint8_t state, have, pinned, inlru, adopt;
+    uint8_t denied;              /* its own listing could not be read: it has no size to show */
 } entry;
 
 typedef struct task {
@@ -54,7 +55,7 @@ typedef struct task {
     LONG pend;                   /* unfinished children */
     uint64_t sum;
     walk *w;
-    uint8_t root, failed;
+    uint8_t root, failed, denied;
 } task;
 
 static struct {
@@ -176,22 +177,33 @@ static void open_count(entry *e) {
 
 typedef struct listing { uint64_t own; wchar_t *names; size_t nlen, ncap, n; } listing;
 
-/* One directory read: the size of its files, and the names of its real subfolders. */
-static void read_dir(const wchar_t *path, size_t pl, BYTE *buf, listing *L, wchar_t *scratch) {
+#define NT_NO_MORE_FILES ((LONG)0x80000006)   /* the end of a listing */
+#define NT_NO_SUCH_FILE ((LONG)0xC000000F)    /* an empty listing at the first call */
+
+/* Does "\?\" + path + 0 fit the walk's buffer? */
+static bool path_fits(size_t pl) { return pl + 5 <= PATH_W; }
+
+/* One directory read: the size of its files, and the names of its real subfolders. False when the folder cannot be listed
+ * to its end (no access, a path that does not fit): what was read is still counted by its parent, but the folder has no size. */
+static bool read_dir(const wchar_t *path, size_t pl, BYTE *buf, listing *L, wchar_t *scratch) {
+    bool ok = false;
     L->own = 0; L->nlen = 0; L->n = 0;
     InterlockedIncrement(&G.reads);
     LONG a = InterlockedIncrement(&G.active), pk;
     while (a > (pk = G.peak)) InterlockedCompareExchange(&G.peak, a, pk);
     if (G.delay_ms) Sleep(G.delay_ms);
-    memcpy(scratch, L"\\\\?\\", 4 * sizeof *scratch); memcpy(scratch + 4, path, pl * sizeof *scratch); scratch[4 + pl] = 0;
-    HANDLE hd = CreateFileW(scratch, FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
-                            FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    HANDLE hd = INVALID_HANDLE_VALUE;
+    if (path_fits(pl)) {
+        memcpy(scratch, L"\\\\?\\", 4 * sizeof *scratch); memcpy(scratch + 4, path, pl * sizeof *scratch); scratch[4 + pl] = 0;
+        hd = CreateFileW(scratch, FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+                         FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    }
     if (hd != INVALID_HANDLE_VALUE) {
         iosb_t io; BOOLEAN first = TRUE;
         for (;;) {
             LONG st = G.nt(hd, NULL, NULL, NULL, &io, buf, WALK_BUF, 1 /* FileDirectoryInformation */, FALSE, NULL, first);
             first = FALSE;
-            if (st != 0) break;
+            if (st != 0) { ok = st == NT_NO_MORE_FILES || st == NT_NO_SUCH_FILE; break; }
             for (const dirinfo_t *e = (const dirinfo_t *)buf;;) {
                 size_t nl = e->name_len / 2;
                 bool dot = e->name[0] == L'.' && (nl == 1 || (nl == 2 && e->name[1] == L'.'));
@@ -216,6 +228,7 @@ static void read_dir(const wchar_t *path, size_t pl, BYTE *buf, listing *L, wcha
         CloseHandle(hd);
     }
     InterlockedDecrement(&G.active);
+    return ok;
 }
 
 static task *new_task(const wchar_t *base, size_t bl, const wchar_t *name, size_t nl) {   /* base\name, or base alone */
@@ -252,6 +265,7 @@ static void enqueue_root(entry *e) {
     t->id = e->tid = ++G.tid;
     if (e->adopt) { e->adopt = 0; G.adopters--; }
     e->state = ST_PENDING;
+    InterlockedIncrement(&G.version);   /* what a reader of this folder sees changes: the last value is now an old one */
     open_count(e);
     relist(e);
     push_back(t);
@@ -268,7 +282,7 @@ static void store_dir(task *t, uint64_t total) {
         e = add(t->path, t->len, h); if (!e) return;
     } else if (e->state == ST_PENDING && !e->adopt) return;   /* it has a walk of its own running */
     if (e->adopt) { e->adopt = 0; G.adopters--; }
-    e->size = total; e->have = 1; e->state = ST_DONE; e->mseq = t->mseq;
+    e->size = total; e->have = 1; e->denied = t->denied; e->state = ST_DONE; e->mseq = t->mseq;
     open_done(e);
     relist(e); touch(e);
     if (t->root || e->pinned) bump();
@@ -321,7 +335,7 @@ static void finalize(task *t) {
 static void run_task(task *t, BYTE *buf, wchar_t *scratch) {
     listing L = { 0 };
     t->mseq = InterlockedCompareExchange(&G.seq, 0, 0);
-    read_dir(t->path, t->len, buf, &L, scratch);
+    t->denied = !read_dir(t->path, t->len, buf, &L, scratch);
     task *first = NULL, *last = NULL; LONG n = 0;
     if (t->depth < DEPTH_MAX) {
         for (size_t at = 0; at < L.nlen; ) {
@@ -431,12 +445,14 @@ void fsz_stop(void) {
     /* nothing is freed: the process is ending */
 }
 
+static bool drive_ok(UINT type) { return type == DRIVE_FIXED; }   /* removable drives keep an empty Size cell */
+
 bool fsz_eligible(const char *path) {
     wchar_t w[8];
     if (!path || !path[0] || !path[1] || path[1] != ':' || (path[2] && path[2] != '\\')) return false;
     w[0] = (wchar_t)path[0]; w[1] = L':'; w[2] = L'\\'; w[3] = 0;
     UINT t = GetDriveTypeW(w);
-    return t == DRIVE_FIXED || t == DRIVE_REMOVABLE;
+    return drive_ok(t);
 }
 
 static void unpin_shown_locked(void) {
@@ -512,6 +528,7 @@ void fsz_want(const char *path) {
         if (e && covered) {                                    /* inside a walk that is still running: it will bring the value */
             if (!e->adopt) G.adopters++;
             e->state = ST_PENDING; e->adopt = 1; e->tid = 0;
+            InterlockedIncrement(&G.version);
             open_count(e);
         } else if (e) enqueue_root(e);
     }
@@ -531,7 +548,8 @@ int fsz_get(const char *path, uint64_t *size) {
     entry *e = find(w, n, h);
     if (e) {
         touch(e);
-        if (e->have) { if (size) *size = e->size; r = FSZ_DONE; } else r = FSZ_PENDING;
+        if (e->have && e->denied) r = FSZ_DENIED;
+        else if (e->have) { if (size) *size = e->size; r = FSZ_DONE; } else r = FSZ_PENDING;
     }
     LeaveCriticalSection(&G.cs);
     return r;
@@ -561,6 +579,8 @@ bool fsz_stale(const char *path) {   /* the value shown is the last known one: a
 }
 
 void fsz_test_delay(unsigned ms) { G.delay_ms = ms; }
+bool fsz_test_path_fits(size_t path_len) { return path_fits(path_len); }
+bool fsz_test_drive_ok(unsigned drive_type) { return drive_ok(drive_type); }
 void fsz_test_cap(unsigned max_entries) { G.cap_entries = max_entries ? max_entries : FSZ_CACHE_MAX; }
 unsigned fsz_test_reads(void) { return (unsigned)InterlockedCompareExchange(&G.reads, 0, 0); }
 unsigned fsz_test_entries(unsigned long long *bytes) {   /* checks only: entries held and the bytes their keys and records take */

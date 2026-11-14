@@ -162,7 +162,7 @@ only after restoration. `clipboard_guard.clipboard_test_lock` waits up to 15 min
 `clipboard_guard.preserved_clipboard` always takes it, including nested checks.
 ## Folder size checks
 
-`test_foldersize.c` (CTest target `dfm-foldersize-tests`, console, 43 checks) builds a sandbox under the task folder and checks
+`test_foldersize.c` (CTest target `dfm-foldersize-tests`, console, 54 checks) builds a sandbox under the task folder and checks
 the engine alone: exact sizes, nested totals, a junction not followed, a walk cancelled when the view moves on, one shown folder
 walked by several threads at once (peak >= 3), ten shown folders surviving a cache cap of 4, and 10,000 lookups under 25 ms.
 Entering a folder again: the same folder asked again at once reads no directory; a file changed while another folder is shown
@@ -177,7 +177,7 @@ run the exe ten times for the timing checks.
 
 `use/foldersize_budget.py <measure.json>` fails when a measurement of E:\w (the `w-folder` block that the task's `measure.py` writes) is over a budget of `docs/design.md`: all in within 30 s, idle CPU and CPU with a writer below 0.1 % of one core, working set at most 175 MB, window message delay below 50 ms, child sizes equal to an independent scan. The 4-worker run (40.3 s) fails it, the 8-worker run passes. Mutants of the engine (every measured folder counts as fresh, no waiting for a running walk, a walk that ends without a folder it was waited on for, no revert when a view is left, the old value dropped while measuring) each fail 1 to 5 console checks.
 
-`use/foldersize_smoke.py` runs 5 checks on the private desktop, on a fixture it creates (`a` 3,000,000 bytes, `b` 1,000,000 plus
+`use/foldersize_smoke.py` runs 8 checks on the private desktop, on a fixture it creates (`a` 3,000,000 bytes, `b` 1,000,000 plus
 a nested 500,000, `c` 10,000, `d` empty, and a file), with `DFM_TEST_FSZ_DELAY_MS=1200` where the measuring state is read:
 (1) every folder is "measuring" (state kind 2, no text) while `fsz_open` is above 0, then the exact texts `3.0 MB`, `1.5 MB`,
 `10.0 kB`, `0 bytes` (the picture `final/measuring.png` and `final/sizes.png`); (2) a file is never among the sized folders and
@@ -186,6 +186,8 @@ the sizes are in changes the order exactly once and keeps the selected folder se
 direction; (4) the status pill reads `“a” selected (…)` and `2 items selected (…)` while measuring and `2 items selected (4.5 MB)`
 and `“a” selected (3.0 MB)` after; (5) a folder that grows on disk keeps its old size while its parent stays open (1.5 s), and shows the new size within 12 s after the parent is entered again (a folder and back). Each of the five fails on the
 build before the folder sizes (the state has no `sizes`): it was run against main's older MinSizeRel exe and failed 5 of 5.
+(6) the folder entered again keeps its old size in the cell and the pill reads `“b” selected (…)` (not `(1.5 MB)`) until the new size is in; (7) a search is opened, a folder changes, Esc closes the search, and the folder shows its new size; (8) the same with F5 pressed while the search is open. Checks 6 and 7 fail with their fix removed. Check 8 fails only with both search fixes removed (the Esc fix alone already covers the F5 case).
+The console test also covers the folder that cannot be listed (a deny entry on one subfolder: the subfolder is `FSZ_DENIED`, its parent still sums the rest, and it is measured again once it is readable), the longest path the walk buffer takes (`fsz_test_path_fits`: 32,763 wide characters; the check goes through the buffer arithmetic only, since Windows cannot create a folder that deep to read), and that only fixed drives are eligible (`fsz_test_drive_ok`, plus every removable drive of the machine, if there is one).
 `DFM_EXE` and `DFM_USE_WORK` apply as for the other suites; `USE_ONLY=<prefix>` runs one check. The window checks do not
 cover scroll position after the re-sort (the fixture fits on one screen).
 

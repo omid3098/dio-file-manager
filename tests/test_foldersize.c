@@ -61,6 +61,7 @@ int main(void) {
     const char *work = getenv("DFM_FSZ_WORK");   /* a check may name its own sandbox parent */
     snprintf(root, sizeof root, "%s\\foldersize", work ? work : DFM_TEST_WORK);
     GetFullPathNameA(root, MAX_PATH, full, NULL); snprintf(root, sizeof root, "%s", full);
+    { char c[2048]; snprintf(c, sizeof c, "icacls.exe \"%s\\deny\\locked\" /remove:d *S-1-1-0", root); run_hidden(c); }   /* a lock a failed run left */
     remove_tree(root);
     { char c[2048]; snprintf(c, sizeof c, "cmd.exe /c mkdir \"%s\"", root); run_hidden(c); }
     mkdirs("a"); mkdirs("a\\sub"); mkdirs("b"); mkdirs("d");
@@ -287,6 +288,41 @@ int main(void) {
         double ms = (double)(a1.QuadPart - a0.QuadPart) * 1000.0 / (double)f.QuadPart;
         printf("10,000 lookups: %.1f ms\n", ms);
         CHECK(sum == 10000 && ms < 25.0, "ten thousand lookups take %.1f ms (limit 25)", ms);
+    }
+
+    /* a folder that cannot be listed has no size (an empty Size cell, never a finished 0); its parent still sums what it can read */
+    {
+        char lp[MAX_PATH], dp2[MAX_PATH], okp[MAX_PATH], c[2048];
+        mkdirs("deny"); mkdirs("deny\\ok"); mkdirs("deny\\locked");
+        write_file("deny\\f", 10, false); write_file("deny\\ok\\g", 5, false); write_file("deny\\locked\\h", 99, false);
+        path_of(lp, "deny\\locked"); path_of(dp2, "deny"); path_of(okp, "deny\\ok");
+        snprintf(c, sizeof c, "icacls.exe \"%s\" /deny *S-1-1-0:(RD)", lp); run_hidden(c);
+        fsz_view(root, true); fsz_want(dp2);
+        CHECK(wait_open0(10000), "a folder with an unreadable subfolder finishes");
+        { int st; uint64_t v = size_of("deny", &st); CHECK(st == FSZ_DONE && v == 15, "its parent counts what it can read: 15 (state %d, %llu)", st, U(v)); }
+        { int st; size_of("deny\\locked", &st); CHECK(st == FSZ_DENIED, "the unreadable subfolder has no size, not 0 (state %d)", st); }
+        fsz_view(dp2, true); fsz_want(okp); fsz_want(lp);
+        CHECK(wait_open0(10000), "the unreadable folder, asked for on its own, finishes");
+        { int st; uint64_t v = size_of("deny\\ok", &st); CHECK(st == FSZ_DONE && v == 5, "its readable sibling = 5 (state %d, %llu)", st, U(v)); }
+        { int st; size_of("deny\\locked", &st); CHECK(st == FSZ_DENIED, "shown, the unreadable folder still has no size (state %d)", st); }
+        snprintf(c, sizeof c, "icacls.exe \"%s\" /remove:d *S-1-1-0", lp); run_hidden(c);
+        fsz_view(dp2, true); fsz_want(okp); fsz_want(lp);
+        CHECK(wait_open0(10000), "readable again, it finishes");
+        { int st; uint64_t v = size_of("deny\\locked", &st); CHECK(st == FSZ_DONE && v == 99, "readable again, its size = 99 (state %d, %llu)", st, U(v)); }
+    }
+
+    /* the walk's buffer takes a prefix of four characters, the path and a 0: a path that does not fit is refused, not written past the end */
+    CHECK(fsz_test_path_fits(32763) && !fsz_test_path_fits(32764) && !fsz_test_path_fits(32766), "paths up to 32,763 wide characters fit the buffer, longer ones do not");
+
+    /* removable drives keep an empty Size cell */
+    CHECK(fsz_test_drive_ok(DRIVE_FIXED) && !fsz_test_drive_ok(DRIVE_REMOVABLE) && !fsz_test_drive_ok(DRIVE_REMOTE) && !fsz_test_drive_ok(DRIVE_CDROM), "only a fixed drive is measured");
+    {
+        int removable = 0, bad = 0;
+        for (char d = 'A'; d <= 'Z'; d++) {
+            char r[4] = { d, ':', '\\', 0 };
+            if (GetDriveTypeA(r) == DRIVE_REMOVABLE) { removable++; if (fsz_eligible(r)) bad++; }
+        }
+        CHECK(bad == 0, "no removable drive of this machine (%d) is eligible", removable);
     }
 
     /* nothing is measured: a write anywhere reads no directory (there is no watcher) */

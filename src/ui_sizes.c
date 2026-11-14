@@ -41,8 +41,9 @@ int sizes_cell(const fs_entry *e, const char *name, char *buf, size_t cap) {
     char p[FS_PATH_MAX + 300];
     uint64_t v = 0;
     join(name, p, sizeof p);
-    if (fsz_get(p, &v) == FSZ_DONE) { fs_format_size(buf, cap, v); return 1; }
-    return 2;
+    int r = fsz_get(p, &v);
+    if (r == FSZ_DONE) { fs_format_size(buf, cap, v); return 1; }
+    return r == FSZ_DENIED ? 0 : 2;   /* a folder that cannot be read has no size: an empty cell, not a number */
 }
 
 void sizes_selection(uint64_t *bytes, bool *pending) {
@@ -61,7 +62,9 @@ void sizes_selection(uint64_t *bytes, bool *pending) {
         if (!A.sel[i] || !(e->flags & FS_DIR) || (e->flags & FS_LINK)) continue;
         uint64_t v = 0;
         join(app_item_name(i), p, sizeof p);
-        if (fsz_get(p, &v) == FSZ_DONE) *bytes += v; else *pending = true;
+        int r = fsz_get(p, &v);
+        if (r == FSZ_DONE) { *bytes += v; if (fsz_stale(p)) *pending = true; }   /* the last size counts while a new one is measured */
+        else if (r != FSZ_DENIED) *pending = true;
     }
     c.key = key; c.ver = ver; c.list = A.list; c.vis_n = A.vis_n; c.n = n; c.bytes = *bytes; c.pending = *pending;
 }

@@ -1,5 +1,6 @@
 """Folder sizes in the Details view, driven by real Win32 input on the shared private-desktop driver.
 
+Checks 7 and 8 open a search (Ctrl+F, "bin"), change a folder, close the search with Esc (8: F5 first) and expect the changed size.
 Fixture (all sizes are bytes of file data, made here):
   a 3,000,000   b 1,000,000 + sub/500,000 = 1,500,000 (a nested total)   c 10,000   d empty   x.txt a file
 DFM_TEST_FSZ_DELAY_MS slows each folder walk so the "still measuring" state can be read. Run from the repo:
@@ -151,17 +152,61 @@ def inside():
             f.write(b'\0' * 2_000_000)
         time.sleep(1.5)
         assert a.sizes()['c'] == (1, '10.0 kB'), 'A folder changed while it stays open must not update by itself'
-        a.click(*a.row_xy('a')); a.click(*a.row_xy('a'))
-        assert a.wait_ready()['path'].endswith('\\a'), 'Double click did not open a'
+        a.click(*a.row_xy('a')); a.key(13)                 # Enter opens the selected folder (two quick clicks missed on a busy machine)
+        assert a.wait_ready()['path'].endswith('\\a'), 'Enter did not open a'
         a.key(37, (18,))                               # back: the folders inside are measured again
         assert a.wait_ready()['path'].endswith('fsz'), 'Back'
         a.until('The changed folder never showed its new size', lambda: a.sizes()['c'] == (1, '2.0 MB'), 12)
+
+    def typed(a, text):
+        for ch in text:
+            a.msg(0x102, ord(ch))
+            time.sleep(.01)
+
+    def searched(a, count):
+        a.until(f'Search did not show {count} results', lambda: a.snap()['searching'] and a.snap()['count'] == count, 8)
+
+    def pill_old_value_is_not_final(a):
+        a.until('Sizes never arrived', lambda: a.snap()['fsz_open'] == 0, 25)
+        assert a.sizes()['b'] == (1, '1.5 MB')
+        a.click(*a.row_xy('a')); a.key(13)                 # Enter opens the selected folder (two quick clicks missed on a busy machine)
+        assert a.wait_ready()['path'].endswith('\\a'), 'Enter did not open a'
+        a.key(37, (18,))                               # back: b and its folder are measured again, the old 1.5 MB stays in the cell
+        assert a.wait_ready()['path'].endswith('fsz'), 'Back'
+        a.click(*a.row_xy('b'))
+        s = a.snap()
+        assert s['selection'] == ['b'] and s['fsz_open'] > 0, f'Not measuring again: {s["selection"]}, open {s["fsz_open"]}'
+        assert a.sizes(s)['b'] == (1, '1.5 MB'), 'The old size is not readable while it is measured again'
+        assert s['sel_pending'] and s['pill'] == '\u201cb\u201d selected (\u2026)', f'Pill shows the old size as final: {s["pill"]!r}'
+        a.until('Sizes never arrived', lambda: a.snap()['fsz_open'] == 0, 25)
+        a.until('Pill never showed the new total', lambda: a.snap()['pill'] == '\u201cb\u201d selected (1.5 MB)')
+
+    def search_then_close(a, refresh):
+        a.until('Sizes never arrived', lambda: a.snap()['fsz_open'] == 0, 25)
+        assert a.sizes()['c'] == (1, '10.0 kB')
+        a.key(ord('F'), (17,))
+        a.until('Search field did not take the keyboard', lambda: a.snap()['typing'])
+        typed(a, 'bin')
+        searched(a, 4)
+        with (FIX / 'c' / 'small.bin').open('ab') as f:
+            f.write(b'\0' * 2_000_000)
+        if refresh:
+            a.key(116)                                 # F5 while the search is open
+            time.sleep(.5)
+            searched(a, 4)
+        a.key(27)
+        a.until('Esc did not return to the folder', lambda: not a.snap()['search'])
+        assert not a.wait_ready()['searching'], 'Still searching'
+        a.until('The folder came back without measuring the changed folder again', lambda: a.sizes()['c'] == (1, '2.0 MB'), 12)
 
     check('1-measuring-then-values', measuring_then_values, 1200)
     check('2-nested-and-files', nested_and_files)
     check('3-size-sort-one-resort', size_sort, 1200)
     check('4-pill', pill, 1200)
     check('5-change-shows-when-entered-again', changes)
+    check('6-pill-while-measured-again', pill_old_value_is_not_final, 1200)
+    check('7-esc-closes-search-sizes-measured-again', lambda a: search_then_close(a, False))
+    check('8-f5-in-search-then-esc-sizes-measured-again', lambda a: search_then_close(a, True))
     (WORK / 'foldersize-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 
