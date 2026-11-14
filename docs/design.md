@@ -120,9 +120,13 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   - Nothing is kept up to date while a folder stays open: no drive watcher, no timer, no re-walk after a change on disk.
     With nothing being measured the engine does nothing (idle CPU below 0.1 % of one core, also while other programs write
     to the drive). A folder changed on disk shows its new size the next time its parent is entered.
-  - A folder measured less than 5 s ago (by itself or inside the walk of a folder above it) is not walked again, and a
-    folder inside a walk that is still running waits for that walk: entering E:\ and, right after, E:\w costs one walk of
-    E:\w, not two.
+  - No waiting time keeps an old number: a folder changed on disk shows its new size as soon as its parent is entered
+    again, also at once after it was left. Only a folder whose measurement began after the shown folder was entered (a
+    reload of the same folder) is not walked again, and a folder inside a walk that is still running waits for that
+    walk: entering E:\ and, right after, E:\w costs one walk of E:\w, not two. A folder made after that walk read its
+    parent is measured when the walk ends.
+  - A folder or file the program may not read counts as 0 bytes (what can be read is counted; the same as the folder
+    properties in Explorer). A junction or symbolic link inside is not followed.
   - Leaving a folder cancels the walks that are not on the way to the new one; a walk of a folder above the new one
     keeps going and brings the sizes the new view asks for. The window's thread never waits for a measurement (it only
     takes a lock held for table work; the longest call in the console check is about 1 ms).

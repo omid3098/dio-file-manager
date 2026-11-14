@@ -151,7 +151,6 @@ def inside():
             f.write(b'\0' * 2_000_000)
         time.sleep(1.5)
         assert a.sizes()['c'] == (1, '10.0 kB'), 'A folder changed while it stays open must not update by itself'
-        time.sleep(6)                                  # longer than the few seconds a measurement counts as recent
         a.click(*a.row_xy('a')); a.click(*a.row_xy('a'))
         assert a.wait_ready()['path'].endswith('\\a'), 'Double click did not open a'
         a.key(37, (18,))                               # back: the folders inside are measured again

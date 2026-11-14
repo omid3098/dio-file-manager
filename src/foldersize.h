@@ -1,9 +1,9 @@
 /* Folder sizes: the total logical size of a folder and everything below it, measured on worker threads.
  * No CUI calls; UTF-8 paths. The window asks (fsz_view, fsz_want), reads (fsz_get) and is woken by the notify callback.
- * Every directory is its own task for 4 workers; each finished folder keeps its total in an in-memory cache of at most
+ * Every directory is its own task for 8 workers; each finished folder keeps its total in an in-memory cache of at most
  * FSZ_CACHE_MAX entries and FSZ_CACHE_BYTES of keys and records. Entering a folder measures its child folders again (the
  * last known value stays readable meanwhile); there is no watcher and no update while a folder stays open. A child
- * measured less than FSZ_RECENT_MS ago, or inside a walk that is still running, is not walked again. */
+ * whose measurement began after the folder was entered, or inside a walk that is still running, is not walked again. */
 #ifndef DFM_FOLDERSIZE_H
 #define DFM_FOLDERSIZE_H
 #include <stdbool.h>
@@ -11,7 +11,6 @@
 
 #define FSZ_CACHE_MAX 65536u
 #define FSZ_CACHE_BYTES (24u << 20)
-#define FSZ_RECENT_MS 5000u
 
 enum { FSZ_NONE = 0, FSZ_PENDING = 1, FSZ_DONE = 2 };
 
@@ -27,7 +26,6 @@ unsigned fsz_version(void);                    /* grows whenever a result lands 
 bool fsz_stale(const char *path);              /* the value is the last known one: it is being measured again */
 void fsz_test_delay(unsigned ms_per_folder);   /* checks only: slow each folder down */
 void fsz_test_cap(unsigned max_entries);       /* checks only: a smaller cache (0: the normal cap) */
-void fsz_test_recent(unsigned ms);             /* checks only: how long a measurement counts as recent */
 unsigned fsz_test_reads(void);                 /* checks only: directory reads so far */
 unsigned fsz_test_peak(void);                  /* checks only: the most directory reads that ran at the same time since the last call */
 unsigned fsz_test_entries(unsigned long long *bytes); /* checks only: entries held, and the bytes of their keys and records */

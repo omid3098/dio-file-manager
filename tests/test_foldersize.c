@@ -1,7 +1,7 @@
 /* Console checks of the folder-size engine (src/foldersize.c) on a sandbox tree: exact sizes, nested totals kept,
  * a junction not followed, entering a folder again measures its children again (the old value stays readable, a folder
- * measured a moment ago is not walked again, a child inside a walk that is still running waits for that walk), cancel
- * on navigate, one big folder walked by several threads, the cache never dropping a shown folder, no work and no
+ * measured since the view began is not walked again, a child inside a walk that is still running waits for that
+ * walk, a folder changed and entered again at once shows its new size), cancel on navigate and return at once, one big folder walked by several threads, the cache never dropping a shown folder, no work and no
  * directory read while nothing is measured, and the cost of ten thousand lookups. */
 #include <windows.h>
 #include <stdio.h>
@@ -84,7 +84,7 @@ int main(void) {
     { int s; uint64_t v = size_of("a\\sub", &s); CHECK(s == FSZ_DONE && v == 100, "nested a\\sub = 100 kept (state %d, %llu)", s, U(v)); }
     CHECK(wakes > 0, "the window was told");
 
-    /* the same folder asked again at once: measured a moment ago, no new walk */
+    /* the same view asked again: measured since it began, no new walk */
     unsigned r0 = fsz_test_reads();
     fsz_view(root);
     for (int i = 0; i < 3; i++) { char p[MAX_PATH]; path_of(p, kids[i]); fsz_want(p); }
@@ -93,10 +93,8 @@ int main(void) {
 
     /* a file changed while another folder is shown: entering the parent again shows the new size; the old one stays
        readable (and marked as being measured) until it arrives */
-    fsz_test_recent(200);
     { char bp[MAX_PATH]; path_of(bp, "b"); fsz_view(bp); }
     write_file("a\\sub\\x", 50, true);
-    Sleep(400);
     fsz_test_delay(150);
     fsz_view(root);
     for (int i = 0; i < 3; i++) { char p[MAX_PATH]; path_of(p, kids[i]); fsz_want(p); }
@@ -136,6 +134,27 @@ int main(void) {
     CHECK(wait_open0(10000), "asked again, they finish");
     CHECK(size_of("slow\\2", NULL) == 33, "slow\\2 = 33 (got %llu)", U(size_of("slow\\2", NULL)));
 
+    /* leave a folder whose children are being measured and come straight back: they are measured, not left unknown */
+    mkdirs("back");
+    for (int i = 1; i <= 3; i++) {
+        char r[64];
+        snprintf(r, sizeof r, "back\\%d", i); mkdirs(r);
+        snprintf(r, sizeof r, "back\\%d\\x", i); mkdirs(r);
+        snprintf(r, sizeof r, "back\\%d\\x\\f", i); write_file(r, 9, false);
+    }
+    char kp[MAX_PATH]; path_of(kp, "back");
+    fsz_test_delay(150);
+    fsz_view(kp);
+    for (int i = 1; i <= 3; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "back\\%d", i); path_of(p, r); fsz_want(p); }
+    Sleep(60);
+    fsz_view(root);
+    fsz_view(kp);
+    for (int i = 1; i <= 3; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "back\\%d", i); path_of(p, r); fsz_want(p); }
+    CHECK(wait_open0(20000), "left and entered again at once: the children finish");
+    fsz_test_delay(0);
+    { int ok = 0; for (int i = 1; i <= 3; i++) { char r[64]; int st; snprintf(r, sizeof r, "back\\%d", i); if (size_of(r, &st) == 9 && st == FSZ_DONE) ok++; }
+      CHECK(ok == 3, "all three children = 9 after leaving and returning at once (%d of 3)", ok); }
+
 
     /* a big tree is walked by several threads at once: one shown folder, many subfolders */
     mkdirs("big");
@@ -162,7 +181,6 @@ int main(void) {
         for (int j = 0; j < 2; j++) { snprintf(r, sizeof r, "tree\\c%d\\g%d", i, j); mkdirs(r); snprintf(r, sizeof r, "tree\\c%d\\g%d\\f", i, j); write_file(r, 10, false); }
     }
     char tp[MAX_PATH]; path_of(tp, "tree");
-    fsz_test_recent(5000);
     fsz_test_delay(60);
     r0 = fsz_test_reads();
     fsz_view(root); fsz_want(tp);
@@ -173,13 +191,35 @@ int main(void) {
     fsz_test_delay(0);
     { unsigned d = fsz_test_reads() - r0; CHECK(d == 10, "tree and its children cost %u directory reads, not more than the 10 directories", d); }
     CHECK(size_of("tree\\c1", NULL) == 20 && size_of("tree", NULL) == 60, "tree = 60, c1 = 20 (got %llu, %llu)", U(size_of("tree", NULL)), U(size_of("tree\\c1", NULL)));
-    r0 = fsz_test_reads();   /* the same again after the walk ended a moment ago */
+    /* a file changes and the folder is left and entered again at once: no waiting time keeps the old size */
+    write_file("tree\\c1\\g0\\f", 15, true);
     fsz_view(root); fsz_want(tp);
     fsz_view(tp);
     for (int i = 0; i < 3; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "tree\\c%d", i); path_of(p, r); fsz_want(p); }
-    Sleep(300);
-    CHECK(fsz_test_reads() == r0 && fsz_open() == 0, "entering them after the walk ended read %u directories", fsz_test_reads() - r0);
-    fsz_test_recent(200);
+    CHECK(wait_open0(20000), "entered again at once, the children finish");
+    CHECK(wait_size("tree\\c1", 35, 5000), "tree\\c1 = 35 right after the change (got %llu)", U(size_of("tree\\c1", NULL)));
+
+    /* a folder made after the walk of its parent read the parent is measured, not left empty */
+    mkdirs("grow");
+    for (int i = 0; i < 2; i++) {
+        char r[64]; snprintf(r, sizeof r, "grow\\g%d", i); mkdirs(r);
+        snprintf(r, sizeof r, "grow\\g%d\\a", i); mkdirs(r);
+        snprintf(r, sizeof r, "grow\\g%d\\a\\b", i); mkdirs(r);
+        snprintf(r, sizeof r, "grow\\g%d\\a\\b\\c", i); mkdirs(r);
+        snprintf(r, sizeof r, "grow\\g%d\\a\\b\\c\\f", i); write_file(r, 4, false);
+    }
+    char gp[MAX_PATH]; path_of(gp, "grow");
+    fsz_test_delay(120);
+    fsz_view(root); fsz_want(gp);
+    Sleep(250);   /* grow is read, the deep chains below it are still running */
+    mkdirs("grow\\new"); write_file("grow\\new\\f", 7, false);
+    fsz_view(gp);
+    { const char *gk[] = { "grow\\g0", "grow\\g1", "grow\\new" };
+      for (int i = 0; i < 3; i++) { char p[MAX_PATH]; path_of(p, gk[i]); fsz_want(p); } }
+    CHECK(wait_open0(20000), "the folders of a walk that missed one finish");
+    fsz_test_delay(0);
+    CHECK(wait_size("grow\\new", 7, 5000), "the folder made after the walk read its parent = 7 (got %llu)", U(size_of("grow\\new", NULL)));
+    CHECK(size_of("grow\\g1", NULL) == 4, "grow\\g1 = 4 (got %llu)", U(size_of("grow\\g1", NULL)));
 
     /* the cache never drops a shown folder, even when it is over its cap */
     mkdirs("many");

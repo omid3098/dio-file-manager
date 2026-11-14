@@ -162,7 +162,7 @@ only after restoration. `clipboard_guard.clipboard_test_lock` waits up to 15 min
 `clipboard_guard.preserved_clipboard` always takes it, including nested checks.
 ## Folder size checks
 
-`test_foldersize.c` (CTest target `dfm-foldersize-tests`, console, 33 checks) builds a sandbox under the task folder and checks
+`test_foldersize.c` (CTest target `dfm-foldersize-tests`, console, 39 checks) builds a sandbox under the task folder and checks
 the engine alone: exact sizes, nested totals, a junction not followed, a walk cancelled when the view moves on, one shown folder
 walked by several threads at once (peak >= 3), ten shown folders surviving a cache cap of 4, and 10,000 lookups under 25 ms.
 Entering a folder again: the same folder asked again at once reads no directory; a file changed while another folder is shown
@@ -175,7 +175,7 @@ updating in place, a moved folder, a deep change moving up through the ancestors
 subfolder, and missing data walked again after a second. Run it hidden through the bounded runner like the other console tests;
 run the exe ten times for the timing checks.
 
-`use/foldersize_budget.py <measure.json>` fails when a measurement of E:\w (the `w-folder` block that the task's `measure.py` writes) is over a budget of `docs/design.md`: all in within 30 s, idle CPU and CPU with a writer below 0.1 % of one core, working set at most 175 MB, window message delay below 50 ms, child sizes equal to an independent scan. The 4-worker run (40.3 s) fails it, the 8-worker run passes. Mutants of the engine (a recent check that never matches, no waiting for a running walk, the old value dropped while measuring) each fail 1 to 2 console checks.
+`use/foldersize_budget.py <measure.json>` fails when a measurement of E:\w (the `w-folder` block that the task's `measure.py` writes) is over a budget of `docs/design.md`: all in within 30 s, idle CPU and CPU with a writer below 0.1 % of one core, working set at most 175 MB, window message delay below 50 ms, child sizes equal to an independent scan. The 4-worker run (40.3 s) fails it, the 8-worker run passes. Mutants of the engine (every measured folder counts as fresh, no waiting for a running walk, a walk that ends without a folder it was waited on for, no revert when a view is left, the old value dropped while measuring) each fail 1 to 5 console checks.
 
 `use/foldersize_smoke.py` runs 5 checks on the private desktop, on a fixture it creates (`a` 3,000,000 bytes, `b` 1,000,000 plus
 a nested 500,000, `c` 10,000, `d` empty, and a file), with `DFM_TEST_FSZ_DELAY_MS=1200` where the measuring state is read:

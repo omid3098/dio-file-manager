@@ -51,7 +51,7 @@ void sizes_selection(uint64_t *bytes, bool *pending) {
     *bytes = 0; *pending = false;
     if (!sizes_on()) return;
     for (int i = 0; i < A.vis_n; i++)
-        if (A.sel[i] && (app_item(i)->flags & FS_DIR) && !(app_item(i)->flags & FS_LINK)) { n++; key += (uint64_t)(i + 1) * 0x9E3779B97F4A7C15ull; }
+        if (A.sel[i] && (app_item(i)->flags & FS_DIR) && !(app_item(i)->flags & FS_LINK)) { n++; key = (key ^ (uint64_t)(i + 1)) * 0x100000001B3ull; }   /* order-dependent: {1,4} and {2,3} differ */
     if (!n) return;
     unsigned ver = fsz_version();
     if (c.key == key && c.ver == ver && c.list == A.list && c.vis_n == A.vis_n && c.n == n) { *bytes = c.bytes; *pending = c.pending; return; }
