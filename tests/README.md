@@ -175,6 +175,8 @@ updating in place, a moved folder, a deep change moving up through the ancestors
 subfolder, and missing data walked again after a second. Run it hidden through the bounded runner like the other console tests;
 run the exe ten times for the timing checks.
 
+`use/foldersize_budget.py <measure.json>` fails when a measurement of E:\w (the `w-folder` block that the task's `measure.py` writes) is over a budget of `docs/design.md`: all in within 30 s, idle CPU and CPU with a writer below 0.1 % of one core, working set at most 175 MB, window message delay below 50 ms, child sizes equal to an independent scan. The 4-worker run (40.3 s) fails it, the 8-worker run passes. Mutants of the engine (a recent check that never matches, no waiting for a running walk, the old value dropped while measuring) each fail 1 to 2 console checks.
+
 `use/foldersize_smoke.py` runs 5 checks on the private desktop, on a fixture it creates (`a` 3,000,000 bytes, `b` 1,000,000 plus
 a nested 500,000, `c` 10,000, `d` empty, and a file), with `DFM_TEST_FSZ_DELAY_MS=1200` where the measuring state is read:
 (1) every folder is "measuring" (state kind 2, no text) while `fsz_open` is above 0, then the exact texts `3.0 MB`, `1.5 MB`,
