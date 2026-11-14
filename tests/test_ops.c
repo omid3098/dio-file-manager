@@ -393,6 +393,12 @@ static void dialog_names(void) {
     CHECK(!strcmp(out, "a \"abcdefghi\njklmnopqrs\ntuvwxyz\" b"));
     dlg_break_words("fits well", out, sizeof out, 100.0f, mono, NULL); CHECK(!strcmp(out, "fits well"));
     dlg_break_words("e\xCC\x81" "e\xCC\x81" "e\xCC\x81" "e\xCC\x81", out, sizeof out, 40.0f, mono, NULL); CHECK(!strcmp(out, "e\xCC\x81" "e\xCC\x81\n" "e\xCC\x81" "e\xCC\x81"));
+    /* tooltip lines: break at spaces, inside a word wider than a line, and cap with an ellipsis (mono: 10 px per character) */
+    CHECK(dlg_break_lines("one two three four", out, sizeof out, 100.0f, mono, NULL, 99) == 2 && !strcmp(out, "one two\nthree four"));
+    CHECK(dlg_break_lines("ab abcdefghijkl cd", out, sizeof out, 50.0f, mono, NULL, 99) == 4 && !strcmp(out, "ab\nabcde\nfghij\nkl cd"));
+    CHECK(dlg_break_lines("fits", out, sizeof out, 100.0f, mono, NULL, 99) == 1 && !strcmp(out, "fits"));
+    CHECK(dlg_break_lines("aa bb cc dd ee ff", out, sizeof out, 50.0f, mono, NULL, 2) == 2 && !strcmp(out, "aa bb\ncc d\xE2\x80\xA6"));
+    CHECK(dlg_break_lines("aaaaa bbbbb ccccc", out, sizeof out, 50.0f, mono, NULL, 2) == 2 && !strcmp(out, "aaaaa\nbbbb\xE2\x80\xA6"));
     {   /* a toast with a name of 140 wide characters keeps whole characters and its message words, at what CUI really keeps: 127 bytes of a title, 255 of a description */
         char nm[600], toast[DLG_TOAST_TITLE_CAP], cui[DLG_TOAST_TITLE_CAP], desc[DLG_TOAST_DESC_CAP], cuid[DLG_TOAST_DESC_CAP];
         nm[0] = 'a'; nm[1] = 0; for (int i = 0; i < 140; i++) cat(nm, "\xE4\xB8\xAD"); cat(nm, ".txt");

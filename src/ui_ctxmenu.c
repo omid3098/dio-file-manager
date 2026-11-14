@@ -74,8 +74,9 @@ void ui_popup_tooltips(cui_ctx *ui) {
 /* The hover tooltip of an item, CUI's own tooltip (its colours, fade and delay) shown as GTK shows one (gtktooltip.c,
  * gtk_tooltip_set_display_area): under the box of the name, centred on it, above it when there is no room below, and
  * never over the controls at the top of the window. CUI puts its tooltip above its anchor; a box that reaches from the
- * top of the window to 6 px above the wanted place makes it flip below the box, at that place. A name too wide for the
- * tooltip is broken between characters (Pango WRAP_WORD_CHAR) before CUI sets it, so the box is as wide as the text. */
+ * top of the window to 6 px above the wanted place makes it flip below the box, at that place. The name is broken into
+ * its final lines here (at spaces, between characters inside a word wider than a line, as Pango WRAP_WORD_CHAR does),
+ * each narrower than the 262 px CUI gives a line, so CUI never wraps again and the lines counted are the lines drawn. */
 typedef struct { cui_ctx *ui; float size; } tip_measure;
 static float tip_text_w(void *c, const char *s, int len) {
     tip_measure *m = c;
@@ -84,18 +85,22 @@ static float tip_text_w(void *c, const char *s, int len) {
 
 void ui_item_tooltip(cui_ctx *ui, cui_id id, const char *name, cui_rect label) {
     if (!name) { if (ui->tooltip_id == id) ui->tooltip_id = 0; return; }   /* the pointer is not on this item */
-    enum { CUI_TIP_TEXT = 256, WRAP_W = 240, GAP = 6, TIP_TOP = 46 };   /* CUI keeps 255 bytes; its box is 280 px less 2 x 9 of padding */
+    enum { CUI_TIP_TEXT = 256, WRAP_W = 240, GAP = 6, TIP_TOP = 46, EDGE = 8, TIP_PAD = 10 };   /* CUI keeps 255 bytes; its box is 280 px less 2 x 9 of padding */
     char shown[CUI_TIP_TEXT], text[CUI_TIP_TEXT];
     tip_measure m = { ui, cui__fs(ui, ui->theme.text_sm) };
     dlg_path_fit(name, shown, 200);   /* room for the line breaks; a longer name keeps its start and its end */
-    dlg_break_words(shown, text, sizeof text, WRAP_W, tip_text_w, &m);
-    int lines = 1;   /* the lines drawn are the lines broken above: each is at most WRAP_W, inside the 262 px CUI gives a line */
-    for (const char *p = text; (p = strchr(p, '\n')) != NULL; p++) lines++;
-    float h = (float)lines * m.size * 1.35f + 10.0f, pad = 4.0f, vh = cui_viewport_size(ui).y;
+    int lines = dlg_break_lines(shown, text, sizeof text, WRAP_W, tip_text_w, &m, 1000);
+    float lh = m.size * 1.35f, h = (float)lines * lh + TIP_PAD, pad = 4.0f, vh = cui_viewport_size(ui).y;
     float bottom = label.y + label.h + pad;
     cui_rect a = { label.x - pad, label.y, label.w + 2 * pad, 0 };   /* above the name */
-    /* below the name when it fits; else above it when that stays under the header; else below, and the window edge clips */
-    if (bottom + h + 8.0f <= vh || label.y - GAP - h < TIP_TOP) { a.y = 0; a.h = bottom - GAP; }
+    if (bottom + h + EDGE <= vh) { a.y = 0; a.h = bottom - GAP; }   /* below the name when it fits */
+    else if (label.y - GAP - h < TIP_TOP) {   /* neither side fits: in the content area under the header, as many lines as fit */
+        float top = TIP_TOP + EDGE;
+        int room = (int)((vh - EDGE - top - TIP_PAD) / lh);
+        if (room < 1) room = 1;
+        if (lines > room) dlg_break_lines(shown, text, sizeof text, WRAP_W, tip_text_w, &m, room);
+        a.y = 0; a.h = top - GAP;
+    }
     cui__state_entry(ui, id)->rect = a;
     cui__tooltip_passive(ui, id, text);
 }

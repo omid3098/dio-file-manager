@@ -33,3 +33,9 @@ typedef float (*dlg_measure_fn)(void *ctx, const char *s, int len);
 
 /* Copies `in` to `out`, putting a line break inside every word wider than `max_w` so each piece fits. */
 void dlg_break_words(const char *in, char *out, size_t cap, float max_w, dlg_measure_fn measure, void *ctx);
+
+/* Copies `in` to `out` as whole lines joined by '\n', each at most `max_w` wide: a line breaks at a space where it can, and
+   inside a word wider than the line (between characters). The spaces at a break are dropped. Returns the number of lines in
+   `out`. When `in` needs more than `max_lines`, `out` holds the first `max_lines` and the last ends in an ellipsis, cut at a
+   whole character so it still fits `max_w`. Call it with a large `max_lines` to count the lines. */
+int dlg_break_lines(const char *in, char *out, size_t cap, float max_w, dlg_measure_fn measure, void *ctx, int max_lines);

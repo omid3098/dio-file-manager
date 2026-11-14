@@ -1,4 +1,5 @@
 #include "dlgtext.h"
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -129,4 +130,60 @@ void dlg_break_words(const char *in, char *out, size_t cap, float max_w, dlg_mea
         i = j;
     }
     out[o] = 0;
+}
+
+typedef struct { size_t at, len; } span;
+
+int dlg_break_lines(const char *in, char *out, size_t cap, float max_w, dlg_measure_fn measure, void *ctx, int max_lines) {
+    enum { MAXL = 300, LIMIT = 512 };
+    static span line[MAXL];   /* the dialogs are built on one thread */
+    size_t at[LIMIT + 1], len = strlen(in);
+    int n = 0, shown;
+    size_t ls = 0, le = 0;   /* the line being built: [ls, le) */
+    bool have = false;
+    if (!cap) return 0;
+    for (size_t i = 0; i < len;) {
+        while (i < len && (in[i] == ' ' || in[i] == '\t' || in[i] == '\n')) i++;
+        size_t ws = i, we = i;
+        while (we < len && in[we] != ' ' && in[we] != '\t' && in[we] != '\n') we++;
+        if (we == ws) break;
+        i = we;
+        if (have && measure(ctx, in + ls, (int)(we - ls)) <= max_w) { le = we; continue; }
+        if (have && n < MAXL) { line[n].at = ls; line[n++].len = le - ls; }
+        have = true; ls = ws; le = we;   /* a new line starts with this word */
+        size_t u = units(in + ws, we - ws, at, LIMIT);
+        if (u >= LIMIT || measure(ctx, in + ws, (int)(we - ws)) <= max_w) continue;
+        for (size_t s = 0; s < u;) {   /* the word is wider than a line: the longest piece that fits, at least one character */
+            size_t e = s + 1;
+            while (e < u && measure(ctx, in + ws + at[s], (int)(at[e + 1] - at[s])) <= max_w) e++;
+            if (e < u) { if (n < MAXL) { line[n].at = ws + at[s]; line[n++].len = at[e] - at[s]; } }
+            else { ls = ws + at[s]; le = we; }
+            s = e;
+        }
+    }
+    if (have && n < MAXL) { line[n].at = ls; line[n++].len = le - ls; }
+    shown = n < max_lines ? n : max_lines;
+    size_t o = 0;
+    for (int k = 0; k < shown; k++) {
+        size_t l = line[k].len;
+        const char *s = in + line[k].at;
+        char buf[LIMIT + 4];
+        bool ell = k == shown - 1 && n > shown;
+        if (l >= LIMIT) l = LIMIT - 1;
+        if (ell) {   /* the last line that fits: whole characters, then the ellipsis, inside the line */
+            size_t keep = units(s, l, at, LIMIT - 1);
+            for (;;) {
+                size_t b = at[keep];
+                while (b && s[b - 1] == ' ') b--;
+                memcpy(buf, s, b); memcpy(buf + b, "\xE2\x80\xA6", 3);
+                if (keep == 0 || measure(ctx, buf, (int)(b + 3)) <= max_w) { l = b + 3; break; }
+                keep--;
+            }
+            s = buf;
+        }
+        if (k && o + 1 < cap) out[o++] = '\n';
+        for (size_t j = 0; j < l && o + 1 < cap; j++) out[o++] = s[j];
+    }
+    out[o] = 0;
+    return shown;
 }
