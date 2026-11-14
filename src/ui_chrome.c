@@ -290,10 +290,11 @@ static void view_options_menu(cui_placement where) {
     static const char *const KEYS[4] = { "Name", "Size", "Modified", "Type" };
     static const char *const names[Z_COUNT] = { "Details", "List", "Small icons", "Medium icons", "Large icons", "Extra large icons" };
     /* GNOME Files 43's view menu button: the current view's icon and a down chevron (the sliders icon looked like the main menu's settings). */
+    bool open = ui_view_options_open();   /* the popover's id is outside the button's scope below */
     cui_push_id(ui, "view-options-button");
     bool clicked = cui_button(ui, "", .variant = CUI_BUTTON_GHOST, .icon = A.zoom <= Z_LIST ? CUI_ICON_LIST : CUI_ICON_GRID_3X3, .icon_right = CUI_ICON_CHEVRON_DOWN,
-                              .tooltip = "View options", .selected = ui_view_options_open(), .color = chrome_icon_color());
-    cui_pop_id(ui);   /* the popover's id is outside this scope */
+                              .tooltip = "View options", .selected = open, .color = chrome_icon_color());
+    cui_pop_id(ui);
     if (clicked) cui_popover_toggle(ui, "view-options");
     chrome_nodrag_last();
     /* A menu popup, so the arrow keys move a highlight through its rows; the rows scroll in a window too short for all of them. */

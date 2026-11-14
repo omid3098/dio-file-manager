@@ -704,9 +704,16 @@ def inside():
         assert gap >= 8, f'view options sit {gap:.0f} px from the window buttons: {hdr}'
         s0 = a.snap()
         assert s0['zoom'] >= 2, f"the check starts in the grid: {s0['zoom']}"
+        a.snap()
+        spot = ((hdr[4][0] + 4) * g.scale, (hdr[4][1] + 18) * g.scale)   # inside the button, left of its icon
+        closed = pixel(a, *spot)
         a.click(*g.mid(hdr[4]))
         a.until('View options did not open', lambda: a.snap()['popups'] >= 1)
         time.sleep(.4)
+        a.msg(0x200, 0, a.point(600, 500))   # the pointer leaves the button: only the open menu lights it
+        time.sleep(.3)
+        a.snap()
+        assert not near(pixel(a, *spot), closed, 6), f'the view options button is not lit while its menu is open: {closed}'
         x, y, w, h = a.snap()['view_mode']
         assert w > 40 and h > 20, f'no grid/list toggles in the view options menu: {(x, y, w, h)}'
         if os.environ.get('DFM_CHROME_PICTURES'):
