@@ -642,6 +642,7 @@ static void test_snapshot(const char *base) {
     ui_sidebar_snapshot(f);
     ui_popup_snapshot(f);
     ui_default_fm_snapshot(f);
+    ui_view_mode_snapshot(f);
     menu_snapshot(f);
     chrome_snapshot(f);
     fprintf(f, "}"); fclose(f);

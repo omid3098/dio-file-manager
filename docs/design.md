@@ -37,9 +37,13 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 - **Sidebar header:** the main menu button (`menu` icon) at its right end.
 - **Content header:** back and forward on the left; the path bar in the middle (CUI `cui_path_bar`,
   a home icon on the first segment when inside Home, a menu on each chevron; Ctrl+L or a click on
-  the empty part turns it into a text field); on the right a search toggle, a view switch
-  (grid or list) and a view-options menu (sort by name, size, modified or type; reversed order;
-  show hidden files). Its first control is a continuous view-size slider, value 0 to 5: Details at the left, then List,
+  the empty part turns it into a text field); on the right a search toggle and the view-options button.
+  The path bar takes all the width between Forward and Search, less about 32 px of empty header for dragging the window
+  (there is no grid or list button in the header). The view-options button shows the current view's icon (grid or list)
+  and a small down chevron, as GNOME Files 43's view menu button did; it is 66 px wide, not the sliders icon, which looked
+  like the main menu's settings. Its menu (sort by name, size, modified or type; reversed order; show hidden files) opens
+  with the view choice: two linked toggle buttons side by side, grid and list, the current one highlighted. A click switches
+  the view at once and the menu stays open. Next is a continuous view-size slider, value 0 to 5: Details at the left, then List,
   Small icons, Medium icons, Large icons and Extra large icons at the right. The thumb stays wherever it is
   released; it never snaps. The mode name under the slider is the nearest stop, and six ticks only mark the stops.
   The mode (Details, List, icons) switches at the midpoints 0.5, 1.5, 2.5, 3.5 and 4.5, and the new view
@@ -78,13 +82,13 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 - **List stop:** 16 px icons and names in 240 px columns, filled top to bottom then left to right.
   The wheel scrolls sideways. Only visible columns are built. A persistent 6 px horizontal
   scrollbar at the bottom uses the vertical scrollbar's colour and rounded ends, and can be dragged.
-  Columns have 16 px top and bottom space. The header's list button is active in List and Details;
-  the grid button is active at the four icon stops.
+  Columns have 16 px top and bottom space. The menu's list toggle is lit in List and Details;
+  the grid toggle is lit at the four icon stops.
 - **View shortcuts:** Ctrl+wheel and Ctrl+plus/minus move one whole value up or down and glide there in 150 ms
   (cubic ease-out; a new press retargets from the current value); Ctrl+0 glides back to Medium.
   With Windows' "Animation effects" off (or `DFM_TEST_ANIMATIONS=off` in test mode) they jump.
   Wheel events retain their modifier state even when Ctrl is released before the next frame.
-  The grid button (Ctrl+1) returns to the last icon stop; the list button (Ctrl+2) opens Details.
+  The grid toggle (Ctrl+1) returns to the last icon stop; the list toggle (Ctrl+2) opens Details.
   The exact value and the last icon value survive restarts in `%APPDATA%\dio-file-manager\view.txt`
   (`view-v2 <value> <last icon value>`; the older `view-v1` file with whole stops is still read).
   One background writer saves the latest stop and finishes pending writes on exit, so
@@ -110,8 +114,8 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 - **Empty folder:** a large muted folder icon and "Folder is Empty", centred.
 - **Unreadable folder:** a large muted icon, "Unable to access “Name”" and the reason.
 - **Narrow window (< 683 px, GNOME Files 47: max-width 682sp):** the sidebar leaves; a sidebar button appears at the left of the
-  content header and opens it as an overlay. Back, Forward, grid, list and view options move from the header into a bottom bar
-  (46 px, header colours): history on the left, view controls on the right. Back and Forward are never in a menu.
+  content header and opens it as an overlay. Back, Forward and view options move from the header into a bottom bar
+  (46 px, header colours): history on the left, the view-options button (view icon and chevron) on the right. Back and Forward are never in a menu.
 
 ## Behaviour (as in GNOME Files)
 
@@ -226,14 +230,14 @@ The release exe is at most 800 KB (CUI's own hello app is about 250 KB). The bui
 
 - **Drag and resize.** Empty header space is the caption: drag moves the window, double click
   maximizes or restores, right click opens the system menu, Alt+Space too. Every header control
-  (menu, back, forward, path bar or search field, search, grid, list, view options, the job ring)
+  (menu, back, forward, path bar or search field, search, view options, the job ring)
   is marked and never drags. The top 5 px and the corners resize; the other edges resize through
   Windows' own frame, which is only 8 px wide, drawn in the hairline colour (no Windows grey).
 - **Narrow windows.** The window buttons never leave the window (`plan_header` in `src/ui_chrome.c`
-  budgets the content header's width). The path bar shrinks first, from at most 480 px down to 144 px,
-  then the header's actions move into the main menu, lowest priority first: grid and list (Grid View,
-  List View), then search (Search Current Folder). View options stay in the header; Back and Forward never
-  leave it in a wide window. Below 683 px the sidebar is a sheet, Back, Forward and the view controls sit in
+  budgets the content header's width). The path bar takes the free width and shrinks first, down to 144 px,
+  then search moves into the main menu (Search Current Folder). View options stay in the header (the grid and list choice
+  is inside its menu, so nothing else leaves); Back and Forward never
+  leave it in a wide window. Below 683 px the sidebar is a sheet, Back, Forward and view options sit in
   the bottom bar, and the main menu
   button sits in the content header, left of the window buttons. The menu scrolls when the window is
   too short for it. About 32 px of empty header stay for dragging while the path bar is above 144 px.

@@ -76,10 +76,10 @@ class App:
         self.wait_ready()
 
     def header_icon(self, from_right):
-        """Centre (x, y) in points of a header icon on the right: 0 view options, 1 list, 2 grid, 3 search.
+        """Centre (x, y) in points of a header control on the right: 0 view options, 1 search (the view options button is wider: icon and chevron).
         Read from the app's own list of header controls, so a moved icon never lets a click fall on a window button."""
         c = self.snap()['chrome']
-        icons = sorted((r for r in c['nodrag'] if r[1] < 46 and r[0] > 240 and 30 <= r[2] <= 40), key=lambda r: -r[0])
+        icons = sorted((r for r in c['nodrag'] if r[1] < 46 and r[0] > 240 and 30 <= r[2] <= 72), key=lambda r: -r[0])
         assert len(icons) > from_right, f'Header icons: {icons}'
         r = icons[from_right]
         return r[0] + r[2] / 2, r[1] + r[3] / 2

@@ -227,7 +227,7 @@ header control, hit testing agrees with them, the main menu opens where actions 
 it scrolls in a 280 px high window). `DFM_CHROME_PICTURES=<folder>` copies `dark-maximized.png`,
 `<theme>-<width>.png` and the open-menu pictures there. Test mode drops `WM_NCMOUSELEAVE`, like `WM_MOUSELEAVE`, because
 the driver's posted hover is the only pointer. Other suites find the right-hand header icons with
-`App.header_icon(n)` (0 view options, 1 list, 2 grid, 3 search) from the snapshot, not fixed
+`App.header_icon(n)` (0 view options, 1 search; the grid and list toggles are in the open menu, `view_mode` in the snapshot) from the snapshot, not fixed
 coordinates; they exist only in windows wide enough to keep those buttons (from about 750 px). `view_smoke.py`'s 50 ms latency cases fail when other work keeps the CPU at 100%;
 read the load, rerun, and compare with main.
 

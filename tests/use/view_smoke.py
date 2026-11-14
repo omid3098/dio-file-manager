@@ -209,8 +209,14 @@ def inside():
         a.key(107,(17,)); a.until('Keypad plus', lambda: abs(a.snap()['zv'] - 4) < .001)
         a.key(109,(17,)); a.until('Keypad minus', lambda: abs(a.snap()['zv'] - 3) < .001)
         set_stop(a, 4)
-        a.click(*a.header_icon(1)); a.until('Header Details', lambda: abs(a.snap()['zv'] - 0) < .001)
-        a.click(*a.header_icon(2)); a.until('Header last icon', lambda: abs(a.snap()['zv'] - 4) < .12)  # returns to the value the thumb was left on
+        a.click(*a.header_icon(0)); a.until('View options open', lambda: a.snap()['popups'] >= 1); time.sleep(.3)
+        x, y, w, h = a.snap()['view_mode']
+        assert w > 40 and h > 20, f'No grid/list toggles in the view options menu: {(x, y, w, h)}'
+        a.click(x + w * .75, y + h / 2); a.until('Menu list toggle: Details', lambda: abs(a.snap()['zv'] - 0) < .001)
+        assert a.snap()['popups'] >= 1, 'The view options menu closed when the list toggle was clicked'
+        a.click(x + w * .25, y + h / 2); a.until('Menu grid toggle: last icon', lambda: abs(a.snap()['zv'] - 4) < .12)  # returns to the value the thumb was left on
+        assert a.snap()['popups'] >= 1, 'The view options menu closed when the grid toggle was clicked'
+        a.key(27); time.sleep(.2)
         a.key(50,(17,)); a.key(49,(17,))
         assert a.snap()['zoom'] == 4, 'Keyboard last icon'
 

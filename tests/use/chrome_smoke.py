@@ -134,10 +134,10 @@ def inside():
         print(json.dumps(results[-1]), flush=True)
 
     def bottom_bar(a):
-        """The bottom bar's controls left to right: Back, Forward, grid, list, view options (empty when there is no bar)."""
+        """The bottom bar's controls left to right: Back, Forward, view options (empty when there is no bar)."""
         c = a.snap()['chrome']
         h = (c['client'][3] - c['client'][1]) / c['scale']
-        return sorted((r for r in c['nodrag'] if r[1] >= h - 46 and r[1] > 46 and r[2] <= 40), key=lambda r: r[0])
+        return sorted((r for r in c['nodrag'] if r[1] >= h - 46 and r[1] > 46 and r[2] <= 72), key=lambda r: r[0])
 
     def set_client(a, cw, ch):
         """Size the window so its client is cw x ch points (the frame's size is read back and corrected for)."""
@@ -161,7 +161,7 @@ def inside():
         """Back and Forward in the bottom bar take real clicks: Back leaves folder B for A, Forward returns."""
         g = Geo(a)
         bar = bottom_bar(a)
-        assert len(bar) == 5, f'{tag}: bottom bar {bar}'
+        assert len(bar) == 3, f'{tag}: bottom bar {bar}'
         back, fwd = bar[0], bar[1]
         assert back[2] >= 28 and fwd[2] >= 28, f'{tag}: Back or Forward has no hit area {back} {fwd}'
         assert ends_with(a, 'B'), a.snap()['path']
@@ -191,8 +191,8 @@ def inside():
             got = g.hit(a, *g.mid(r))
             assert got == HTCLIENT, f'Header control {r}: {got}'
         assert len([r for r in c['nodrag'] if r[0] < 240]) >= 1, 'Main menu not marked'
-        right = [r for r in c['nodrag'] if r[0] > 240 and 30 <= r[2] <= 40]
-        assert len(right) >= 4, f'Search, grid, list and view-options icons must all be marked: {right}'
+        right = [r for r in c['nodrag'] if r[0] > 240 and 30 <= r[2] <= 72]
+        assert len(right) >= 4, f'Back, Forward, Search and view-options controls must all be marked: {right}'
         assert g.hit(a, 400, 120) == HTCLIENT, 'Client below the header'
         w = c['window']
         mx, my = (w[0] + w[2]) // 2, (w[1] + w[3]) // 2
@@ -331,8 +331,8 @@ def inside():
                 box = tuple(int(v * k) for v in (rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3]))
                 return max(sum(p[:3]) for p in im.convert('RGB').crop(box).getdata())
         g = Geo(a)
-        icons = [r for r in g.c['nodrag'] if r[1] < 46 and r[2] <= 40 and r[3] <= 40]
-        assert len(icons) >= 7, f'Expected the header icon buttons: {icons}'
+        icons = [r for r in g.c['nodrag'] if r[1] < 46 and r[2] <= 72 and r[3] <= 40]
+        assert len(icons) >= 5, f'Expected the header icon buttons: {icons}'
         active = [brightest(r) for r in icons] + [brightest(g.c['buttons'][i]) for i in (0, 1, 2)]
         other = activate_other(a)
         time.sleep(.3)
@@ -419,7 +419,7 @@ def inside():
                 counts[cw] = len(others)
                 bar = bottom_bar(a)
                 if cw < 683:
-                    assert len(bar) == 5, f'{theme} {cw} px: the bottom bar should hold Back, Forward, grid, list and view options: {bar}'
+                    assert len(bar) == 3, f'{theme} {cw} px: the bottom bar should hold Back, Forward and view options: {bar}'
                     assert all(r[0] >= 0 and r[0] + r[2] <= cw + 0.5 for r in bar), f'{theme} {cw} px: bottom bar control outside the window {bar}'
                 else:
                     assert not bar, f'{theme} {cw} px: a wide window has no bottom bar: {bar}'
@@ -453,9 +453,9 @@ def inside():
         return run
 
     def short_menu(a):
-        """The main menu scrolls in the shortest wide window (it is in the sidebar there), so Theme and Show Hidden Files stay reachable."""
+        """The main menu scrolls in the shortest window of the first wide width (it is in the sidebar there), so Theme and Show Hidden Files stay reachable."""
         from PIL import Image, ImageChops
-        set_client(a, 700, 280)
+        set_client(a, 683, 280)
         g = Geo(a)
         c = g.c
         mr = min(r for r in c['nodrag'] if r[1] < 46 and r[2] > 0)
@@ -524,8 +524,8 @@ def inside():
 
     def menu_follows_keyboard(a, theme):
         """S2: in a window too short for the whole menu, the row the arrow keys highlight stays on screen, and Enter picks it.
-        700 px wide: the menu (in the sidebar) scrolls at 280 px high. 360 px wide: the narrow menu is the shortest that fits."""
-        for cw in (700, 360):
+        683 px wide: the menu (in the sidebar) scrolls at 280 px high. 360 px wide: the narrow menu is the shortest that fits."""
+        for cw in (683, 360):   # 683 px: the first wide window, where Search has moved into the menu
             set_client(a, cw, 280)
             g = Geo(a)
             header = [r for r in g.c['nodrag'] if r[1] < 46 and r[2] > 0]
@@ -542,14 +542,14 @@ def inside():
             def step(key, what):
                 a.key(key)
                 a.until(f'{cw} px: the highlighted row is off screen after {what}', visible)
-            if cw == 700:
+            if cw == 683:
                 view = a.snap()['menu_view']
                 assert view[3] == 0, 'The menu view is only reported for a highlighted row'
             step(0x26, 'Up from the top (to the last row)')
             a.snap(f'menu-last-row-highlighted-{cw}')
             view = a.snap()['menu_view']
-            if cw == 700:
-                assert abs(view[3] - 210) < 1, f'The 700 px menu is not held to the window (210 px): it would not need to scroll {view}'
+            if cw == 683:
+                assert abs(view[3] - 210) < 1, f'The 683 px menu is not held to the window (210 px): it would not need to scroll {view}'
             if os.environ.get('DFM_CHROME_PICTURES') and cw == 360:
                 shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'menu-{theme}-360x280-keyboard-last.png')
             for n in range(7):
@@ -581,10 +581,10 @@ def inside():
         set_client(a, 360, 280)
         g = Geo(a)
         bar = bottom_bar(a)
-        assert len(bar) == 5, f'bottom bar {bar}'
+        assert len(bar) == 3, f'bottom bar {bar}'
 
         def open_menu():
-            a.click(*g.mid(bar[4]))
+            a.click(*g.mid(bar[2]))
             a.until('View options did not open', lambda: a.snap()['popups'] >= 1)
             time.sleep(.5)
         open_menu()
@@ -645,7 +645,7 @@ def inside():
             s = a.snap()
             h = client_h(s)
             bar = bottom_bar(a)
-            assert len(bar) == 5, f'{what}: bottom bar {bar}'
+            assert len(bar) == 3, f'{what}: bottom bar {bar}'
             for r in bar:
                 assert r[1] >= 0 and r[1] + r[3] <= h + 0.5, f'{what} folder at 360x280: bottom-bar button {r} reaches below the {h:.1f} px window'
                 assert abs(r[1] + r[3] / 2 - (h - 23)) <= 1.5, f'{what} folder: bottom-bar button {r} is not centred in the 46 px bar of a {h:.1f} px window'
@@ -689,6 +689,51 @@ def inside():
             a.key(0x1B)
             time.sleep(.3)
 
+    def view_menu_modes(a, theme):
+        """The grid and list buttons are gone from the header; the view options menu holds them, switches at once and stays open;
+        the path bar fills the header between Forward and the actions (wider than the old 480 px cap at 1280 px)."""
+        set_client(a, 1280, 800)
+        g = Geo(a)
+        hdr = sorted((r for r in g.c['nodrag'] if r[1] < 46 and r[0] >= 240 and r[2] > 0), key=lambda r: r[0])
+        # Back, Forward, the path bar, Search, view options: no grid and no list button (a 36 px icon button each).
+        assert len(hdr) == 5, f'1280 px header should hold Back, Forward, the path bar, Search and view options only: {hdr}'
+        path = hdr[2]
+        assert path[2] > 480, f'the path bar is only {path[2]:.0f} px wide at 1280 px: {hdr}'
+        assert hdr[4][2] > 40, f'the view options button should be wider than an icon button (view icon and chevron): {hdr[4]}'
+        gap = g.c['buttons'][0][0] - (hdr[4][0] + hdr[4][2])
+        assert gap >= 8, f'view options sit {gap:.0f} px from the window buttons: {hdr}'
+        s0 = a.snap()
+        assert s0['zoom'] >= 2, f"the check starts in the grid: {s0['zoom']}"
+        a.click(*g.mid(hdr[4]))
+        a.until('View options did not open', lambda: a.snap()['popups'] >= 1)
+        time.sleep(.4)
+        x, y, w, h = a.snap()['view_mode']
+        assert w > 40 and h > 20, f'no grid/list toggles in the view options menu: {(x, y, w, h)}'
+        if os.environ.get('DFM_CHROME_PICTURES'):
+            a.snap()
+            shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'view-menu-grid-{theme}-1280.png')
+        a.click(*g.mid((x + w / 2, y, w / 2, h)))   # the right toggle: list
+        a.until('The list toggle did not switch to the list', lambda: a.snap()['zoom'] <= 1)
+        assert a.snap()['popups'] >= 1, 'the menu closed when the list toggle was clicked'
+        time.sleep(.4)
+        if os.environ.get('DFM_CHROME_PICTURES'):
+            a.snap()
+            shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'view-menu-list-{theme}-1280.png')
+        a.click(*g.mid((x, y, w / 2, h)))   # the left toggle: grid
+        a.until('The grid toggle did not switch back to the grid', lambda: a.snap()['zoom'] >= 2)
+        assert a.snap()['popups'] >= 1, 'the menu closed when the grid toggle was clicked'
+        a.key(0x1B)
+        a.until('View options did not close', lambda: a.snap()['popups'] == 0)
+        a.key(50, (17,)); a.until('Ctrl+2 did not switch to the list', lambda: a.snap()['zoom'] <= 1)
+        a.key(49, (17,)); a.until('Ctrl+1 did not switch to the grid', lambda: a.snap()['zoom'] >= 2)
+        set_client(a, 600, 700)
+        if os.environ.get('DFM_CHROME_PICTURES'):
+            a.click(*g.mid(bottom_bar(a)[2]))
+            time.sleep(.5)
+            a.snap()
+            shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'view-menu-narrow-{theme}-600.png')
+            a.key(0x1B)
+
     check('1-hit-testing', hit_testing)
     check('2-drag', drag)
     check('3-double-click', double_click)
@@ -711,6 +756,7 @@ def inside():
         check(f'17-bottom-bar-inside-{theme}', lambda a, t=theme: bottom_bar_inside(a, t), theme)
         check(f'18-search-in-header-{theme}', lambda a, t=theme: search_in_header(a, t), theme)
         check(f'19-menu-switch-{theme}', lambda a, t=theme: menu_switch(a, t), theme)
+        check(f'20-view-menu-modes-{theme}', lambda a, t=theme: view_menu_modes(a, t), theme)
     (WORK / 'results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 
