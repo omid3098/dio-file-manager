@@ -195,3 +195,10 @@ milliseconds after every change and Windows refuses a second opener. The mutex a
 orders the checks; it cannot stop those outside programs. Before this retry, check
 `5-name-conflicts` failed ("No name conflict dialog") whenever such a program was busy: a loop
 that opens the clipboard for 20 ms every 25 ms failed it 3 of 3; with the retry it passed 6 of 6.
+
+Text fields (the path, rename and search fields) copy and paste through the same retry: `ui_text_clipboard`
+in `src/ui_ctxmenu.c` replaces CUI's own clipboard hooks, which try once. When a move ends, the app empties the
+clipboard only if its sequence number is still the one the cut had, checked after the clipboard is open (a program
+that held it meanwhile may have written new data). `actions_smoke.py` checks 8 (a move ends while another program
+holds the clipboard and then writes text: the text stays) and 9 (Ctrl+V in the path field while another program
+still holds the clipboard) fail on the code before these changes.

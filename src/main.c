@@ -10,7 +10,6 @@
 #include <cui/cui_render.h>
 #include "ui.h"
 #include "shell.h"
-#include "clip.h"
 #include "starred.h"
 #include "recent.h"
 #include "ops.h"
@@ -81,21 +80,6 @@ void app_set_theme(int pref) {
     BOOL caption_dark = dark;
     if (FAILED(DwmSetWindowAttribute((HWND)A.hwnd, 20, &caption_dark, sizeof caption_dark)))
         DwmSetWindowAttribute((HWND)A.hwnd, 19, &caption_dark, sizeof caption_dark);
-}
-
-void app_copy_text(const char *utf8) {
-    wchar_t *w = malloc((strlen(utf8) + 1) * sizeof *w);
-    if (!w || !fs_u8_to_w(utf8, w, (int)strlen(utf8) + 1)) { free(w); return; }
-    size_t bytes = (wcslen(w) + 1) * sizeof *w;
-    HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (h && clip_open(NULL)) {
-        memcpy(GlobalLock(h), w, bytes);
-        GlobalUnlock(h);
-        EmptyClipboard();
-        if (!SetClipboardData(CF_UNICODETEXT, h)) GlobalFree(h);
-        CloseClipboard();
-    } else if (h) GlobalFree(h);
-    free(w);
 }
 
 void app_set_search_open(bool open) {
@@ -659,6 +643,7 @@ int main(void) {
     memset(&A, 0, sizeof A);
     A.ui = cui_app_ui(g_app);
     A.hwnd = cui_app_native_window(g_app);
+    ui_text_clipboard(A.ui);
     app_load_view();
     if (o.view >= 0) app_set_view(o.view);
     A.cursor = A.anchor = -1; A.hover = -1; A.last_click_idx = -1;

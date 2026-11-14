@@ -157,8 +157,13 @@ static void start_undo(void) {
     if (InterlockedCompareExchange(&G.undo_state, 1, 0) == 0) G.undo_thread = CreateThread(NULL, 0, undo_proc, NULL, 0, NULL);
 }
 
-static void clear_cut_clipboard(void) {
-    if (clip_open(hwnd())) { EmptyClipboard(); CloseClipboard(); }
+/* Empties the clipboard only if it still holds what this job's cut put there. clip_open may wait while another
+   program has the clipboard, and that program can replace its contents meanwhile, so the check is made once the
+   clipboard is open: nobody can change it from then until CloseClipboard. */
+static void clear_cut_clipboard(DWORD sequence) {
+    if (!clip_open(hwnd())) return;
+    if (GetClipboardSequenceNumber() == sequence) EmptyClipboard();
+    CloseClipboard();
 }
 
 /* The shown folder is the one a copy or move pastes into, or a folder inside it (a pasted folder being filled). */
@@ -182,7 +187,7 @@ static void job_done(file_job *j) {
         snprintf(t, sizeof t, errors > 1 ? "%s: %u problems" : "%s failed", j->title, errors);
         toast_error(t, code, epath);
     }
-    if (kind == OPS_MOVE && !errors && !cancelled && GetClipboardSequenceNumber() == j->clipboard_sequence) clear_cut_clipboard();
+    if (kind == OPS_MOVE && !errors && !cancelled) clear_cut_clipboard(j->clipboard_sequence);
     if (kind == OPS_TRASH && !errors && !cancelled) {
         char t[400];
         if (j->n == 1) snprintf(t, sizeof t, "\xE2\x80\x9C%s\xE2\x80\x9D moved to Trash", j->first);

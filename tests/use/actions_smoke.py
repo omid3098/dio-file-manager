@@ -1,4 +1,4 @@
-"""Seven action checks through Win32 input, on correct/hidden.py's desktop.
+"""Nine action checks through Win32 input, on correct/hidden.py's desktop.
 
 Brokered Open With and Terminal use an explicit stand-in: never activate an
 existing shell/terminal on the user's desktop. Properties uses the real sheet.
@@ -8,8 +8,10 @@ from ctypes import wintypes as W
 import json
 import os
 from pathlib import Path
+import struct
 import subprocess
 import sys
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -104,6 +106,85 @@ def standin():
         else:
             time.sleep(.01)
     return 0
+
+
+def put_cut(path):
+    """Another file manager cuts a file: CF_HDROP plus Preferred DropEffect = move. No window of ours owns the data, so
+    the program that replaces it later does not have to wait for our window (Windows asks the owner to let go first)."""
+    from clipboard_guard import open_clipboard, U, K
+    K.GlobalAlloc.argtypes = [W.UINT, C.c_size_t]
+    K.GlobalAlloc.restype = W.HGLOBAL
+    U.RegisterClipboardFormatW.argtypes = [W.LPCWSTR]
+    def blob(data):
+        h = K.GlobalAlloc(2, len(data))
+        C.memmove(K.GlobalLock(h), data, len(data)); K.GlobalUnlock(h)
+        return h
+    files = blob(struct.pack('<IiiII', 20, 0, 0, 0, 1)+(str(path)+'\0\0').encode('utf-16-le'))
+    effect = blob(struct.pack('<I', 2))
+    open_clipboard(None)
+    try:
+        assert U.EmptyClipboard() and U.SetClipboardData(15, files) and U.SetClipboardData(U.RegisterClipboardFormatW('Preferred DropEffect'), effect), C.get_last_error()
+    finally:
+        U.CloseClipboard()
+
+
+def hold_then_write(hwnd, moved, text):
+    """Another program: holds the clipboard open until the move is done and the app is stuck waiting for it,
+    then replaces the contents with text and closes it."""
+    from clipboard_guard import open_clipboard, U, K   # the wrappers whose argument and result types are set
+    K.GlobalAlloc.argtypes = [W.UINT, C.c_size_t]
+    K.GlobalAlloc.restype = W.HGLOBAL
+    U.SendMessageTimeoutW.argtypes = [W.HWND, W.UINT, W.WPARAM, W.LPARAM, W.UINT, W.UINT, C.POINTER(C.c_size_t)]
+    U.SendMessageTimeoutW.restype = C.c_ssize_t
+    def stuck():  # the app's window thread is inside clip_open's wait and takes no messages
+        r = C.c_size_t()
+        return not U.SendMessageTimeoutW(hwnd, 0, 0, 0, 2, 30, C.byref(r))  # SMTO_ABORTIFHUNG, 30 ms
+    open_clipboard(None)
+    try:
+        end = time.monotonic()+5
+        while not moved():  # the job's worker has moved the file; the window thread now ends the job
+            assert time.monotonic() < end, 'The move did not finish'
+            time.sleep(.005)
+        while not (stuck() and stuck()):
+            assert time.monotonic() < end, 'The app never waited for the clipboard'
+        time.sleep(.05)
+        data = (text+'\0').encode('utf-16-le')
+        h = K.GlobalAlloc(2, len(data))
+        C.memmove(K.GlobalLock(h), data, len(data)); K.GlobalUnlock(h)
+        assert U.EmptyClipboard() and U.SetClipboardData(13, h), C.get_last_error()
+    finally:
+        U.CloseClipboard()
+
+
+def put_text(text, hold=0):
+    """Another program: puts text on the clipboard, and keeps the clipboard open for `hold` seconds before it closes it."""
+    from clipboard_guard import open_clipboard, U, K
+    K.GlobalAlloc.argtypes = [W.UINT, C.c_size_t]
+    K.GlobalAlloc.restype = W.HGLOBAL
+    data = (text+'\0').encode('utf-16-le')
+    h = K.GlobalAlloc(2, len(data))
+    C.memmove(K.GlobalLock(h), data, len(data)); K.GlobalUnlock(h)
+    open_clipboard(None)
+    try:
+        assert U.EmptyClipboard() and U.SetClipboardData(13, h), C.get_last_error()
+        time.sleep(hold)
+    finally:
+        U.CloseClipboard()
+
+
+def clipboard_state(hwnd):
+    """(text or None, a file list is on the clipboard)"""
+    from clipboard_guard import open_clipboard, U, K
+    U.IsClipboardFormatAvailable.argtypes = [W.UINT]
+    open_clipboard(hwnd)
+    try:
+        h = U.GetClipboardData(13)
+        text = None
+        if h:
+            p = K.GlobalLock(h); text = C.wstring_at(p); K.GlobalUnlock(h)
+        return text, bool(U.IsClipboardFormatAvailable(15))
+    finally:
+        U.CloseClipboard()
 
 
 def inside():
@@ -218,6 +299,43 @@ def inside():
                 else:
                     assert not copy.exists()
 
+    def newer_clipboard(a):
+        """A move ends while another program holds the clipboard and then puts its own text there: that text stays."""
+        source, dest = SAND/'source', SAND/'destination'
+        source.mkdir(); dest.mkdir()
+        name = 'same name.txt'
+        (source/name).write_text('incoming', encoding='utf-8')
+        with preserved_clipboard(a.hwnd):
+            put_cut(source/name)
+            assert clipboard_state(a.hwnd)[1], 'The cut did not put the file on the clipboard'
+            (dest/name).write_text('original', encoding='utf-8')
+            a.path(dest); a.key(ord('V'), (17,))
+            a.until('No name conflict dialog', lambda: a.snap()['act'] & 8)  # the move waits here
+            errors = []
+            def other_program():
+                try: hold_then_write(a.hwnd, lambda: (dest/name).read_text(encoding='utf-8') == 'incoming', 'copied elsewhere')
+                except BaseException as e: errors.append(e)
+            hold = threading.Thread(target=other_program)
+            hold.start(); time.sleep(.05)  # the other program has the clipboard open
+            click_rect(a, 4); finished(a); hold.join()
+            assert not errors, ('The other program failed', errors)
+            assert (dest/name).read_text(encoding='utf-8') == 'incoming' and not (source/name).exists(), 'Move did not happen'
+            state = clipboard_state(a.hwnd)
+            assert state == ('copied elsewhere', False), ('The finished move erased the newer clipboard', state)
+
+    def text_paste(a):
+        """Ctrl+V in the path field while another program has just written to the clipboard and still holds it."""
+        source = SAND/'source'
+        source.mkdir()
+        with preserved_clipboard(a.hwnd):
+            a.key(ord('L'), (17,))
+            other = threading.Thread(target=put_text, args=(str(source), .15))
+            other.start(); time.sleep(.05)
+            a.key(ord('V'), (17,)); other.join()
+            a.key(13)
+            s = a.wait_ready()
+            assert s['path'].lower() == str(source).lower(), ('Pasted text did not reach the path field', s['path'])
+
     def permanent(a):
         target = SAND/'action target.txt'
         a.cell(0); a.key(46, (16,))
@@ -281,6 +399,8 @@ def inside():
     check('5-name-conflicts', conflicts)
     check('6-shift-delete', permanent)
     check('7-progress-cancel', progress)
+    check('8-cut-keeps-newer-clipboard', newer_clipboard)
+    check('9-text-field-paste', text_paste)
     (WORK/'actions-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 

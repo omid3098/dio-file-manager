@@ -8,6 +8,56 @@
 #include <math.h>
 #include <string.h>
 #include "ui.h"
+#include "clip.h"
+
+/* The clipboard hooks of CUI's text fields (rename, path, search: Ctrl+C, Ctrl+X, Ctrl+V). CUI's own hooks call
+ * OpenClipboard once and give up when another program holds the clipboard, so a copy or paste was silently
+ * dropped. These do the same work through clip_open, which retries for up to 300 ms. */
+static void text_set_clip(void *user, const char *utf8) {
+    (void)user;
+    int n = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
+    if (n <= 0) return;
+    HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)n * sizeof(WCHAR));
+    if (!mem) return;
+    WCHAR *dst = GlobalLock(mem);
+    if (!dst) { GlobalFree(mem); return; }
+    MultiByteToWideChar(CP_UTF8, 0, utf8, -1, dst, n);
+    GlobalUnlock(mem);
+    if (!clip_open((HWND)A.hwnd)) { GlobalFree(mem); return; }
+    EmptyClipboard();
+    if (!SetClipboardData(CF_UNICODETEXT, mem)) GlobalFree(mem);
+    CloseClipboard();
+}
+
+static const char *text_get_clip(void *user) {
+    static char *cache;   /* valid until the next call, as CUI's hook promises */
+    char *buf = NULL;
+    (void)user;
+    if (!clip_open((HWND)A.hwnd)) return NULL;
+    HANDLE h = GetClipboardData(CF_UNICODETEXT);
+    const WCHAR *src = h ? GlobalLock(h) : NULL;
+    if (src) {
+        int n = WideCharToMultiByte(CP_UTF8, 0, src, -1, NULL, 0, NULL, NULL);
+        if (n > 0 && (buf = malloc((size_t)n)) != NULL) {
+            WideCharToMultiByte(CP_UTF8, 0, src, -1, buf, n, NULL, NULL);
+            char *o = buf;   /* drop carriage returns */
+            for (char *p = buf; *p; p++) if (*p != '\r') *o++ = *p;
+            *o = 0;
+        }
+        GlobalUnlock(h);
+    }
+    CloseClipboard();
+    if (!buf) return NULL;
+    free(cache);
+    return cache = buf;
+}
+
+void ui_text_clipboard(cui_ctx *ui) {
+    cui_platform_iface pi = ui->platform;   /* keep CUI's cursor hook */
+    pi.set_clipboard = text_set_clip;
+    pi.get_clipboard = text_get_clip;
+    cui_set_platform(ui, &pi);
+}
 
 /* CUI 1.4.0 keeps a tooltip's fade state when its header popup opens. */
 void ui_popup_tooltips(cui_ctx *ui) {
