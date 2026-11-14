@@ -7,7 +7,8 @@ enum { DLG_NAME_MAX = 50 };
 
 /* `name` shortened to at most DLG_NAME_MAX characters, cut in the middle with an ellipsis, the extension kept.
    `out` may be `name` itself. A character is a base letter with its combining marks, joiners and variation
-   selectors: they are never cut apart. */
+   selectors: they are never cut apart. A name too long for `cap` bytes loses whole characters the same way,
+   the longer side first, so the ellipsis and the extension stay. */
 void dlg_short_name(const char *name, char *out, size_t cap);
 
 /* The last part of `path` (after the last backslash), shortened as dlg_short_name does. Take a dialog's file name

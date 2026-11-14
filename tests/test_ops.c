@@ -375,6 +375,19 @@ static void dialog_names(void) {
     dlg_short_name(in, out, sizeof out); CHECK(valid_utf8(out) && cps(out) < 160 && strstr(out, "\xE2\x80\xA6"));
     { const char *e = strstr(out, "\xE2\x80\xA6"); CHECK(e && strncmp(e + 3, "\xE2\x80\x8D", 3) && strncmp(e - 3, "\xE2\x80\x8D", 3)); }
     dlg_short_name(in, rep, 20); CHECK(valid_utf8(rep) && strlen(rep) < 20);   /* a small buffer still gets whole characters */
+    {   /* a name of joined emoji is valid on Windows and fills the 260-byte buffer of the delete dialog: it still gets the ellipsis, its extension and whole characters */
+        const char *woman = "\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x92\xBB";   /* woman + joiner + laptop: 11 bytes, one character */
+        char nm[260], big[1200];
+        for (int count = 25; count <= 70; count += 45) {   /* 25 characters of 279 bytes, and 70 characters over the 50 limit */
+            big[0] = 0; for (int i = 0; i < count; i++) cat(big, woman);
+            cat(big, ".txt");
+            dlg_short_name(big, nm, sizeof nm);
+            const char *e = strstr(nm, "\xE2\x80\xA6");
+            CHECK(valid_utf8(nm) && strlen(nm) < sizeof nm && e && !strcmp(nm + strlen(nm) - 4, ".txt"));
+            CHECK(e && (size_t)(e - nm) % 11 == 0 && (strlen(nm) - 4 - (size_t)(e - nm) - 3) % 11 == 0);   /* both sides hold whole characters */
+            CHECK(e && !strncmp(nm, woman, 11) && !strncmp(e - 11, woman, 11) && !strncmp(e + 3, woman, 11));
+        }
+    }
     /* words wider than the line break between characters; nothing else moves */
     dlg_break_words("a \"abcdefghijklmnopqrstuvwxyz\" b", out, sizeof out, 100.0f, mono, NULL);
     CHECK(!strcmp(out, "a \"abcdefghi\njklmnopqrs\ntuvwxyz\" b"));

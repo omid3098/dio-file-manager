@@ -41,11 +41,12 @@ static size_t units(const char *s, size_t len, size_t *at, size_t cap) {
     return n;
 }
 
-static void copy_cut(const char *name, size_t len, char *out, size_t cap) {
-    size_t c = len < cap - 1 ? len : cap - 1;
-    while (c && c < len && ((unsigned char)name[c] & 0xC0) == 0x80) c--;   /* a small buffer still gets whole characters */
-    memmove(out, name, c);
-    out[c] = 0;
+/* The prefix of `name` that fits `cap` bytes, in whole characters. `at` holds the `n` character starts. */
+static void copy_fit(const char *name, const size_t *at, size_t n, char *out, size_t cap) {
+    size_t u = n;
+    while (u && at[u] > cap - 1) u--;
+    memmove(out, name, at[u]);
+    out[at[u]] = 0;
 }
 
 void dlg_short_name(const char *name, char *out, size_t cap) {
@@ -55,13 +56,21 @@ void dlg_short_name(const char *name, char *out, size_t cap) {
     size_t len = strlen(name);
     if (len > LIMIT) len = LIMIT;
     size_t n = units(name, len, at, LIMIT);
-    if (n <= DLG_NAME_MAX) { copy_cut(name, len, out, cap); return; }
+    if (n <= DLG_NAME_MAX && len <= cap - 1) { memmove(out, name, len); out[len] = 0; return; }
+    if (cap < 4) { copy_fit(name, at, n, out, cap); return; }   /* no room for the ellipsis */
     size_t ext = 0;   /* characters of the extension, with its dot */
     for (size_t u = n; u-- > 1;) if (name[at[u]] == '.') { ext = n - u; break; }
-    size_t tail = ext > 24 ? (ext < 30 ? ext : 30) : 24;
-    size_t head = DLG_NAME_MAX - 1 - tail;
+    size_t keep = ext < 30 ? ext : 30;   /* the extension is the last thing to give up */
+    size_t tail = ext > 24 ? keep : 24, head = DLG_NAME_MAX - 1 - tail;
+    if (tail > n - 1) tail = n - 1;
+    if (head > n - 1 - tail) head = n - 1 - tail;   /* a name of few characters but many bytes: it still loses at least one */
+    /* Over the byte capacity: the longer side loses whole characters first, the extension last. */
+    while (at[head] + 3 + (len - at[n - tail]) > cap - 1 && (head || tail)) {
+        size_t spare = tail > keep ? at[n - keep] - at[n - tail] : 0;   /* bytes of the tail before the extension */
+        if (head && at[head] >= spare) head--;
+        else tail--;
+    }
     size_t hb = at[head], tb = at[n - tail];
-    if (hb + 3 + (len - tb) > cap - 1) { copy_cut(name, len, out, cap); return; }
     memmove(out + hb + 3, name + tb, len - tb);   /* `out` may be `name` itself: the tail moves first */
     memcpy(out + hb, "\xE2\x80\xA6", 3);
     memmove(out, name, hb);
