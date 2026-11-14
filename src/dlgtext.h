@@ -24,6 +24,10 @@ void dlg_short_leaf(const char *path, char *out, size_t cap);
    a toast keeps its words and its name stays valid UTF-8. */
 void dlg_quoted_leaf(const char *path, const char *tail, char *out, size_t cap);
 
+/* `path` as a toast description: whole when it fits `cap` bytes, else shortened in the middle (dlg_short_name) so its end
+   stays and no character is cut apart. Give it DLG_TOAST_DESC_CAP; CUI would cut a longer path at a byte. */
+void dlg_path_fit(const char *path, char *out, size_t cap);
+
 /* Width in pixels of the first `len` bytes of `s`. */
 typedef float (*dlg_measure_fn)(void *ctx, const char *s, int len);
 

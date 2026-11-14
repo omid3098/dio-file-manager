@@ -83,6 +83,11 @@ void dlg_short_leaf(const char *path, char *out, size_t cap) {
     dlg_short_name(l ? l + 1 : path, out, cap);   /* straight from the path: no buffer in between can cut the name */
 }
 
+void dlg_path_fit(const char *path, char *out, size_t cap) {
+    if (strlen(path) < cap) memmove(out, path, strlen(path) + 1);
+    else dlg_short_name(path, out, cap);
+}
+
 void dlg_quoted_leaf(const char *path, const char *tail, char *out, size_t cap) {
     enum { QUOTES = 6 };   /* two curly quotes of 3 bytes */
     size_t room = strlen(tail) + QUOTES + 1;

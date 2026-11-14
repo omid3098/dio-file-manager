@@ -375,7 +375,11 @@ void ui_content_header(void) {
             else if (pr.clicked == n - 1) app_reload();
             if (pr.submitted && pr.submitted[0]) {
                 if (fs_is_dir(pr.submitted)) app_navigate(pr.submitted);
-                else cui_toast(ui, "That folder does not exist", .description = pr.submitted, .tone = CUI_TONE_WARNING);
+                else {
+                    char d[DLG_TOAST_DESC_CAP];   /* CUI keeps 255 bytes of a description */
+                    dlg_path_fit(pr.submitted, d, sizeof d);
+                    cui_toast(ui, "That folder does not exist", .description = d, .tone = CUI_TONE_WARNING);
+                }
             }
             int seg;
             if (cui_path_bar_menu_begin(ui, "pathbar", &seg)) {

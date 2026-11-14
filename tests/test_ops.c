@@ -406,6 +406,16 @@ static void dialog_names(void) {
         dlg_quoted_leaf(nm, words, desc, sizeof desc);
         CHECK(strlen(desc) < sizeof desc && valid_utf8(desc));
     }
+    {   /* a typed or full path of Persian folders (200+ characters) as a toast description: 255 bytes of whole characters, its last folder kept */
+        char path[1200] = "D:", d[DLG_TOAST_DESC_CAP];
+        for (int i = 0; i < 20; i++) cat(path, "\\\xD9\xBE\xD9\x88\xD8\xB4\xD9\x87\x5F\xD8\xAC\xD8\xB2\xD8\xA7\xD8\xB1\xD8\xB4\xD9\x87\xD8\xA7");
+        cat(path, "\\\xD8\xA2\xD8\xAE\xD8\xB1\xDB\x8C\xD9\x86\x5F\xD9\xBE\xD9\x88\xD8\xB4\xD9\x87");   /* the last folder */
+        const char *last = strrchr(path, '\\') + 1;
+        CHECK(cps(path) > 200);
+        dlg_path_fit(path, d, sizeof d);
+        CHECK(strlen(d) < sizeof d && valid_utf8(d) && strstr(d, "\xE2\x80\xA6") && !strncmp(d, "D:", 2) && !strcmp(d + strlen(d) - strlen(last), last));
+        dlg_path_fit("D:\\short\\folder", d, sizeof d); CHECK(!strcmp(d, "D:\\short\\folder"));   /* a path that fits stays whole */
+    }
     {   /* the status-bar pill ("name" selected (size)) for the same 140-character name: whole characters, its words kept */
         char nm[600], pill[400];
         nm[0] = 'a'; nm[1] = 0; for (int i = 0; i < 140; i++) cat(nm, "中"); cat(nm, ".txt");

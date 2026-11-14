@@ -13,6 +13,7 @@
 #include "starred.h"
 #include "recent.h"
 #include "ops.h"
+#include "dlgtext.h"
 #include "clip.h"
 #include "defaultfm.h"
 
@@ -271,7 +272,12 @@ void app_navigate(const char *target) {
         size_t l = strlen(entry);
         while (l > 3 && entry[l - 1] == '\\') entry[--l] = 0;
         if (l == 2 && entry[1] == ':') { entry[2] = '\\'; entry[3] = 0; }
-        if (!fs_is_dir(entry)) { cui_toast(A.ui, "That folder does not exist", .description = entry, .tone = CUI_TONE_WARNING); return; }
+        if (!fs_is_dir(entry)) {
+            char d[DLG_TOAST_DESC_CAP];   /* CUI keeps 255 bytes of a description */
+            dlg_path_fit(entry, d, sizeof d);
+            cui_toast(A.ui, "That folder does not exist", .description = d, .tone = CUI_TONE_WARNING);
+            return;
+        }
     }
     push_history(entry);
     load_entry(entry);
@@ -351,7 +357,11 @@ void app_open_vis(int i) {
     app_path_of(i, p, sizeof p);
     if (app_item(i)->flags & FS_DIR) { app_navigate(p); return; }
     HRESULT hr = shell_open((HWND)A.hwnd, p);
-    if (FAILED(hr)) cui_toast(A.ui, "Could not open the file", .description = p, .tone = CUI_TONE_DANGER);
+    if (FAILED(hr)) {
+        char d[DLG_TOAST_DESC_CAP];
+        dlg_path_fit(p, d, sizeof d);
+        cui_toast(A.ui, "Could not open the file", .description = d, .tone = CUI_TONE_DANGER);
+    }
 }
 
 
