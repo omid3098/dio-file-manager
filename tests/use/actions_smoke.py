@@ -128,12 +128,13 @@ def put_cut(path):
         U.CloseClipboard()
 
 
-def hold_then_write(base, ready, clicked, text):
+def hold_then_write(base, ready, text):
     """Another program: holds the clipboard open, then replaces its contents with text, in a fixed order with the app.
-    It arms the app's test handshake (two named events, DFM_TEST_CLIP_HANDSHAKE) and sets `ready`. After the click it
-    waits for "blocked", which the app sets at its first refused OpenClipboard, so the app is certainly waiting for us.
-    It then writes and closes the clipboard and sets "released", and the app goes on. No timing is guessed: every wait
-    is for a signal and is bounded."""
+    It arms the app's test handshake (three named events, DFM_TEST_CLIP_HANDSHAKE) and sets `ready`. It then waits for
+    "blocked", which the app sets at its first refused OpenClipboard, so the app is certainly waiting for us. It writes
+    and closes the clipboard and sets "released", and the app goes on. If the app's wait for "released" ran out, it sets
+    "timedout" and this fails: then the app did not wait for the write, and the check proves nothing. No timing is
+    guessed: every wait is for a signal and is bounded."""
     from clipboard_guard import open_clipboard, U, K   # the wrappers whose argument and result types are set
     K.GlobalAlloc.argtypes = [W.UINT, C.c_size_t]
     K.GlobalAlloc.restype = W.HGLOBAL
@@ -143,15 +144,15 @@ def hold_then_write(base, ready, clicked, text):
     K.CloseHandle.argtypes = [W.HANDLE]
     K.WaitForSingleObject.argtypes = [W.HANDLE, W.DWORD]
     K.WaitForSingleObject.restype = W.DWORD
-    blocked = released = None
+    blocked = released = timedout = None
     try:
         open_clipboard(None)
         try:
             blocked = K.CreateEventW(None, True, False, base+'-blocked')
             released = K.CreateEventW(None, True, False, base+'-released')
-            assert blocked and released, C.get_last_error()
+            timedout = K.CreateEventW(None, True, False, base+'-timedout')
+            assert blocked and released and timedout, C.get_last_error()
             ready.set()
-            assert clicked.wait(20), 'The check never clicked'
             # the click, the move and the window thread reaching the clipboard: a loaded machine can take seconds
             assert K.WaitForSingleObject(blocked, 30000) == 0, 'The app never waited for the clipboard'
             data = (text+chr(0)).encode('utf-16-le')
@@ -161,9 +162,10 @@ def hold_then_write(base, ready, clicked, text):
         finally:
             U.CloseClipboard()
             if released: K.SetEvent(released)   # always let the app go on, also when this program failed
+        assert K.WaitForSingleObject(timedout, 0) != 0, 'The app gave up waiting for the clipboard write: the order is not proven'
     finally:
         ready.set()
-        for e in (blocked, released):
+        for e in (blocked, released, timedout):
             if e: K.CloseHandle(e)
 
 
@@ -323,17 +325,21 @@ def inside():
             (dest/name).write_text('original', encoding='utf-8')
             a.path(dest); a.key(ord('V'), (17,))
             a.until('No name conflict dialog', lambda: a.snap()['act'] & 8)  # the move waits here
-            errors, ready, clicked = [], threading.Event(), threading.Event()
+            errors, ready = [], threading.Event()
             def other_program():
-                try: hold_then_write(os.environ['DFM_TEST_CLIP_HANDSHAKE'], ready, clicked, 'copied elsewhere')
+                try: hold_then_write(os.environ['DFM_TEST_CLIP_HANDSHAKE'], ready, 'copied elsewhere')
                 except BaseException as e: errors.append(e)
             hold = threading.Thread(target=other_program)
             hold.start()
             assert ready.wait(20), 'The other program did not get the clipboard'
             assert not errors, ('The other program failed', errors)
-            try: click_rect(a, 4)
-            finally: clicked.set()
-            finished(a); hold.join()
+            click_rect(a, 4)
+            try: finished(a)
+            except Exception:
+                hold.join()   # when the other program failed, that is the cause: report it, not the stuck window
+                assert not errors, ('The other program failed', errors)
+                raise
+            hold.join()
             assert not errors, ('The other program failed', errors)
             assert (dest/name).read_text(encoding='utf-8') == 'incoming' and not (source/name).exists(), 'Move did not happen'
             state = clipboard_state(a.hwnd)

@@ -17,16 +17,28 @@ static wchar_t hs_base[160];
 #define HS_WAIT_MS 5000
 /* The check arms this by creating two events, <base>-blocked and <base>-released, while its other program holds the
    clipboard. The first refused OpenClipboard then signals "blocked" and waits (at most HS_WAIT_MS) for "released",
-   which the other program sets after it has written and closed the clipboard. Used once; TRUE when it ran. */
+   which the other program sets after it has written and closed the clipboard. When "released" does not come in time,
+   the app sets <base>-timedout (if the other program created it), so the check fails instead of passing by luck.
+   Used once; TRUE when it ran. */
 static BOOL hs_run(void) {
     wchar_t name[200];
     HANDLE blocked, released;
     BOOL ran = FALSE;
+    wchar_t base[160];
+    wcscpy_s(base, 160, hs_base);
     swprintf(name, 200, L"%ls-blocked", hs_base);
     blocked = OpenEventW(EVENT_MODIFY_STATE, FALSE, name);
     swprintf(name, 200, L"%ls-released", hs_base);
     released = OpenEventW(SYNCHRONIZE, FALSE, name);
-    if (blocked && released) { hs_base[0] = 0; SetEvent(blocked); WaitForSingleObject(released, HS_WAIT_MS); ran = TRUE; }
+    if (blocked && released) {
+        hs_base[0] = 0; SetEvent(blocked); ran = TRUE;
+        if (WaitForSingleObject(released, HS_WAIT_MS) != WAIT_OBJECT_0) {
+            HANDLE timedout;
+            swprintf(name, 200, L"%ls-timedout", base);
+            timedout = OpenEventW(EVENT_MODIFY_STATE, FALSE, name);
+            if (timedout) { SetEvent(timedout); CloseHandle(timedout); }
+        }
+    }
     if (blocked) CloseHandle(blocked);
     if (released) CloseHandle(released);
     return ran;
