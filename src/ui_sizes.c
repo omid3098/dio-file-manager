@@ -64,7 +64,7 @@ void sizes_selection(uint64_t *bytes, bool *pending) {
         join(app_item_name(i), p, sizeof p);
         int r = fsz_get(p, &v);
         if (r == FSZ_DONE) { *bytes += v; if (fsz_stale(p)) *pending = true; }   /* the last size counts while a new one is measured */
-        else if (r != FSZ_DENIED) *pending = true;
+        else if (r != FSZ_DENIED || fsz_stale(p)) *pending = true;   /* an unreadable folder being tried again still shows the indicator */
     }
     c.key = key; c.ver = ver; c.list = A.list; c.vis_n = A.vis_n; c.n = n; c.bytes = *bytes; c.pending = *pending;
 }
