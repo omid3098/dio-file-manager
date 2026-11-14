@@ -587,8 +587,9 @@ void defaultfm_sync(void) {
     if (!dfm_get_string(HKEY_CURRENT_USER, state_base, L"App", app, MAX_PATH) || !same_path(app, self)) return;
     wchar_t args[520] = L"";
     dfm_get_string(HKEY_CURRENT_USER, state_base, L"Args", args, 520);
+    if (!any_ours()) return;   /* recovery state alone (a turn-off whose restore failed): the running Win+E process keeps its launcher, nothing is registered */
     refresh_launcher_later(self, launcher, args);
-    if (any_ours()) register_missing(launcher, args);   /* recovery state alone, without a command of ours, registers nothing */
+    register_missing(launcher, args);
 }
 
 /* ---- the requests ---- */
