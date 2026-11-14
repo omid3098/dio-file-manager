@@ -188,17 +188,23 @@ the loop guard, the app exe gone, the exe moved, the real click in the main menu
 (denied write: record and launcher stay, turning off fails, a retry restores), a saved value that cannot be read
 (denied read: turning off fails and keeps everything), Win+E that cannot be written back while Folder can (the
 switch stays on, a turn-on does not replace the record, the retry restores), another program's class that survives
-turning off, and long Unicode folder and file names. Win+E (checks 16 to 22): the process starts on turn-on and
-ends on turn-off, the Run entry and `DisabledHotkeys` are written and removed (an absent value, letters, an expand
+turning off, and long Unicode folder and file names. Win+E (checks 16 to 24): the process starts on turn-on and
+the Run entry and `DisabledHotkeys` are written and removed (an absent value, letters, an expand
 type, and a value that already has E all come back exactly), a posted `WM_HOTKEY` opens a window, the process says
 `1409` while another program holds the hotkey and takes it after `TaskbarCreated`, an install made before the
 process existed gets it at the first start, an update while the process runs from the launcher (the launcher
-becomes the new build, the process restarts from it, a turn-on from a newer build works too), the app gone, and the
+becomes the new build, the process restarts from it, a turn-on from a newer build works too), the app gone (check 21: the process stays on and
+opens the stand-in Explorer), and, after a turn-off while the process holds the hotkey (check 23), a posted
+`WM_HOTKEY` starts the stand-in Explorer while the registry is already restored, `TaskbarCreated` ends the process
+and frees the hotkey, and the sign-in cleanup (the RunOnce command run by the check) deletes the redirected launcher;
+check 24 turns it on again while the bridge runs (the cleanup entry goes, a fresh process opens the app, a cleanup
+that still fires leaves the launcher alone). The helper `off()` in the checks lets Explorer restart and the sign-in
+happen after a turn-off, so the checks before 23 see the end state. The
 budgets (working set at most 5 MB, idle CPU 0, a posted Win+E at most 50 ms slower than a plain launcher start; the
 numbers are printed). In a check the process holds Win+Ctrl+Alt+Shift+F23, because Win+E belongs to the real
 Explorer on every desktop of the session. The real `DisabledHotkeys` and Run value are read-only compared after
 each check. `DFM_CPU_BUDGET=1` also runs `cpu_budget.py --max 0` on the process (2.5 minutes). `USE_ONLY` takes
-comma-separated name prefixes. 22 checks.
+comma-separated name prefixes. 24 checks.
 
 `use/default_fm_real.py` is not a `*_smoke.py`: run it by hand. It runs `gaming.py check`, backs up the three real
 key trees, turns the switch on with `--test-state` (so opened places are only logged), calls `ShellExecuteEx`

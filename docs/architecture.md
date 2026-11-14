@@ -148,11 +148,16 @@ until restoration finishes (including nested checks and exception paths).
   `Local\DioFmResident`). `resident_keys_set` saves `DisabledHotkeys` once (`State\Saved\DisabledHotkeys`:
   `Existed`, `Type`, `Value`; an existing record is never replaced), appends E and writes the Run value;
   `resident_keys_restore` puts the saved value back exactly and removes the Run value. `defaultfm_enable` stops a
-  running process before it replaces a different launcher, then sets the keys and starts the process;
-  `defaultfm_disable` restores the keys with the rest and stops the process before it deletes the launcher. The
-  launcher refresh thread does the same around the copy: stop, copy over, keys, start. In a check, `--test-state`
-  redirects `Advanced` and `Run` next to `Classes` and `State`, the process logs to `BASE.resident` (`pid`,
-  `hotkey-ok`, `hotkey-busy <error>`, `taskbar-created`, `hotkey-open`, `hotkey-gone`) and takes
+  running process before it replaces a different launcher (a bridge left over from a turn-off is ended first, and
+  the pending cleanup entry is dropped), then sets the keys and starts the process;
+  `defaultfm_disable` restores the keys with the rest, then calls `resident_release`: a process that holds Win+E
+  stays on as a bridge (it sends `MSG_RELEASE` to the hidden window) that opens Explorer on Win+E and ends at
+  `TaskbarCreated`, and the launcher is then deleted by `RunOnce` -> `--cleanup-launcher` at the next sign-in
+  (`defaultfm_cleanup_main`, run from `main()` before any UI); a process that never held it is stopped and the
+  launcher deleted at once. The launcher refresh thread stops, copies over, sets the keys and starts. In a check,
+  `--test-state` redirects `Advanced`, `Run` and `RunOnce` next to `Classes` and `State`, the process logs to
+  `BASE.resident` (`pid`, `hotkey-ok`, `hotkey-busy <error>`, `taskbar-created`, `hotkey-open`, `hotkey-gone`,
+  `bridge`, `bridge-open`, `bridge-exit`) and takes
   Win+Ctrl+Alt+Shift+F23 instead of Win+E.
 - Requests: `defaultfm_request` turns the arguments into a folder (with an optional name to select), a place
   (Recent, Trash, This PC), Home or a fallback. The shell sends `C:\` as `"C:\"`, which arrives as `C:"`; trailing quotes are removed.

@@ -713,6 +713,7 @@ int main(void) {
     dfm_request rq;
     int rrc;
     if (resident_main(&rrc)) return rrc;                              /* the Win+E process: no window, no CUI */
+    if (defaultfm_cleanup_main(&rrc)) return rrc;                     /* RunOnce after a turn-off: delete the launcher, no window */
     memset(&rq, 0, sizeof rq);
     if (defaultfm_is_launcher()) return defaultfm_launcher_main();   /* the registered command: no window, no CUI */
     memset(&o, 0, sizeof o);

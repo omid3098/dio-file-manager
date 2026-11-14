@@ -16,9 +16,11 @@ enum { LOC_RECENT_ = 1, LOC_TRASH_ = 3, LOC_OTHER_ = 4 };   /* the values of LOC
 
 static bool test_on;
 static wchar_t test_log[MAX_PATH + 16], test_res_log[MAX_PATH + 16];
-static wchar_t classes_base[260], state_base[260], adv_base[260], run_base[260], local_dir[MAX_PATH];
+static wchar_t classes_base[260], state_base[260], adv_base[260], run_base[260], runonce_base[260], local_dir[MAX_PATH];
+static wchar_t test_arg[MAX_PATH];   /* the --test-state text: a check's sign-in cleanup command carries it */
 
 static const wchar_t *LAUNCHER_NAME = L"dio-file-manager-launcher.exe";
+static const wchar_t *CLEANUP_VALUE = L"Dio File Manager launcher cleanup";   /* RunOnce: deletes the launcher at the next sign-in */
 static const wchar_t *WIN_E = L"{52205fd8-5dfb-447d-801a-d0b52f2e83e1}";
 
 /* The keys the registration writes, under HKCU\Software\Classes. */
@@ -41,11 +43,13 @@ static void paths(void) {
         _snwprintf_s(state_base, 260, _TRUNCATE, L"%s\\State", root);
         _snwprintf_s(adv_base, 260, _TRUNCATE, L"%s\\Advanced", root);
         _snwprintf_s(run_base, 260, _TRUNCATE, L"%s\\Run", root);
+        _snwprintf_s(runonce_base, 260, _TRUNCATE, L"%s\\RunOnce", root);
     } else {
         wcscpy_s(classes_base, 260, L"Software\\Classes");
         wcscpy_s(state_base, 260, L"Software\\Dio File Manager\\DefaultFileManager");
         wcscpy_s(adv_base, 260, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced");
         wcscpy_s(run_base, 260, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+        wcscpy_s(runonce_base, 260, L"Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce");
     }
     DWORD n = 0;
     if (test_on) n = GetEnvironmentVariableW(L"DFM_TEST_LOCAL", local_dir, MAX_PATH);
@@ -58,6 +62,7 @@ static void paths(void) {
 
 void defaultfm_test_mode(const wchar_t *state_base_path) {
     test_on = state_base_path && state_base_path[0];
+    wcsncpy_s(test_arg, MAX_PATH, test_on ? state_base_path : L"", _TRUNCATE);
     if (test_on) {
         _snwprintf_s(test_log, MAX_PATH + 16, _TRUNCATE, L"%s.opened", state_base_path);
         _snwprintf_s(test_res_log, MAX_PATH + 16, _TRUNCATE, L"%s.resident", state_base_path);
@@ -405,6 +410,8 @@ static bool copy_launcher(const wchar_t *self, const wchar_t *launcher) {
     return same_size(self, launcher);    /* a launcher in use is the same program */
 }
 
+static void clear_cleanup_entry(void);
+
 bool defaultfm_enable(const wchar_t *extra_args) {
     wchar_t self[MAX_PATH], launcher[MAX_PATH];
     paths();
@@ -428,6 +435,8 @@ bool defaultfm_enable(const wchar_t *extra_args) {
     bool ok = dfm_set_string(state, L"App", self) && dfm_set_string(state, L"Launcher", launcher) &&
               dfm_set_string(state, L"Args", extra_args ? extra_args : L"");
     RegCloseKey(state);
+    clear_cleanup_entry();      /* the launcher is in use again */
+    resident_end_bridge();      /* a process left over from a turn-off is replaced by a fresh one below */
     if (ok && !same_content(self, launcher)) resident_stop();   /* a running launcher cannot be replaced */
     ok = ok && copy_launcher(self, launcher) && write_commands(launcher, extra_args);
     ok = ok && resident_keys_set(launcher, extra_args ? extra_args : L"");
@@ -436,12 +445,79 @@ bool defaultfm_enable(const wchar_t *extra_args) {
     return ok;
 }
 
+/* The launcher copy is deleted when nothing runs from it. A running process keeps it alive: that deletion waits for
+ * the next sign-in (a RunOnce entry that starts this app with --cleanup-launcher, which has no window). */
+static bool remove_launcher(wchar_t *launcher) {
+    const wchar_t *base = wcsrchr(launcher, L'\\');
+    if (!base || _wcsicmp(base + 1, LAUNCHER_NAME) || defaultfm_is_launcher() || !DeleteFileW(launcher)) return false;
+    wchar_t part[MAX_PATH + 8];
+    _snwprintf_s(part, MAX_PATH + 8, _TRUNCATE, L"%s.new", launcher);
+    DeleteFileW(part);
+    launcher[base - launcher] = 0;
+    RemoveDirectoryW(launcher);                  /* only when nothing else is in it */
+    return true;
+}
+
+static bool write_cleanup_entry(const wchar_t *app) {
+    wchar_t cmd[1200];
+    HKEY k;
+    bool ok;
+    if (test_on && test_arg[0]) _snwprintf_s(cmd, 1200, _TRUNCATE, L"\"%s\" --cleanup-launcher --test-state \"%s\"", app, test_arg);
+    else _snwprintf_s(cmd, 1200, _TRUNCATE, L"\"%s\" --cleanup-launcher", app);
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, runonce_base, 0, NULL, 0, KEY_SET_VALUE, NULL, &k, NULL)) return false;
+    ok = dfm_set_string(k, CLEANUP_VALUE, cmd);
+    RegCloseKey(k);
+    return ok;
+}
+
+static void clear_cleanup_entry(void) {
+    HKEY k;
+    paths();
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, runonce_base, 0, KEY_SET_VALUE, &k)) return;
+    RegDeleteValueW(k, CLEANUP_VALUE);
+    RegCloseKey(k);
+}
+
+static bool cleanup_pending(void) {
+    wchar_t c[8];
+    DWORD n = sizeof c;
+    HKEY k;
+    LONG r;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, runonce_base, 0, KEY_QUERY_VALUE, &k)) return false;
+    r = RegQueryValueExW(k, CLEANUP_VALUE, NULL, NULL, (BYTE *)c, &n);
+    RegCloseKey(k);
+    return r == 0 || r == ERROR_MORE_DATA;
+}
+
+/* The Win+E process ended after a turn-off (Explorer restarted): when no sign-in cleanup is waiting for the launcher
+ * (the app was gone, so there was nothing to run it with), the launcher removes itself. */
+void defaultfm_bridge_ended(void) {
+    paths();
+    if (!defaultfm_enabled() && !cleanup_pending()) defaultfm_delete_self_later();
+}
+
+/* Sign-in cleanup, started by RunOnce: delete the launcher when the switch is still off and nothing runs from it. */
+bool defaultfm_cleanup_main(int *rc) {
+    int argc = 0;
+    wchar_t **argv, launcher[MAX_PATH];
+    if (!wcsstr(GetCommandLineW(), L"--cleanup-launcher")) return false;
+    argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) return false;
+    if (argc < 2 || wcscmp(argv[1], L"--cleanup-launcher")) { LocalFree(argv); return false; }
+    for (int i = 2; i + 1 < argc; i++) if (!wcscmp(argv[i], L"--test-state")) defaultfm_test_mode(argv[i + 1]);
+    LocalFree(argv);
+    *rc = 0;
+    paths();
+    if (!defaultfm_enabled() && !resident_running() && dfm_launcher_path(launcher, MAX_PATH)) remove_launcher(launcher);
+    return true;
+}
+
 /* Nothing is thrown away until every target is back: a failed restore keeps the record and the launcher the
  * registered commands point to, and the next turn-off tries again. Every registry error except "not there" is a
  * failed restore; the record is only trusted or replaced by a restore that finished. */
 bool defaultfm_disable(void) {
     HKEY state, saved;
-    wchar_t launcher[MAX_PATH] = L"";
+    wchar_t launcher[MAX_PATH] = L"", app[MAX_PATH] = L"";
     bool ok = true;
     LONG r;
     paths();
@@ -450,6 +526,7 @@ bool defaultfm_disable(void) {
     else {
         DWORD type, n = sizeof launcher - sizeof *launcher;
         if (RegQueryValueExW(state, L"Launcher", NULL, &type, (BYTE *)launcher, &n) || type != REG_SZ) launcher[0] = 0;
+        dfm_get_string(HKEY_CURRENT_USER, state_base, L"App", app, MAX_PATH);
         r = RegOpenKeyExW(state, L"Saved", 0, KEY_READ, &saved);
         if (!r) {
             for (int i = TARGETS - 1; i >= 0; i--) ok = restore_target(saved, i) && ok;
@@ -459,15 +536,13 @@ bool defaultfm_disable(void) {
     }
     ok = resident_keys_restore() && ok;
     if (!ok || any_ours()) return false;
-    resident_stop();                                     /* a running exe cannot be deleted */
-    const wchar_t *base = wcsrchr(launcher, L'\\');      /* the copy goes too; a running one stays */
-    if (base && !_wcsicmp(base + 1, LAUNCHER_NAME) && !defaultfm_is_launcher() && DeleteFileW(launcher)) {
-        wchar_t part[MAX_PATH + 8];
-        _snwprintf_s(part, MAX_PATH + 8, _TRUNCATE, L"%s.new", launcher);
-        DeleteFileW(part);
-        launcher[base - launcher] = 0;
-        RemoveDirectoryW(launcher);                  /* only when nothing else is in it */
-    }
+    /* Explorer reads DisabledHotkeys only when it starts, so when it started with E in it, Win+E has no owner now.
+     * The Win+E process that holds the hotkey stays on as a bridge (it opens Explorer on Win+E) until Explorer
+     * restarts; a process that does not hold it ends. The launcher goes at once, or at the next sign-in. */
+    if (!resident_release()) {
+        resident_stop();                                 /* a running exe cannot be deleted */
+        remove_launcher(launcher);                       /* the copy goes too; a running one stays */
+    } else if (app[0] && GetFileAttributesW(app) != INVALID_FILE_ATTRIBUTES) write_cleanup_entry(app);
     r = RegDeleteTreeW(HKEY_CURRENT_USER, state_base);
     if (r && !dfm_is_missing(r)) return false;           /* the record stays, so the switch still reads as waiting */
     if (!wcscmp(state_base, L"Software\\Dio File Manager\\DefaultFileManager")) RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\Dio File Manager");
@@ -682,26 +757,42 @@ static bool guard_allows(const wchar_t *cmd) {
     return true;
 }
 
-bool defaultfm_fallback(wchar_t **args, int n) {
-    wchar_t cmd[4096], windir[MAX_PATH], stand_in[1024];
-    if (!GetWindowsDirectoryW(windir, MAX_PATH)) return false;
-    _snwprintf_s(cmd, 4096, _TRUNCATE, L"\"%s\\explorer.exe\"", windir);
-    for (int i = 0; i < n; i++) add_arg(cmd, 4096, args[i]);
-    if (!guard_allows(cmd + wcslen(windir) + 15)) { log_line(L"refused", cmd, NULL); return false; }
+/* Start Explorer with this command text; a check starts its stand-in with the same arguments instead. skip is the
+ * length of the Windows folder: the arguments follow "<windir>\explorer.exe" and its two quotes (15 characters). */
+static bool start_explorer(wchar_t *cmd, size_t skip) {
+    wchar_t stand_in[1024];
+    STARTUPINFOW si = { sizeof si };
+    PROCESS_INFORMATION pi;
     log_line(L"explorer", cmd, NULL);
     if (test_on) {   /* a check never starts the real Explorer */
-        if (!GetEnvironmentVariableW(L"DFM_TEST_EXPLORER", stand_in, 1024)) return true;
         wchar_t run[4096];
-        _snwprintf_s(run, 4096, _TRUNCATE, L"%s%s", stand_in, cmd + wcslen(windir) + 15);
-        STARTUPINFOW si = { sizeof si }; PROCESS_INFORMATION pi;
+        if (!GetEnvironmentVariableW(L"DFM_TEST_EXPLORER", stand_in, 1024)) return true;
+        _snwprintf_s(run, 4096, _TRUNCATE, L"%s%s", stand_in, cmd + skip + 15);
         if (!CreateProcessW(NULL, run, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) return false;
         CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
         return true;
     }
-    STARTUPINFOW si = { sizeof si }; PROCESS_INFORMATION pi;
     if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) return false;
     CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
     return true;
+}
+
+bool defaultfm_fallback(wchar_t **args, int n) {
+    wchar_t cmd[4096], windir[MAX_PATH];
+    if (!GetWindowsDirectoryW(windir, MAX_PATH)) return false;
+    _snwprintf_s(cmd, 4096, _TRUNCATE, L"\"%s\\explorer.exe\"", windir);
+    for (int i = 0; i < n; i++) add_arg(cmd, 4096, args[i]);
+    if (!guard_allows(cmd + wcslen(windir) + 15)) { log_line(L"refused", cmd, NULL); return false; }
+    return start_explorer(cmd, wcslen(windir));
+}
+
+/* Explorer's own window in Home, for the Win+E process once the switch is off. No loop guard: Explorer never calls
+ * back into this program, and a second press means a second window. */
+bool dfm_explorer_open(void) {
+    wchar_t cmd[MAX_PATH + 24], windir[MAX_PATH];
+    if (!GetWindowsDirectoryW(windir, MAX_PATH)) return false;
+    _snwprintf_s(cmd, MAX_PATH + 24, _TRUNCATE, L"\"%s\\explorer.exe\"", windir);
+    return start_explorer(cmd, wcslen(windir));
 }
 
 /* ---- the launcher ---- */

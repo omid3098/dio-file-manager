@@ -35,6 +35,8 @@ RESIDENT = Path(str(BASE) + '.resident')   # what the Win+E process logs: its pi
 ADV = TEST_KEY + r'\Advanced'              # stands in for Explorer\Advanced (DisabledHotkeys)
 RUN = TEST_KEY + r'\Run'                   # stands in for the Run key
 RUN_NAME = 'Dio File Manager'
+RUNONCE = TEST_KEY + r'\RunOnce'           # stands in for RunOnce: the launcher cleanup after a turn-off
+CLEANUP_NAME = 'Dio File Manager launcher cleanup'
 STAND_LOG = WORK / 'standin.log'
 STAND_PY = WORK / 'standin.py'
 NO_WINDOW = subprocess.CREATE_NO_WINDOW
@@ -94,7 +96,7 @@ def wipe():
 
 def ensure_keys():
     """Explorer/Advanced and Run exist on every Windows; the redirected copies exist before a check starts."""
-    for key in (ADV, RUN):
+    for key in (ADV, RUN, RUNONCE):
         winreg.CreateKeyEx(HIVE, key, 0, winreg.KEY_WRITE).Close()
 
 
@@ -121,6 +123,14 @@ def run_value():
     try:
         with winreg.OpenKey(HIVE, RUN) as k:
             return winreg.QueryValueEx(k, RUN_NAME)[0]
+    except OSError:
+        return None
+
+
+def runonce_value():
+    try:
+        with winreg.OpenKey(HIVE, RUNONCE) as k:
+            return winreg.QueryValueEx(k, CLEANUP_NAME)[0]
     except OSError:
         return None
 
@@ -331,7 +341,8 @@ def inside():
         """Read-only: the real DisabledHotkeys and Run value must stay as they are."""
         out = []
         for path, name in ((r'Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced', 'DisabledHotkeys'),
-                           (r'Software\Microsoft\Windows\CurrentVersion\Run', RUN_NAME)):
+                           (r'Software\Microsoft\Windows\CurrentVersion\Run', RUN_NAME),
+                           (r'Software\Microsoft\Windows\CurrentVersion\RunOnce', CLEANUP_NAME)):
             try:
                 with winreg.OpenKey(HIVE, path) as k:
                     out.append(winreg.QueryValueEx(k, name))
@@ -362,7 +373,40 @@ def inside():
         print(json.dumps(results[-1]), flush=True)
 
     on = lambda: exe_run(['--default-fm', 'on', '--test-state', str(BASE)])
-    off = lambda: exe_run(['--default-fm', 'off', '--test-state', str(BASE)])
+    off_raw = lambda: exe_run(['--default-fm', 'off', '--test-state', str(BASE)])
+
+    def explorer_restarts():
+        """What Explorer does when it starts: tell the windows "TaskbarCreated". Posted to the process's own window, so no other
+        program is bothered."""
+        user32 = ctypes.windll.user32
+        user32.RegisterWindowMessageW.restype = ctypes.c_uint
+        w = resident_window()
+        if w:
+            user32.PostMessageW(ctypes.c_void_p(w), user32.RegisterWindowMessageW('TaskbarCreated'), 0, 0)
+
+    def sign_in():
+        """What Windows does at the next sign-in: it deletes the RunOnce value and runs its command. The real launcher is never
+        touched: the command carries --test-state, so it works on the redirected folder."""
+        cmd = runonce_value()
+        if not cmd:
+            return
+        with winreg.OpenKey(HIVE, RUNONCE, 0, winreg.KEY_SET_VALUE) as k:
+            winreg.DeleteValue(k, CLEANUP_NAME)
+        subprocess.run(cmd, env=env(), cwd=ROOT, creationflags=NO_WINDOW, timeout=15)
+
+    def settle():
+        for pid in [p for p in res_pids() if pid_alive(p)]:
+            explorer_restarts()
+            wait_for('The process did not end after TaskbarCreated: %r' % res_lines(), lambda: not pid_alive(pid))
+        sign_in()
+
+    def off():
+        """Turn off, then let the rest of the day happen (Explorer restarts, the user signs in again), so a check that looks for
+        the keys, the process and the launcher after a turn-off sees the end state. The bridge itself is checked in 23."""
+        rc = off_raw()
+        if rc == 0:
+            settle()
+        return rc
     status = lambda: exe_run(['--default-fm', 'status', '--test-state', str(BASE)])
 
     def on_off(seed, label):
@@ -602,10 +646,10 @@ def inside():
             wait_for('The open verb was not added when the app started', lambda: is_ours(WIN_E_OPEN))
         finally:
             p.kill(); p.wait()
-        assert exe_run(['--default-fm', 'off', '--test-state', str(BASE)]) == 0 and dump() == before, 'Off after the start did not restore'
+        assert off() == 0 and dump() == before, 'Off after the start did not restore'
         make_old()
         assert exe_run(['--default-fm', 'on', '--test-state', str(BASE)]) == 0 and is_ours(WIN_E_OPEN), 'Turning on did not add the open verb'
-        assert exe_run(['--default-fm', 'off', '--test-state', str(BASE)]) == 0 and dump() == before, 'Off after turning on again did not restore'
+        assert off() == 0 and dump() == before, 'Off after turning on again did not restore'
 
     def switch_in_menu():
         import input_smoke as base
@@ -631,6 +675,7 @@ def inside():
             assert command_of(FOLDER_OPEN) and 'dio-file-manager-launcher.exe' in command_of(FOLDER_OPEN), 'The click changed no registry key'
             assert command_of(WIN_E_CMD) and (LOCAL / 'dio-file-manager-launcher.exe').exists()
             toggle(0)
+            settle()
             assert dump() == before, 'The second click did not restore the keys exactly'
             assert state_value('App') is None
         finally:
@@ -909,9 +954,71 @@ def inside():
         gone.unlink()
         post_hotkey()
         wait_for('The process did not notice the app is gone: %r' % res_lines(), lambda: has_line('hotkey-gone'))
-        wait_for('The process did not end', lambda: not pid_alive(pid))
         wait_for('The stand-in was not called', lambda: standin_lines())
         assert dump() == before, 'Keys not restored:\n%s' % ([r for r in dump() if r not in before] + [r for r in before if r not in dump()])
+        assert pid_alive(pid), 'The process ended with the keys back, so Win+E does nothing until Explorer restarts'
+        post_hotkey()
+        wait_for('The second press did not open Explorer', lambda: len(standin_lines()) == 2)
+        explorer_restarts()
+        wait_for('The process did not end at the Explorer restart', lambda: not pid_alive(pid))
+        assert has_line('bridge-exit')
+
+    def bridge_after_turn_off():
+        """The case a user meets: Explorer already restarted with E disabled, then the switch is turned off. Win+E must still open
+        something. The process stays on, opens Windows Explorer on Win+E, and lets go of the hotkey and ends when Explorer
+        restarts; the launcher goes at the next sign-in."""
+        seed_rich()
+        before = dump()
+        assert on() == 0
+        pid = resident_up()
+        assert off_raw() == 0
+        assert pid_alive(pid), 'The process ended with the switch: Win+E does nothing until Explorer restarts'
+        assert run_value() is None and adv_value() is None, 'The keys are not back'
+        assert launcher_file.exists(), 'The launcher was deleted while the process runs from it'
+        want = '"%s" --cleanup-launcher --test-state "%s"' % (APP_EXE, BASE)
+        assert runonce_value() == want, 'Sign-in cleanup entry: %r' % runonce_value()
+        wait_for('The process did not become a bridge: %r' % res_lines(), lambda: has_line('bridge'))
+        post_hotkey()
+        wait_for('Win+E did not open Explorer: %r' % res_lines(), lambda: len(standin_lines()) == 1)
+        assert standin_lines() == [''], 'Explorer was started with arguments: %r' % standin_lines()
+        assert not [l for l in lines() if l.startswith('arrive-')], 'The app opened although the switch is off: %r' % lines()
+        post_hotkey()
+        wait_for('A second Win+E did not open a second window', lambda: len(standin_lines()) == 2)
+        assert pid_alive(pid)
+        explorer_restarts()
+        wait_for('The process did not end when Explorer restarted', lambda: not pid_alive(pid))
+        assert has_line('bridge-exit')
+        user32 = ctypes.windll.user32
+        assert user32.RegisterHotKey(None, 78, 0x4000 | 0xF, 0x86), 'The hotkey is still held after the process ended'
+        user32.UnregisterHotKey(None, 78)
+        assert launcher_file.exists(), 'The launcher went before the sign-in'
+        sign_in()
+        assert not launcher_file.exists() and runonce_value() is None, 'The sign-in cleanup left the launcher'
+        assert dump() == before, 'Keys differ from before:\n%s' % ([r for r in dump() if r not in before] + [r for r in before if r not in dump()])
+
+    def turn_on_after_turn_off():
+        """Turning the switch on again while the bridge runs: the pending launcher cleanup is dropped, the bridge is replaced by a
+        process that opens the app, and a cleanup that still fires finds the switch on and leaves the launcher alone."""
+        seed_rich()
+        before = dump()
+        assert on() == 0
+        first = resident_up()
+        assert off_raw() == 0 and pid_alive(first)
+        cmd = runonce_value()
+        assert cmd
+        assert on() == 0
+        assert runonce_value() is None, 'The cleanup entry is still there with the switch on'
+        wait_for('The bridge did not end', lambda: not pid_alive(first))
+        wait_for('The new process did not take Win+E', lambda: sum(l.startswith('hotkey-ok') for l in res_lines()) >= 2)
+        second = res_pids()[-1]
+        assert second != first and pid_alive(second)
+        subprocess.run(cmd, env=env(), cwd=ROOT, creationflags=NO_WINDOW, timeout=15)   # a cleanup that fires anyway
+        assert launcher_file.exists(), 'The cleanup deleted the launcher of a switch that is on'
+        post_hotkey()
+        assert arrival() == ['arrive-home\t\t'], 'Win+E did not open the app after turning on again'
+        assert not standin_lines(), 'Explorer was started although the switch is on'
+        kill_apps()
+        assert off() == 0 and dump() == before and not launcher_file.exists()
 
     def resident_start_cost():
         """Budget: a posted Win+E shows the window at most 50 ms later than a plain launcher start (median of 7); idle CPU is 0."""
@@ -981,6 +1088,8 @@ def inside():
         check('20-update-while-the-process-runs', update_while_resident)
         check('21-app-gone-while-the-process-runs', app_gone_while_resident)
         check('22-win-e-start-cost-and-idle-budget', resident_start_cost)
+        check('23-win-e-still-works-after-turn-off-then-ends-at-explorer-restart', bridge_after_turn_off)
+        check('24-turn-on-again-replaces-the-bridge', turn_on_after_turn_off)
     finally:
         exe_run(['--default-fm', 'off', '--test-state', str(BASE)])
         wipe()

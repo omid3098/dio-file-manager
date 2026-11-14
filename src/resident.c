@@ -2,7 +2,9 @@
  * runs the registered verb, so this exe has a second mode: started with --resident it has no window you can see,
  * no UI start-up and no COM, only one hidden window that owns the hotkey. Explorer leaves Win+E alone only when
  * its DisabledHotkeys value lists E, and reads that once when it starts; until then RegisterHotKey is refused,
- * and the resident process tries again whenever Explorer says it has restarted (the "TaskbarCreated" message). */
+ * and the resident process tries again whenever Explorer says it has restarted (the "TaskbarCreated" message).
+ * When the switch is turned off after the process took the hotkey, Explorer still skips Win+E until it restarts, so
+ * the process stays on as a bridge that opens Explorer, and ends at that restart. */
 #include <windows.h>
 #include <shellapi.h>
 #include <stdio.h>
@@ -15,12 +17,13 @@
 static const wchar_t *CLASS_NAME = L"DioFileManagerResident";
 static const wchar_t *HOTKEYS = L"DisabledHotkeys";
 static const wchar_t *RUN_VALUE = L"Dio File Manager";
-enum { HOTKEY_ID = 1 };
+enum { HOTKEY_ID = 1, MSG_RELEASE = WM_APP + 1, MSG_END_BRIDGE = WM_APP + 2 };
 
 static bool in_resident;          /* this process is the resident one: it never stops itself */
 static HWND win;
 static UINT taskbar_created;
 static bool registered;
+static bool bridge;               /* the switch is off, Win+E is still ours: it opens Explorer until Explorer restarts */
 static wchar_t tail[1200];        /* what follows --resident: handed to the app as the launcher hands over its own */
 
 static void log_line(const wchar_t *what, const wchar_t *a) {
@@ -154,13 +157,34 @@ void resident_start(const wchar_t *launcher, const wchar_t *extra) {
     if (CreateProcessW(launcher, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, sys, &si, &pi)) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); }
 }
 
+static HWND resident_window(void) {
+    wchar_t title[300];
+    object_name(title, 300, L"DioFmResident");
+    return FindWindowW(CLASS_NAME, title);
+}
+
+/* Send the process one of our messages and wait for its answer (1 or 0); -1 when it is not there or does not answer. */
+static int ask_process(UINT msg) {
+    HWND w = resident_window();
+    DWORD_PTR r = 0;
+    if (!w || !SendMessageTimeoutW(w, msg, 0, 0, SMTO_ABORTIFHUNG, 3000, &r)) return -1;
+    return (int)r;
+}
+
+bool resident_release(void) {
+    if (in_resident) { bridge = registered; return bridge; }   /* the process itself turned the switch off (the app is gone) */
+    return ask_process(MSG_RELEASE) == 1;
+}
+
+void resident_end_bridge(void) {
+    if (!in_resident && ask_process(MSG_END_BRIDGE) == 1) resident_stop();
+}
+
 /* Ask it to close and wait: a running exe cannot be replaced or deleted. A process that does not answer is ended. */
 void resident_stop(void) {
-    wchar_t title[300];
     if (in_resident) return;
-    object_name(title, 300, L"DioFmResident");
     for (int tries = 0; tries < 40 && resident_running(); tries++) {
-        HWND w = FindWindowW(CLASS_NAME, title);
+        HWND w = resident_window();
         DWORD pid = 0;
         if (w) GetWindowThreadProcessId(w, &pid);
         if (pid) {
@@ -188,11 +212,13 @@ static void try_register(void) {
 }
 
 /* Open a new window in Home as the launcher does: the registered app, started with the same arguments. When the app
- * is gone the keys go back to Explorer, which opens its own window, and this process ends. */
+ * is gone the keys go back, this press opens Explorer's window, and the process stays on as a bridge. After a
+ * turn-off every press opens Explorer's window. */
 static void open_home(void) {
     wchar_t app[MAX_PATH], cmd[1500];
     STARTUPINFOW si = { sizeof si };
     PROCESS_INFORMATION pi;
+    if (bridge) { dfm_explorer_open(); log_line(L"bridge-open", NULL); return; }
     if (defaultfm_enabled() && dfm_get_string(HKEY_CURRENT_USER, dfm_state_base(), L"App", app, MAX_PATH) &&
         GetFileAttributesW(app) != INVALID_FILE_ATTRIBUTES) {
         _snwprintf_s(cmd, 1500, _TRUNCATE, L"\"%s\"%s%s", app, tail[0] ? L" " : L"", tail);
@@ -203,16 +229,34 @@ static void open_home(void) {
             return;
         }
     }
-    defaultfm_disable();
-    defaultfm_fallback(NULL, 0);
-    defaultfm_delete_self_later();
+    defaultfm_disable();   /* in this process: it becomes the bridge */
+    dfm_explorer_open();
     log_line(L"hotkey-gone", NULL);
-    PostMessageW(win, WM_CLOSE, 0, 0);
+    if (!bridge) PostMessageW(win, WM_CLOSE, 0, 0);   /* the keys could not be put back: nothing is held for Explorer */
 }
 
 static LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_HOTKEY && w == HOTKEY_ID) { open_home(); return 0; }
-    if (m == taskbar_created && m) { log_line(L"taskbar-created", NULL); try_register(); return 0; }
+    if (m == MSG_RELEASE) {
+        if (registered) { bridge = true; log_line(L"bridge", NULL); return 1; }
+        PostMessageW(h, WM_CLOSE, 0, 0);   /* Explorer still owns Win+E, nothing to bridge */
+        return 0;
+    }
+    if (m == MSG_END_BRIDGE) {
+        if (!bridge) return 0;
+        PostMessageW(h, WM_CLOSE, 0, 0);
+        return 1;
+    }
+    if (m == taskbar_created && m) {
+        log_line(L"taskbar-created", NULL);
+        if (bridge) {   /* Explorer restarted and read the restored DisabledHotkeys: Win+E is its own again */
+            log_line(L"bridge-exit", NULL);
+            if (registered) { UnregisterHotKey(h, HOTKEY_ID); registered = false; }
+            defaultfm_bridge_ended();
+            DestroyWindow(h);
+        } else try_register();
+        return 0;
+    }
     if (m == WM_CLOSE) { DestroyWindow(h); return 0; }
     if (m == WM_DESTROY) {
         if (registered) UnregisterHotKey(h, HOTKEY_ID);

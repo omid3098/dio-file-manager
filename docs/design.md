@@ -189,8 +189,8 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   `open`, the verb of a launch without a verb, to Explorer). That is not enough on Windows 11 build 26300:
   Explorer's shell handles Win+E itself and never runs the class's verb, also with window preloading off. So
   the switch also starts a small copy of this exe that runs all the time (below).
-  **Win+E process.** Turning the switch on writes three things and starts one process; turning it off undoes all
-  four and ends the process.
+  **Win+E process.** Turning the switch on writes three things and starts one process; turning it off puts the
+  values back at once, and the process follows at the next Explorer restart (the bridge below).
   - `DisabledHotkeys` (`HKCU\...\Explorer\Advanced`) gains the letter E: Explorer then leaves Win+E alone. The old
     value, its type or its absence is saved once under the record and put back exactly; a record that exists is
     never replaced. Explorer reads this value only when it starts.
@@ -199,17 +199,31 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
     and no COM. It calls `RegisterHotKey(Win+E)`. Explorer holds Win+E until it restarts, so the call is refused
     (error 1409) at first; the process tries again whenever Explorer says it restarted (the `TaskbarCreated`
     message), and at sign-in the first try works. `WM_HOTKEY` starts the registered app with the launcher's own
-    arguments, so the window is the one a Win+E verb would have opened. If the app is gone, the keys go back and
-    the process ends.
-  - The app never restarts Explorer. **Deliberate limit:** after turning the switch on (or off) Win+E changes
-    owner only when Explorer restarts or the user signs in again; the turn-on notice says so. Turning it off after
-    that restart leaves Win+E dead until the next restart or sign-in, because Explorer does not take it back
-    before it restarts.
+    arguments, so the window is the one a Win+E verb would have opened.
+  - The app never restarts Explorer. Explorer reads `DisabledHotkeys` only when it starts, so after turning the
+    switch on Win+E changes owner when Explorer restarts or the user signs in again (the turn-on notice says so).
+    The same holds in reverse, and that is why turning off does not end the process.
+  - **The bridge (turn-off, or the app gone).** When the process holds Win+E and the switch is turned off, Explorer
+    may have started with E in `DisabledHotkeys` and so skips Win+E until its next start. The process therefore
+    stays on and only changes its job: `WM_HOTKEY` opens Windows Explorer's own window in Home (each press, no loop
+    guard), and when Explorer restarts (it has then read the restored value; the process sees `TaskbarCreated`) it
+    releases the hotkey and ends. A sign-out ends it too, and the Run entry is gone, so nothing starts it again.
+    The app tells the process through a window message (`resident_release`); a process that never got the hotkey
+    (Explorer still owns Win+E) just ends. The same bridge starts when the process finds the app gone: the keys go
+    back, this press opens Explorer's window, and it ends at the Explorer restart. Turning the switch on again
+    replaces a bridge by a fresh process (`resident_end_bridge`).
+  - **The launcher after a turn-off.** With no process the launcher is deleted at once. A bridge runs from it, so
+    the delete waits: a `RunOnce` entry (`Dio File Manager launcher cleanup`) starts the registered app as
+    `"<app>" --cleanup-launcher` at the next sign-in. That is a GUI-subsystem exe that returns before any window
+    exists, so nothing shows; it deletes the launcher only while the switch is off and no process runs from it
+    (a turn-on removes the entry). When the app is gone there is nothing to run it with, so the bridge deletes the
+    launcher itself, a few seconds after it ends at the Explorer restart; if the user signs out before any
+    Explorer restart, that one 0.5 MB copy stays in `%LOCALAPPDATA%\dio-file-manager` and nothing uses it.
   - An install or launcher sync while the process runs from the launcher: the registered app notices the launcher
     differs, stops the process (a running exe cannot be replaced), copies the new build over the launcher and
     starts the process again, so it runs the new code. An install made before this existed gets the keys and the
     process at the first start behind the same registered-app gate.
-  - Budgets, each a check in `tests/use/default_fm_smoke.py` (22): process working set at most 5 MB (measured
+  - Budgets, each a check in `tests/use/default_fm_smoke.py` (24): process working set at most 5 MB (measured
     about 2 MB); idle CPU 0 (`cpu_budget.py --max 0`, five 30-second windows all pass); a Win+E (posted
     `WM_HOTKEY`) shows the window at most 50 ms later than a plain launcher start (measured 36 ms against 56 ms:
     it saves the launcher's own start); exe at most 10,240 bytes larger than before (measured +6,656). The
