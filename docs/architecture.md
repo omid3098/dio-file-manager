@@ -122,9 +122,11 @@ until restoration finishes (including nested checks and exception paths).
 
 `src/defaultfm.c` registers the app as Windows' folder handler for the current user (HKCU only).
 
-- Keys written under `HKCU\Software\Classes`: `Folder\shell\open\command`, `Folder\shell\explore\command` and
-  `CLSID\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\shell\opennewwindow\command` (Win+E). Each gets the default value
-  `"<launcher>" "%1"` (Win+E: `"<launcher>"`) and `DelegateExecute` = empty string.
+- Keys written under `HKCU\Software\Classes`: `Folder\shell\open\command`, `Folder\shell\explore\command` and, for
+  Win+E, `CLSID\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\shell\opennewwindow\command` and `...\shell\open\command`
+  (Windows' own copy of the class has both verbs, each with a DelegateExecute of the class itself, and "open" is what a
+  launch without a verb gets). Each gets the default value `"<launcher>" "%1"` (Win+E: `"<launcher>"`) and
+  `DelegateExecute` = empty string.
 - Saved state: `HKCU\Software\Dio File Manager\DefaultFileManager` with `App`, `Launcher`, `Args` and
   `Saved\<i>` for each key: `Path`, `Existed`, `Top` (the first key the registration created) and `Values`
   (a copy of every value with its type). Turning off restores the values, or removes the keys it created (each

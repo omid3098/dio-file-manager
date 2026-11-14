@@ -125,6 +125,7 @@ def command_of(rel):
 FOLDER_OPEN = 'Folder\\shell\\open\\command'
 FOLDER_EXPLORE = 'Folder\\shell\\explore\\command'
 WIN_E_CMD = 'CLSID\\%s\\shell\\opennewwindow\\command' % WIN_E
+WIN_E_OPEN = 'CLSID\\%s\\shell\\open\\command' % WIN_E   # the verb a launch without a verb gets; Windows' own copy sends it to Explorer
 
 
 # ---- running the exe ----
@@ -266,7 +267,7 @@ def inside():
             assert after_on != before, 'Turning on changed nothing'
             launcher = str(LOCAL / 'dio-file-manager-launcher.exe')
             assert (LOCAL / 'dio-file-manager-launcher.exe').exists(), 'No launcher copy'
-            for rel, tail in ((FOLDER_OPEN, ' "%1"'), (FOLDER_EXPLORE, ' "%1"'), (WIN_E_CMD, '')):
+            for rel, tail in ((FOLDER_OPEN, ' "%1"'), (FOLDER_EXPLORE, ' "%1"'), (WIN_E_CMD, ''), (WIN_E_OPEN, '')):
                 want = '"%s" --test-state "%s"%s' % (launcher, BASE, tail)
                 assert command_of(rel) == want, f'{rel}: {command_of(rel)!r} is not {want!r}'
                 with winreg.OpenKey(HIVE, CLASSES + '\\' + rel) as k:

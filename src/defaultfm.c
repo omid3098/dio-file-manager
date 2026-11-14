@@ -24,8 +24,11 @@ static const struct { const wchar_t *path; bool folder; } TARGET[] = {
     { L"Folder\\shell\\open\\command", true },
     { L"Folder\\shell\\explore\\command", true },
     { L"CLSID\\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\\shell\\opennewwindow\\command", false },
+    /* Windows' own copy of this class has "open" as well as "opennewwindow", both with a DelegateExecute of the class
+     * itself, and "open" is the verb a launch without a verb gets: both are overridden, so neither reaches Explorer. */
+    { L"CLSID\\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\\shell\\open\\command", false },
 };
-enum { TARGETS = 3 };
+enum { TARGETS = 4 };
 
 static void paths(void) {
     if (classes_base[0]) return;

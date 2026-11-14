@@ -175,6 +175,10 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   folder, an unknown `shell:` or `::{CLSID}` place) goes to Windows Explorer, once per 2 seconds at most so a
   place can never loop. Turning it off puts back every value that was there before, exactly. If the app's file is
   deleted, the next folder open restores Explorer's keys and hands the request to Explorer.
+  Win+E is registered on both verbs of Windows' Win+E class, `opennewwindow` and `open` (Windows' own copy sends
+  `open`, the verb of a launch without a verb, to Explorer). If Win+E still opens Explorer on some Windows build,
+  that build starts the window without the shell's verb lookup, and only a program that is always running can
+  take Win+E over there.
   Limit: "Show in folder" from other programs (`SHOpenFolderAndSelectItems`) opens the folder here but does not
   select the file, and `explorer.exe /select,...` started directly by a program cannot be redirected without
   administrator rights.
