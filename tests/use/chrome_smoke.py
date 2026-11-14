@@ -37,6 +37,7 @@ U.GetMonitorInfoW.argtypes = [W.HANDLE, C.c_void_p]
 U.DestroyWindow.argtypes = [W.HWND]
 U.GetGUIThreadInfo.argtypes = [W.DWORD, C.c_void_p]
 U.SetWindowPos.argtypes = [W.HWND, W.HWND, C.c_int, C.c_int, C.c_int, C.c_int, W.UINT]
+COPY = WORK / 'copy-sandbox'   # a 128 MiB file the copy check copies slowly (DFM_TEST_COPY_DELAY_MS)
 
 
 DWM = C.WinDLL('dwmapi')
@@ -129,6 +130,43 @@ def inside():
             while helpers:
                 U.DestroyWindow(helpers.pop())
         print(json.dumps(results[-1]), flush=True)
+
+    def bottom_bar(a):
+        """The bottom bar's controls left to right: Back, Forward, grid, list, view options (empty when there is no bar)."""
+        c = a.snap()['chrome']
+        h = (c['client'][3] - c['client'][1]) / c['scale']
+        return sorted((r for r in c['nodrag'] if r[1] >= h - 46 and r[1] > 46 and r[2] <= 40), key=lambda r: r[0])
+
+    def set_client(a, cw, ch):
+        """Size the window so its client is cw x ch points (the frame's size is read back and corrected for)."""
+        U.SetWindowPos(a.hwnd, None, 40, 40, cw + 16, ch + 38, 0x14)
+        for _ in range(40):
+            time.sleep(.1)
+            s = a.snap()
+            c = s['chrome']
+            got = ((c['client'][2] - c['client'][0]) / c['scale'], (c['client'][3] - c['client'][1]) / c['scale'])
+            if abs(got[0] - cw) <= 1 and abs(got[1] - ch) <= 1:
+                return s
+            frame_w = (c['window'][2] - c['window'][0]) - (c['client'][2] - c['client'][0])
+            frame_h = (c['window'][3] - c['window'][1]) - (c['client'][3] - c['client'][1])
+            U.SetWindowPos(a.hwnd, None, 40, 40, int(cw * c['scale']) + frame_w, int(ch * c['scale']) + frame_h, 0x14)
+        raise AssertionError(f'Could not size the client to {cw}x{ch}: {got}')
+
+    def ends_with(a, folder):
+        return a.snap()['path'].rstrip('\\').endswith(folder)
+
+    def history_clicks(a, tag):
+        """Back and Forward in the bottom bar take real clicks: Back leaves folder B for A, Forward returns."""
+        g = Geo(a)
+        bar = bottom_bar(a)
+        assert len(bar) == 5, f'{tag}: bottom bar {bar}'
+        back, fwd = bar[0], bar[1]
+        assert back[2] >= 28 and fwd[2] >= 28, f'{tag}: Back or Forward has no hit area {back} {fwd}'
+        assert ends_with(a, 'B'), a.snap()['path']
+        a.click(*g.mid(back))
+        a.until(f'{tag}: Back did not leave folder B', lambda: ends_with(a, 'A'))
+        a.click(*g.mid(fwd))
+        a.until(f'{tag}: Forward did not return to folder B', lambda: ends_with(a, 'B'))
 
     def hit_testing(a):
         g = Geo(a)
@@ -341,10 +379,11 @@ def inside():
 
     def widths(theme):
         """At every supported width the three window buttons stay inside the window, clear of every other header control,
-        and the header's hit-testing agrees with where they are. Both sides of the 640 px sidebar breakpoint."""
+        and the header's hit-testing agrees with where they are. Both sides of GNOME Files' 682 px breakpoint (683 px is the first
+        wide window): below it Back and Forward sit in the bottom bar, above it in the header."""
         def run(a):
             counts = {}
-            for cw in (360, 390, 480, 639, 640, 800, 1024, 1280):
+            for cw in (360, 390, 480, 640, 682, 683, 800, 1024, 1280):
                 s = None
                 for _ in range(40):
                     U.SetWindowPos(a.hwnd, None, 40, 40, int(cw * (s['chrome']['scale'] if s else 1)) + 16, 608, 0x14)
@@ -376,14 +415,21 @@ def inside():
                     want = HTMAXBUTTON if i == 1 else HTCLIENT
                     assert h == want, f'{theme} {cw} px: the {names[i]} button answers hit-test {h}, not {want}'
                 counts[cw] = len(others)
+                bar = bottom_bar(a)
+                if cw < 683:
+                    assert len(bar) == 5, f'{theme} {cw} px: the bottom bar should hold Back, Forward, grid, list and view options: {bar}'
+                    assert all(r[0] >= 0 and r[0] + r[2] <= cw + 0.5 for r in bar), f'{theme} {cw} px: bottom bar control outside the window {bar}'
+                else:
+                    assert not bar, f'{theme} {cw} px: a wide window has no bottom bar: {bar}'
+                    assert len([r for r in others if 240 <= r[0] < 330 and r[2] <= 40]) >= 2, f'{theme} {cw} px: Back and Forward missing from the header {others}'
                 a.msg(0x200, 0, a.point(cw / 2, 300))   # the pointer rests in the window's body, over no header control
                 time.sleep(.4)
                 a.snap(f'width-{theme}-{cw}')
-                if os.environ.get('DFM_CHROME_PICTURES') and cw in (360, 639, 640, 1280):
-                    shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'{theme}-{cw}.png')
-                if cw in (360, 640):   # the collapsed actions are reachable: the main menu opens and grows with what moved into it
+                if os.environ.get('DFM_CHROME_PICTURES') and cw in (360, 640, 682, 683, 1280):
+                    shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'width-{theme}-{cw}.png')
+                if cw in (360, 640, 683):   # the collapsed actions are reachable: the main menu opens and grows with what moved into it
                     from PIL import Image, ImageChops
-                    mr = [r for r in others if r[0] < 240][0] if cw >= 640 else others[-1]
+                    mr = [r for r in others if r[0] < 240][0] if cw >= 683 else others[-1]
                     box = tuple(int(v * g.scale) for v in (max(0, mr[0] - 230), 40, min(cw, mr[0] + 130), 400))
                     a.snap()
                     with Image.open(str(a.base) + '.png') as im:
@@ -405,22 +451,20 @@ def inside():
         return run
 
     def short_menu(a):
-        """The collapsed main menu scrolls in the shortest window, so Theme and Show Hidden Files stay reachable."""
+        """The main menu scrolls in the shortest wide window (it is in the sidebar there), so Theme and Show Hidden Files stay reachable."""
         from PIL import Image, ImageChops
-        U.SetWindowPos(a.hwnd, None, 40, 40, 376, 288, 0x14)
-        time.sleep(.5)
+        set_client(a, 700, 280)
         g = Geo(a)
         c = g.c
-        assert abs((c['client'][3] - c['client'][1]) / c['scale'] - 280) <= 2, f'Client height {c["client"]}'
-        mr = [r for r in c['nodrag'] if r[1] < 46 and r[2] > 0][-1]
+        mr = min(r for r in c['nodrag'] if r[1] < 46 and r[2] > 0)
         a.click(*g.mid(mr))
         time.sleep(.6)
-        box = tuple(int(v * g.scale) for v in (110, 60, 350, 270))
+        box = tuple(int(v * g.scale) for v in (190, 55, 420, 270))
         a.snap()
         with Image.open(str(a.base) + '.png') as im:
             top = im.convert('RGB').crop(box).copy()
         for _ in range(15):
-            a.msg(0x200, 0, a.point(200, 150))
+            a.msg(0x200, 0, a.point(300, 150))
             a.msg(0x20A, (0x10000 - 120) << 16)
             time.sleep(.05)
         time.sleep(.5)
@@ -430,7 +474,89 @@ def inside():
         changed = sum(1 for p in ImageChops.difference(top, bottom).convert('L').getdata() if p > 8)
         assert changed > 3000, f'The menu did not scroll in a 280 px window ({changed} pixels changed)'
         if os.environ.get('DFM_CHROME_PICTURES'):
-            shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / 'menu-dark-360x280-scrolled.png')
+            shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / 'menu-dark-700x280-scrolled.png')
+
+    def bottom_bar_history(a, theme):
+        """S3: at 360 px Back and Forward are directly clickable buttons in the bottom bar (never inside the main menu)."""
+        fixture = Path(a.folder)
+        set_client(a, 360, 600)
+        a.path(fixture / 'A')
+        a.path(fixture / 'B')
+        history_clicks(a, '360 px')
+        if os.environ.get('DFM_CHROME_PICTURES'):
+            a.snap()
+            shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'{theme}-360-bottom-bar.png')
+
+    def bottom_bar_copying(a, theme):
+        """S3: the same while a copy runs (its progress ring takes room in the header, as before)."""
+        from clipboard_guard import preserved_clipboard
+        src, dst = COPY / 'source', COPY / 'target'
+        shutil.rmtree(dst, ignore_errors=True)
+        dst.mkdir(parents=True)
+        set_client(a, 360, 600)
+        a.path(src)
+        a.cell(0)
+        with preserved_clipboard(a.hwnd):
+            a.key(ord('C'), (17,))
+            a.path(dst)
+            a.key(ord('V'), (17,))
+            a.until('The copy did not start', lambda: a.snap()['jobs'], seconds=20)
+            fixture = Path(a.folder)
+            a.path(fixture / 'A')
+            a.path(fixture / 'B')
+            s = a.snap('copy-running-360')
+            assert s['jobs'], 'The copy ended before Back and Forward were tried'
+            assert s['job_button'][2] > 0, f"No job ring while copying: {s['job_button']}"
+            if os.environ.get('DFM_CHROME_PICTURES'):
+                shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'{theme}-360-with-copy-running.png')
+            history_clicks(a, '360 px with a copy running')
+            assert a.snap()['jobs'], 'The copy ended before the clicks were done'
+            c = a.snap()['chrome']
+            btn = c['buttons']
+            for r in [r for r in c['nodrag'] if r[1] < 46 and r[2] > 0]:
+                assert r[0] + r[2] <= btn[0][0] + 0.5, f'Header control {r} reaches the window buttons {btn[0]}'
+
+    def menu_follows_keyboard(a, theme):
+        """S2: in a window too short for the whole menu, the row the arrow keys highlight stays on screen, and Enter picks it.
+        700 px wide: the menu (in the sidebar) scrolls at 280 px high. 360 px wide: the narrow menu is the shortest that fits."""
+        for cw in (700, 360):
+            set_client(a, cw, 280)
+            g = Geo(a)
+            header = [r for r in g.c['nodrag'] if r[1] < 46 and r[2] > 0]
+            mr = min(header) if cw >= 683 else header[-1]
+            a.click(*g.mid(mr))
+            time.sleep(.6)
+            before = a.snap()['hidden']
+
+            def visible():
+                s = a.snap()
+                row, view = s['menu_row'], s['menu_view']
+                return view[3] > 0 and row[3] > 0 and row[1] >= view[1] - 0.5 and row[1] + row[3] <= view[1] + view[3] + 0.5
+
+            def step(key, what):
+                a.key(key)
+                a.until(f'{cw} px: the highlighted row is off screen after {what}', visible)
+            if cw == 700:
+                view = a.snap()['menu_view']
+                assert view[3] == 0, 'The menu view is only reported for a highlighted row'
+            step(0x26, 'Up from the top (to the last row)')
+            a.snap(f'menu-last-row-highlighted-{cw}')
+            view = a.snap()['menu_view']
+            if cw == 700:
+                assert abs(view[3] - 210) < 1, f'The 700 px menu is not held to the window (210 px): it would not need to scroll {view}'
+            if os.environ.get('DFM_CHROME_PICTURES') and cw == 360:
+                shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'menu-{theme}-360x280-keyboard-last.png')
+            for n in range(7):
+                step(0x26, f'Up {n + 2}')
+            for n in range(12):
+                step(0x28, f'Down {n + 1}')   # passes the end and wraps to the top
+            a.key(0x1B)   # the reported case: open the menu, press Up, then Enter
+            time.sleep(.4)
+            a.click(*g.mid(mr))
+            time.sleep(.6)
+            step(0x26, 'Up on a freshly opened menu')
+            a.key(13)
+            a.until(f'{cw} px: Enter did not pick Show Hidden Files', lambda: a.snap()['hidden'] != before)
 
     check('1-hit-testing', hit_testing)
     check('2-drag', drag)
@@ -446,6 +572,10 @@ def inside():
     check('11-widths-dark', widths('dark'), 'dark')
     check('11-widths-light', widths('light'), 'light')
     check('12-short-menu', short_menu, 'dark')
+    for theme in ('dark', 'light'):
+        check(f'13-menu-follows-keyboard-{theme}', lambda a, t=theme: menu_follows_keyboard(a, t), theme)
+        check(f'14-bottom-bar-history-{theme}', lambda a, t=theme: bottom_bar_history(a, t), theme)
+        check(f'15-bottom-bar-history-copying-{theme}', lambda a, t=theme: bottom_bar_copying(a, t), theme)
     (WORK / 'results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 
@@ -454,7 +584,7 @@ def main():
     WORK.mkdir(parents=True, exist_ok=True)
     (WORK / 'tmp').mkdir(exist_ok=True)
     (WORK / 'appdata').mkdir(exist_ok=True)
-    os.environ.update(TEMP=str(WORK / 'tmp'), TMP=str(WORK / 'tmp'))
+    os.environ.update(TEMP=str(WORK / 'tmp'), TMP=str(WORK / 'tmp'), DFM_TEST_COPY_DELAY_MS='300')
     if '--inside' in sys.argv:
         return inside()
     gaming = Path(r'C:\Users\Omid\.agents\tools\gaming.py')
@@ -464,6 +594,12 @@ def main():
     elif code:
         return code
     (WORK / 'fixture').mkdir(exist_ok=True)
+    (COPY / 'source').mkdir(parents=True, exist_ok=True)
+    big = COPY / 'source' / 'a.bin'
+    if not big.exists() or big.stat().st_size != 128 << 20:
+        with big.open('wb') as f:
+            for _ in range(128):
+                f.write(b'A' * (1 << 20))
     for folder in 'ABCD':
         (WORK / 'fixture' / folder).mkdir(exist_ok=True)
     for name in ('1.txt', '2.txt', '3.txt'):

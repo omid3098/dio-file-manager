@@ -55,7 +55,7 @@ static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
 /* ---- small helpers ---- */
 
-bool app_is_narrow(void) { return cui_viewport_size(A.ui).x < 640.0f; }
+bool app_is_narrow(void) { return cui_viewport_size(A.ui).x < NARROW_BELOW; }
 
 const fs_entry *app_item(int i) { return &A.list->items[A.vis[i]]; }
 const char *app_item_name(int i) { return fs_name(A.list, A.vis[i]); }
@@ -419,6 +419,7 @@ static void frame(void) {
     A.dark = cui_get_theme_mode(ui) == CUI_THEME_DARK;
     theme_apply(ui, A.dark);
     chrome_begin_frame();
+    menu_frame_begin();
     act_pre_frame();
     poll_list();
     poll_next();
@@ -426,9 +427,9 @@ static void frame(void) {
     if (A.list && fs_list_state(A.list) == FS_LOADING) cui_request_wakeup(ui, 0.02f);
     global_keys();
     cui_vec2 vp = cui_viewport_size(ui);
-    bool narrow = vp.x < 640.0f;
+    bool narrow = vp.x < NARROW_BELOW;
     A.content_w = narrow ? vp.x : vp.x - 240.0f;
-    A.content_h = vp.y - HEADER_H;
+    A.content_h = vp.y - HEADER_H - (narrow ? BAR_H : 0.0f);
     cui_row(ui, .width = CUI_FILL, .height = CUI_FILL, .bg = CUI_COLOR_BACKGROUND) {
         if (!narrow) {
             cui_column(ui, .width = CUI_PX(240), .height = CUI_FILL, .bg = CUI_COLOR_BACKGROUND) {
@@ -445,6 +446,7 @@ static void frame(void) {
                 act_frame();
                 views_frame();
             }
+            if (narrow) ui_bottom_bar();
         }
     }
     if (narrow && A.sidebar_open) {
@@ -565,6 +567,7 @@ static void test_snapshot(const char *base) {
     ui_sidebar_snapshot(f);
     ui_popup_snapshot(f);
     ui_default_fm_snapshot(f);
+    menu_snapshot(f);
     chrome_snapshot(f);
     fprintf(f, "}"); fclose(f);
     DeleteFileA(request);

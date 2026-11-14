@@ -14,7 +14,7 @@ build\MinSizeRel\dio-file-manager.exe
 
 Pass `--path DIR` to start in a folder. The release build refuses an exe above
 800 KB. The window supports grid and list views, folder navigation, selection,
-path entry, hidden files, and the sidebar overlay below 640 px.
+path entry, hidden files, and the sidebar overlay and a bottom bar below 683 px.
 
 Run the real-input smoke checks with `python tests/use/input_smoke.py` through
 the shared `waitfor.py` runner. They create fixtures only under

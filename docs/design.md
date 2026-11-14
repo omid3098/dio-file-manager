@@ -89,8 +89,9 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   "Loading…". It floats, so it has the popover shadow.
 - **Empty folder:** a large muted folder icon and "Folder is Empty", centred.
 - **Unreadable folder:** a large muted icon, "Unable to access “Name”" and the reason.
-- **Narrow window (< 640 px):** the sidebar leaves; a sidebar button appears at the left of the
-  content header and opens it as an overlay.
+- **Narrow window (< 683 px, GNOME Files 47: max-width 682sp):** the sidebar leaves; a sidebar button appears at the left of the
+  content header and opens it as an overlay. Back, Forward, grid, list and view options move from the header into a bottom bar
+  (46 px, header colours): history on the left, view controls on the right. Back and Forward are never in a menu.
 
 ## Behaviour (as in GNOME Files)
 
@@ -199,9 +200,9 @@ The release exe is at most 800 KB (CUI's own hello app is about 250 KB). The bui
 - **Narrow windows.** The window buttons never leave the window (`plan_header` in `src/ui_chrome.c`
   budgets the content header's width). The path bar shrinks first, from at most 480 px down to 144 px,
   then the header's actions move into the main menu, lowest priority first: grid and list (Grid View,
-  List View), search (Search Current Folder), view options (Sort by, Reversed Order, Zoom In and Out),
-  and only when the window is nearly 360 px wide, or a file job's ring takes room, Forward and then
-  Back. The path bar never goes below 116 px. Below 640 px the sidebar is a sheet and the main menu
+  List View), then search (Search Current Folder). View options stay in the header; Back and Forward never
+  leave it in a wide window. Below 683 px the sidebar is a sheet, Back, Forward and the view controls sit in
+  the bottom bar, and the main menu
   button sits in the content header, left of the window buttons. The menu scrolls when the window is
   too short for it. About 32 px of empty header stay for dragging while the path bar is above 144 px.
 - **Window buttons** sit at the right end of the content header, 12 px after the view-options

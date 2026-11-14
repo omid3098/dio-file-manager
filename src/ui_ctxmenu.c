@@ -302,3 +302,38 @@ void ui_band_begin(void) {
     }
     if (ui->mreleased[0]) ui_band_cancel();
 }
+
+/* ---- a scrolling menu follows the keyboard ----
+ * CUI highlights the row the arrow keys reach but never scrolls to it, so in a menu that scrolls (a short window) Enter could
+ * pick a row nobody sees. menu_rows_begin() names the scrolling column; menu_row() wraps each cui_menu_item with its label, counting rows the
+ * way CUI does, and moves the column's scroll target just far enough to show the keyboard's row. */
+static cui_id rows_scroll;
+static int rows_seen;
+static cui_rect hl_row, hl_view;   /* the highlighted row and the scrolling column, last frame they were built */
+
+void menu_frame_begin(void) { memset(&hl_row, 0, sizeof hl_row); memset(&hl_view, 0, sizeof hl_view); }
+
+void menu_rows_begin(const char *scroll_id) { rows_scroll = cui_make_id(A.ui, scroll_id); rows_seen = 0; }
+
+bool menu_row(const char *label, bool chosen) {
+    cui_ctx *ui = A.ui;
+    int index = rows_seen++;
+    if (ui->pb_depth <= 0 || !rows_scroll) return chosen;
+    cui__menu_nav *nav = cui_state(ui, ui->pb_stack[ui->pb_depth - 1].id ^ 0x4E4156u, sizeof *nav);
+    if (nav->highlight != index) return chosen;
+    cui_rect row = cui__prev_rect(ui, cui_make_id(ui, label)), view = cui__prev_rect(ui, rows_scroll);
+    hl_row = row; hl_view = view;
+    if (!nav->keyboard) return chosen;
+    if (row.h <= 0 || view.h <= 0) return chosen;
+    cui_scroll_state *st = cui_state(ui, rows_scroll, sizeof *st);
+    if (row.y < view.y) st->ty = st->y - (view.y - row.y) - 4;
+    else if (row.y + row.h > view.y + view.h) st->ty = st->y + (row.y + row.h - view.y - view.h) + 4;
+    st->last_activity = ui->time;
+    return chosen;
+}
+
+/* Test state: where the menu's highlighted row is and the part of the menu that shows rows. */
+void menu_snapshot(FILE *f) {
+    fprintf(f, ",\"menu_row\":[%.2f,%.2f,%.2f,%.2f],\"menu_view\":[%.2f,%.2f,%.2f,%.2f]",
+            hl_row.x, hl_row.y, hl_row.w, hl_row.h, hl_view.x, hl_view.y, hl_view.w, hl_view.h);
+}

@@ -20,10 +20,12 @@ bool app_at_place(int which) { return A.loc == LOC_FOLDER && A.places[which][0] 
 
 /* ---- the header's width budget ----
  * The three window buttons never leave the window. The path bar gives way first (down to PATH_PREF), then the header's
- * actions move into the main menu, lowest priority first: the grid and list buttons, search, view options, and only in the
- * narrowest windows the forward and back buttons. The path bar never goes below PATH_MIN, its own smallest size. */
-enum { PATH_PREF = 144, PATH_MIN = 116, PATH_MAX_W = 480, DRAG_MIN = 32, TIERS = 6 };
-static const int RIGHT_ACTIONS[TIERS] = { 4, 2, 1, 0, 0, 0 };   /* header buttons kept beside the path bar, per tier */
+ * actions move into the main menu, lowest priority first: the grid and list buttons, then search. View options stay in the
+ * header (a wide window is at least 443 px wide beside the sidebar). The path bar never goes below PATH_MIN, its own smallest size. Back and Forward never go into the menu: GNOME Files 47 keeps them in the
+ * header, and below its 682 px breakpoint (NARROW_BELOW) moves them, with the view controls, into a bar at the window's
+ * bottom (ui_bottom_bar), so a narrow header only has the sidebar button, the path bar, search and the menu. */
+enum { PATH_PREF = 144, PATH_MIN = 116, PATH_MAX_W = 480, DRAG_MIN = 32 };
+static const int WIDE_RIGHT[3] = { 4, 2, 1 };   /* header buttons kept beside the path bar, per tier (wide windows) */
 
 /* The "Use as Default File Manager" item lives in the main menu. Its rectangles are kept for real-input checks. */
 static struct { bool on, was_open; cui_rect button, item; } dfm_menu;
@@ -34,27 +36,29 @@ void ui_default_fm_snapshot(FILE *f) {
             dfm_menu.item.x, dfm_menu.item.y, dfm_menu.item.w, dfm_menu.item.h);
 }
 
-typedef struct header_plan { int tier; float path_w; bool menu_here, back, forward; } header_plan;
+/* tier 0: everything in the header; 1: grid and list in the menu; 2: search too. A narrow window is
+ * at tier 0 (search in the header) or 2 (search in the menu) and never has the view buttons in its header. */
+typedef struct header_plan { int tier; float path_w; bool menu_here, bottom; } header_plan;
 
 static header_plan plan_header(void) {
-    header_plan hp = { 0, 0, false, true, true };
+    header_plan hp = { 0, 0, false, false };
     float vp = cui_viewport_size(A.ui).x;
     bool narrow = app_is_narrow();
     float avail = narrow ? vp : vp - 240.0f;
     bool job = act_jobs_active();
-    hp.menu_here = narrow;
-    for (int t = 0; t < TIERS; t++) {
-        int right = RIGHT_ACTIONS[t];
-        hp.back = t < 5;
-        hp.forward = t < 4;
-        int left = (narrow ? 1 : 0) + (hp.back ? 1 : 0) + (hp.forward ? 1 : 0);
+    hp.menu_here = hp.bottom = narrow;
+    int steps = narrow ? 2 : 3;
+    for (int step = 0; step < steps; step++) {
+        int t = narrow ? step * 2 : step;
+        int right = narrow ? (step == 0 ? 1 : 0) : WIDE_RIGHT[step];
+        int left = narrow ? 1 : 2;   /* the sidebar button, or Back and Forward */
         /* children of the header row: the left buttons, the path bar, a spacer, the job ring, the actions, the menu (narrow
          * only), a 4 px gap and the window buttons (84 px); every child is 4 px from the next and the row pads 8 px each side. */
         int kids = left + 1 + 1 + (job ? 1 : 0) + right + (narrow ? 1 : 0) + 1 + 1;
         float rest = 16 + 36.0f * left + (job ? 36 : 0) + 36.0f * right + (narrow ? 36 : 0) + 4 + 84 + 4.0f * (kids - 1) + 4;
         hp.tier = t;
         hp.path_w = avail - rest;
-        if (hp.path_w >= (t < 3 ? PATH_PREF : PATH_MIN)) break;
+        if (hp.path_w >= (step < steps - 1 ? PATH_PREF : PATH_MIN)) break;
     }
     if (hp.path_w > DRAG_MIN + PATH_PREF) hp.path_w -= DRAG_MIN;   /* keep some empty header to drag the window by */
     if (hp.path_w > PATH_MAX_W) hp.path_w = PATH_MAX_W;
@@ -62,48 +66,40 @@ static header_plan plan_header(void) {
     return hp;
 }
 
+#define EXPAND_(x) x   /* MSVC passes __VA_ARGS__ on as one argument unless it is expanded once more */
+#define ROW(label, ...) menu_row(label, EXPAND_(cui_menu_item(ui, label, __VA_ARGS__)))
+
 static void main_menu(const header_plan *hp) {
     cui_ctx *ui = A.ui;
-    static const char *const KEYS[4] = { "Name", "Size", "Modified", "Type" };
+    bool views = !hp->bottom && hp->tier >= 1, search = hp->tier >= 2;
     cui_box(ui, .dir = CUI_STACK, .width = CUI_PX(36), .height = CUI_PX(36)) {
         bool menu_open = cui_menu_begin(ui, "Main Menu", &(cui_menu_opts){ .icon = CUI_ICON_MENU, .icon_only = true });
         dfm_menu.button = cui_last_rect(ui);
         if (menu_open) {
             if (!dfm_menu.was_open) dfm_menu.on = app_default_fm();   /* read again each time the menu opens */
-            /* The menu grows when actions move into it: it scrolls where the window is too short for it. */
-            cui_column(ui, .width = CUI_FILL, .max_height = cui_viewport_size(ui).y - HEADER_H - 24, .scroll_y = true) {
-                if (!hp->back && cui_menu_item(ui, "Back", .icon = CUI_ICON_CHEVRON_LEFT, .shortcut = "Alt Left", .disabled = A.hist_pos <= 0)) app_back();
-                if (!hp->forward && cui_menu_item(ui, "Forward", .icon = CUI_ICON_CHEVRON_RIGHT, .shortcut = "Alt Right", .disabled = A.hist_pos >= A.hist_n - 1)) app_forward();
-                if (hp->tier >= 4) cui_menu_separator(ui);
-                if (hp->tier >= 2) {
-                    if (cui_menu_item(ui, "Search Current Folder", .icon = CUI_ICON_SEARCH, .shortcut = "Ctrl F", .checked = A.search_open)) app_set_search_open(!A.search_open);
+            /* The menu grows when actions move into it: it scrolls where the window is too short for it, and follows the keyboard. */
+            menu_rows_begin("menu-scroll");
+            cui_column(ui, .id = "menu-scroll", .width = CUI_FILL, .max_height = cui_viewport_size(ui).y - HEADER_H - 24, .scroll_y = true) {
+                if (search) {
+                    if (ROW("Search Current Folder", .icon = CUI_ICON_SEARCH, .shortcut = "Ctrl F", .checked = A.search_open)) app_set_search_open(!A.search_open);
                 }
-                if (hp->tier >= 1) {
-                    if (cui_menu_item(ui, "Grid View", .icon = CUI_ICON_GRID_3X3, .shortcut = "Ctrl 1", .checked = A.zoom >= Z_SMALL)) app_set_view(VIEW_GRID);
-                    if (cui_menu_item(ui, "List View", .icon = CUI_ICON_LIST, .shortcut = "Ctrl 2", .checked = A.zoom <= Z_LIST)) app_set_view(VIEW_LIST);
+                if (views) {
+                    if (ROW("Grid View", .icon = CUI_ICON_GRID_3X3, .shortcut = "Ctrl 1", .checked = A.zoom >= Z_SMALL)) app_set_view(VIEW_GRID);
+                    if (ROW("List View", .icon = CUI_ICON_LIST, .shortcut = "Ctrl 2", .checked = A.zoom <= Z_LIST)) app_set_view(VIEW_LIST);
                 }
-                if (hp->tier >= 3) {
-                    cui_menu_separator(ui);
-                    cui_menu_label(ui, "Sort by");
-                    for (int i = 0; i < 4; i++)
-                        if (cui_menu_item(ui, KEYS[i], .checked = A.sort_key == i)) { A.sort_key = i; app_resort(); }
-                    if (cui_menu_item(ui, "Reversed Order", .checked = A.sort_desc)) { A.sort_desc = !A.sort_desc; app_resort(); }
-                    if (cui_menu_item(ui, "Zoom In", .icon = CUI_ICON_ZOOM_IN, .disabled = A.zoom >= Z_COUNT - 1)) app_set_zoom(A.zoom + 1);
-                    if (cui_menu_item(ui, "Zoom Out", .icon = CUI_ICON_ZOOM_OUT, .disabled = A.zoom <= 0)) app_set_zoom(A.zoom - 1);
-                }
-                if (hp->tier >= 1) cui_menu_separator(ui);
+                if (search || views) cui_menu_separator(ui);
                 cui_menu_label(ui, "Theme");
-                if (cui_menu_item(ui, "System", .icon = CUI_ICON_MONITOR, .checked = A.theme_pref == 0)) app_set_theme(0);
-                if (cui_menu_item(ui, "Light", .icon = CUI_ICON_SUN, .checked = A.theme_pref == 1)) app_set_theme(1);
-                if (cui_menu_item(ui, "Dark", .icon = CUI_ICON_MOON, .checked = A.theme_pref == 2)) app_set_theme(2);
+                if (ROW("System", .icon = CUI_ICON_MONITOR, .checked = A.theme_pref == 0)) app_set_theme(0);
+                if (ROW("Light", .icon = CUI_ICON_SUN, .checked = A.theme_pref == 1)) app_set_theme(1);
+                if (ROW("Dark", .icon = CUI_ICON_MOON, .checked = A.theme_pref == 2)) app_set_theme(2);
                 cui_menu_separator(ui);
-                if (cui_menu_item(ui, "Show Hidden Files", .icon = CUI_ICON_EYE, .checked = A.show_hidden, .shortcut = "Ctrl H")) {
+                if (ROW("Show Hidden Files", .icon = CUI_ICON_EYE, .checked = A.show_hidden, .shortcut = "Ctrl H")) {
                     A.show_hidden = !A.show_hidden;
                     app_rebuild_view();
                 }
                 cui_menu_separator(ui);
                 /* the blank shortcut keeps room for the switch */
-                if (cui_menu_item(ui, "Use as Default File Manager", .icon = CUI_ICON_FOLDER_OPEN, .checked = dfm_menu.on)) {
+                if (ROW("Use as Default File Manager", .icon = CUI_ICON_FOLDER_OPEN, .checked = dfm_menu.on)) {
                     app_toggle_default_fm();
                     dfm_menu.on = app_default_fm();
                 }
@@ -288,13 +284,13 @@ static void paint_zoom_ticks(cui_ctx *ui, cui_rect r, void *user) {
     }
 }
 
-static void view_options_menu(void) {
+static void view_options_menu(cui_placement where) {
     cui_ctx *ui = A.ui;
     static const char *const KEYS[4] = { "Name", "Size", "Modified", "Type" };
     static const char *const names[Z_COUNT] = { "Details", "List", "Small icons", "Medium icons", "Large icons", "Extra large icons" };
     if (cui_icon_button(ui, CUI_ICON_SLIDERS_HORIZONTAL, .tooltip = "View options", .selected = ui_view_options_open(), .color = chrome_icon_color())) cui_popover_toggle(ui, "view-options");
     chrome_nodrag_last();
-    if (!cui_popover_begin(ui, "view-options", &(cui_popover_opts){ .placement = CUI_PLACE_BOTTOM_END, .width = 300, .pad = 12, .gap = 4 })) return;
+    if (!cui_popover_begin(ui, "view-options", &(cui_popover_opts){ .placement = where, .width = 300, .pad = 12, .gap = 4 })) return;
     ui_view_options_surface();
     float stop = (float)A.zoom;
     if (cui_slider(ui, "View size", &stop, 0, Z_COUNT - 1, .step = 1, .width = CUI_FILL)) app_set_zoom((int)(stop + 0.5f));
@@ -311,6 +307,36 @@ static void view_options_menu(void) {
     cui_popover_end(ui);
 }
 
+/* Back and Forward, in the header of a wide window and in the bottom bar of a narrow one. */
+static void history_buttons(cui_color dim) {
+    cui_ctx *ui = A.ui;
+    if (cui_icon_button(ui, CUI_ICON_CHEVRON_LEFT, .tooltip = "Back", .shortcut = "Alt Left", .disabled = A.hist_pos <= 0, .color = dim)) app_back();
+    chrome_nodrag_last();
+    if (cui_icon_button(ui, CUI_ICON_CHEVRON_RIGHT, .tooltip = "Forward", .shortcut = "Alt Right", .disabled = A.hist_pos >= A.hist_n - 1, .color = dim)) app_forward();
+    chrome_nodrag_last();
+}
+
+static void view_buttons(cui_color dim) {
+    cui_ctx *ui = A.ui;
+    if (cui_icon_button(ui, CUI_ICON_GRID_3X3, .tooltip = "Grid view", .shortcut = "Ctrl 1", .selected = A.zoom >= Z_SMALL, .color = dim)) app_set_view(VIEW_GRID);
+    chrome_nodrag_last();
+    if (cui_icon_button(ui, CUI_ICON_LIST, .tooltip = "List view", .shortcut = "Ctrl 2", .selected = A.zoom <= Z_LIST, .color = dim)) app_set_view(VIEW_LIST);
+    chrome_nodrag_last();
+}
+
+/* GNOME Files' action bar: below the narrow breakpoint, history on the left and the view controls on the right. */
+void ui_bottom_bar(void) {
+    cui_ctx *ui = A.ui;
+    cui_color dim = chrome_icon_color();
+    cui_box(ui, .width = CUI_FILL, .height = CUI_PX(1), .bg = CUI_COLOR_BORDER_SUBTLE) {}
+    cui_row(ui, .width = CUI_FILL, .height = CUI_PX(BAR_H - 1), .pad_x = 8, .gap = 4, .align = CUI_ALIGN_CENTER) {
+        history_buttons(dim);
+        cui_spacer(ui);
+        view_buttons(dim);
+        view_options_menu(CUI_PLACE_TOP_END);
+    }
+}
+
 void ui_content_header(void) {
     cui_ctx *ui = A.ui;
     header_plan hp = plan_header();
@@ -320,14 +346,7 @@ void ui_content_header(void) {
             if (cui_icon_button(ui, CUI_ICON_PANEL_LEFT, .tooltip = "Sidebar", .color = dim)) A.sidebar_open = true;
             chrome_nodrag_last();
         }
-        if (hp.back) {
-            if (cui_icon_button(ui, CUI_ICON_CHEVRON_LEFT, .tooltip = "Back", .shortcut = "Alt Left", .disabled = A.hist_pos <= 0, .color = dim)) app_back();
-            chrome_nodrag_last();
-        }
-        if (hp.forward) {
-            if (cui_icon_button(ui, CUI_ICON_CHEVRON_RIGHT, .tooltip = "Forward", .shortcut = "Alt Right", .disabled = A.hist_pos >= A.hist_n - 1, .color = dim)) app_forward();
-            chrome_nodrag_last();
-        }
+        if (!hp.bottom) history_buttons(dim);
         bool home_first;
         int n = build_segments(&home_first);
         /* The path bar and the search field stop at 480 px so the header keeps empty space to drag the window by,
@@ -379,13 +398,8 @@ void ui_content_header(void) {
             if (cui_icon_button(ui, CUI_ICON_SEARCH, .tooltip = "Search", .shortcut = "Ctrl F", .selected = A.search_open, .color = dim)) app_set_search_open(!A.search_open);
             chrome_nodrag_last();
         }
-        if (hp.tier < 1) {
-            if (cui_icon_button(ui, CUI_ICON_GRID_3X3, .tooltip = "Grid view", .shortcut = "Ctrl 1", .selected = A.zoom >= Z_SMALL, .color = dim)) app_set_view(VIEW_GRID);
-            chrome_nodrag_last();
-            if (cui_icon_button(ui, CUI_ICON_LIST, .tooltip = "List view", .shortcut = "Ctrl 2", .selected = A.zoom <= Z_LIST, .color = dim)) app_set_view(VIEW_LIST);
-            chrome_nodrag_last();
-        }
-        if (hp.tier < 3) view_options_menu();
+        if (!hp.bottom && hp.tier < 1) view_buttons(dim);
+        if (!hp.bottom) view_options_menu(CUI_PLACE_BOTTOM_END);
         if (hp.menu_here) main_menu(&hp);
         chrome_window_buttons();
     }

@@ -11,6 +11,8 @@ enum { VIEW_GRID = 0, VIEW_LIST = 1 };
 enum { Z_DETAILS, Z_LIST, Z_SMALL, Z_MEDIUM, Z_LARGE, Z_EXTRA, Z_COUNT };
 enum { HIST_MAX = 48 };
 #define HEADER_H 46.0f               /* both header rows: they are the top of the window */
+#define NARROW_BELOW 683.0f          /* GNOME Files 47 collapses at max-width 682sp: the sidebar leaves, Back, Forward and the view controls drop to a bottom bar */
+#define BAR_H 46.0f                  /* that bottom bar, with its top line */
 
 typedef struct app_t {
     cui_ctx *ui;
@@ -201,6 +203,12 @@ cui_color ui_icon_ink(cui_ctx *ui, cui_color c, float min);   /* c, mixed toward
 void ui_set_dim(bool dim);                                       /* draw the next file icons and names dimmed (incoming files) */
 cui_color ui_dimmed(cui_ctx *ui, cui_color c);
 
+/* ui_ctxmenu.c: keyboard in a scrolling menu */
+void menu_frame_begin(void);                   /* start of each frame: no highlighted row yet */
+void menu_rows_begin(const char *scroll_id);   /* before the scrolling column of a menu: its id and the first row */
+bool menu_row(const char *label, bool chosen); /* around each cui_menu_item (same label): scrolls the column to the row the keyboard highlights */
+void menu_snapshot(FILE *f);                   /* test state: the highlighted menu row and the rows' view */                    /* around each cui_menu_item: scrolls the column to the row the keyboard highlights */
+
 /* ui_chrome.c */
 void ui_sidebar_header(void);
 void ui_sidebar_places(void);
@@ -208,6 +216,7 @@ void ui_default_fm_snapshot(FILE *f);       /* the main menu button and its swit
 void app_toggle_default_fm(void);           /* main.c: the "Use as Default File Manager" switch */
 bool app_default_fm(void);
 void ui_content_header(void);
+void ui_bottom_bar(void);          /* narrow windows: Back, Forward and the view controls */
 void ui_search_bar(void);
 void ui_state_view(const char *icon, const char *title, const char *detail);
 void ui_status_pill(void);
