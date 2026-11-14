@@ -226,8 +226,8 @@ static void poll_list(void) {
         fs_list_sort(A.list, A.sort_key, A.sort_desc);
     }
     app_rebuild_view();
-    if (A.skel_shown && A.vis_n > 0 && app_animations()) A.fade_t = cui_time(A.ui);   /* the real items replace the placeholders with the 120 ms fade */
-    A.skel_shown = false;
+    if (A.skel_shown && A.vis_n > 0 && app_animations()) A.fade_t = cui_time(A.ui);   /* the real items fade in over the placeholders, which fade out (list_body) */
+    else A.skel_shown = false;
     act_list_ready();
 }
 
@@ -506,10 +506,15 @@ static void list_body(void) {
         return;
     }
     float fade = app_view_fade();   /* a mode switch fades the new view in over 120 ms */
+    bool under = A.skel_shown && fade < 1;   /* the placeholders the items replace fade out beneath them */
+    if (fade >= 1) A.skel_shown = false;
     cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_FILL) {
-        if (fade < 1) ui_node_opacity(fade);
-        if (A.zoom == Z_LIST) ui_column_view();
-        else if (A.view == VIEW_GRID) ui_grid_view(); else ui_list_view();
+        if (under) ui_loading_shapes(1 - fade);
+        cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_FILL) {
+            if (fade < 1) ui_node_opacity(fade);
+            if (A.zoom == Z_LIST) ui_column_view();
+            else if (A.view == VIEW_GRID) ui_grid_view(); else ui_list_view();
+        }
     }
 }
 

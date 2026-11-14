@@ -254,6 +254,7 @@ void ui_content_header(void);
 void ui_bottom_bar(void);          /* narrow windows: Back, Forward and the view controls */
 void ui_search_bar(void);
 bool ui_state_view(const char *icon, const char *title, const char *detail, const char *action);   /* a whole view's message; true when its action button (NULL: none) was clicked */
+void ui_loading_shapes(float alpha);        /* the placeholder shapes of the current view, at an opacity */
 void ui_loading_view(void);                 /* a listing running 200 ms or more: placeholder shapes in the current view's form */
 void ui_loading_frame_begin(void);          /* start of every frame */
 void ui_status_pill(void);

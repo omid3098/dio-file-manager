@@ -1,6 +1,7 @@
 /* The list view: CUI's data grid. Columns depend on the place: folders show Name, Size, Modified, Type;
  * Recent and Starred add Location; Trash shows Name, Original Location, Date Deleted, Size. The last column
  * of folders, Recent and Starred is the star toggle. */
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include "ui.h"

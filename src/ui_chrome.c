@@ -456,7 +456,13 @@ void ui_loading_view(void) {
     if (cui_time(ui) - A.load_t < LOAD_SHOW_S) return;   /* main.c's frame already wakes every 20 ms while a listing runs */
     A.skel_shown = true; A.skel_frames++;
     if (!app_animations()) { cui_set_reduced_motion(ui, true); skel_still = true; }
-    cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_FILL) {
+    ui_loading_shapes(1);
+}
+
+/* The shapes in the form of the current view, at the given opacity (below 1: fading out under the items that replace them). */
+void ui_loading_shapes(float alpha) {
+    cui_box(A.ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_FILL) {
+        if (alpha < 1) ui_node_opacity(alpha);
         if (A.zoom == Z_LIST) ui_columns_skeleton();
         else if (A.view == VIEW_GRID) ui_grid_skeleton();
         else ui_list_skeleton();

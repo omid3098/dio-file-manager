@@ -38,6 +38,18 @@ def shot(a, label):
     shutil.copyfile(str(a.base) + '.png', SHOTS / (label + '.png'))
 
 
+def ink_below(a, rows_from=.5, rows_to=.85):
+    """Pixels in the lower middle of the content pane that are not its background: placeholders that really reach there (a frame
+    counter alone cannot tell shapes that are drawn from shapes that are not)."""
+    from PIL import Image
+    img = Image.open(str(a.base) + '.png').convert('RGB')
+    w, h = img.size
+    left = 250 if w >= 900 else 8
+    box = img.crop((left, int(h * rows_from), w - 8, int(h * rows_to)))
+    bg = box.getpixel((box.width - 1, box.height - 1))
+    return sum(1 for px in box.getdata() if px != bg)
+
+
 def inside():
     results = []
     folder = WORK / 'folder'
@@ -81,6 +93,8 @@ def inside():
         s = a.snap()
         assert s['state'] == 0 and s['count'] == 0, f'The listing was already done: {s["state"]} {s["count"]}'
         shot(a, name)
+        ink = ink_below(a)
+        assert ink > 800, f'The placeholders do not reach the lower half of the pane: {ink} pixels there'
         a.until('the listing never finished', lambda: a.snap()['state'] != 0, 12)
         s = a.snap()
         assert s['listed'] == 27, f'Items after loading: {s["listed"]}'
