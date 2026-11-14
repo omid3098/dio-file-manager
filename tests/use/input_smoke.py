@@ -43,14 +43,14 @@ U.InvalidateRect.argtypes = [W.HWND, C.c_void_p, W.BOOL]
 
 
 class App:
-    def __init__(self, name, path, view='grid', theme='light'):
+    def __init__(self, name, path, view='grid', theme='light', extra=()):
         self.started = time.monotonic()
         self.name, self.folder, self.view = name, path, view
         self.theme = theme
         self.base = WORK / name
         Path(str(self.base)+'.request').unlink(missing_ok=True)
         self.proc = subprocess.Popen([str(EXE), '--path', str(path), '--view', view,
-                                      '--test-state', str(self.base), '--theme', theme],
+                                      '--test-state', str(self.base), '--theme', theme, *extra],
                                      cwd=ROOT, env=dict(os.environ, APPDATA=str(WORK/'appdata')),
                                      creationflags=subprocess.CREATE_NO_WINDOW)
         self.hwnd = None

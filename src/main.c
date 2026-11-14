@@ -624,6 +624,15 @@ static void test_snapshot(const char *base) {
     }
     fprintf(f, "],\"names\":[");
     for (int i = 0; i < A.vis_n && i < 300; i++) { if (i) fputc(',', f); json_text(f, app_item_name(i)); }
+    fprintf(f, "],\"labels\":[");
+    for (int i = 0; i < A.vis_n && i < 40; i++) {
+        char ln[3][264];
+        int n = ui_grid_label_lines(i, ln);
+        if (i) fputc(',', f);
+        fputc('[', f);
+        for (int k = 0; k < n; k++) { if (k) fputc(',', f); json_text(f, ln[k]); }
+        fputc(']', f);
+    }
     fprintf(f, "],\"content_w\":%.2f,\"cell_h\":%.2f,\"probe\":%d,\"band\":%d,\"zv\":%.4f,\"icon_px\":%.2f,\"zoom\":%d,\"icon\":%d,\"column_rows\":%d,\"slider\":[%.2f,%.2f,%.2f,%.2f],\"query\":", A.content_w, A.cell_h, A.probe_idx, ui_band_dragging(), A.zv, app_icon_size(), A.zoom, A.last_icon, A.column_rows, A.zoom_rect.x, A.zoom_rect.y, A.zoom_rect.w, A.zoom_rect.h); json_text(f, A.search);
     fprintf(f, ",\"documents\":"); json_text(f, A.places[2]);
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));

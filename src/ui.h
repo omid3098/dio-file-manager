@@ -116,6 +116,7 @@ void ui_zoom_tick(void);                   /* once per frame, before the layout 
 float app_zoom_wheel(void);
 bool ui_view_options_open(void);
 void ui_popup_tooltips(cui_ctx *ui);
+void ui_item_tooltip(cui_ctx *ui, cui_id id, const char *name, cui_rect label);
 void ui_text_clipboard(cui_ctx *ui);        /* text fields copy and paste through clip_open (retries while another program holds the clipboard) */
 void ui_popup_snapshot(FILE *f);
 bool ui_popup_open_any(cui_ctx *ui);
@@ -250,6 +251,7 @@ void ui_status_pill(void);
 
 /* ui_grid.c, ui_list.c */
 void ui_grid_view(void);
+int ui_grid_label_lines(int idx, char out[][264]);   /* the lines of an item's grid label as they are drawn (test probe) */
 void ui_column_view(void);
 void ui_grid_keys(void);
 void ui_list_view(void);

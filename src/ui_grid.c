@@ -8,15 +8,18 @@
 #define GPAD 16.0f
 #define NAME_SIZE 13.0f
 #define LINE_H 17.0f
+enum { NAME_LINES = 2 };   /* GNOME Files 47: lines = 3; with 3 the taller cell fails motion_smoke 7-reflow-by-slider (items overlap 135 px) */
 
 /* The size is continuous: icon, tile width, label width and spacing follow the slider value. */
 static float icon_size(void) { return app_icon_size(); }
 static float min_cell_w(void) { return A.zoom == Z_SMALL ? 240 : icon_size() + 48; }
-static float cell_height(void) { return A.zoom == Z_SMALL ? icon_size() + 16 : icon_size() + 12 + 8 + 2 * LINE_H + 10; }
+static float cell_height(void) { return A.zoom == Z_SMALL ? icon_size() + 16 : icon_size() + 12 + 8 + NAME_LINES * LINE_H + 10; }
 
-/* ---- name layout: up to two lines, the second cut short with an ellipsis ---- */
+/* ---- name layout: GNOME Files 47's grid label (nautilus-grid-cell.ui: wrap-mode word-char, ellipsize middle, lines 3;
+ * here NAME_LINES). Every line but the last is whole; a name that needs more keeps its start and its end on its last line, so the
+ * extension stays visible. ---- */
 
-typedef struct name_lines { char line[2][260]; int n; bool cut; } name_lines;
+typedef struct name_lines { char line[NAME_LINES][264]; int n; bool cut; } name_lines;
 
 static float text_w(cui_ctx *ui, const char *s, int len) {
     return len <= 0 ? 0 : cui_measure_text(ui, CUI_FONT_BODY, NAME_SIZE, s, len).width;
@@ -37,34 +40,64 @@ static int fit_prefix(cui_ctx *ui, const char *s, int len, float maxw) {
     return bounds[lo];
 }
 
+/* Start (byte offset) of the longest suffix of s that fits maxw, on a character boundary. */
+static int fit_suffix(cui_ctx *ui, const char *s, int len, float maxw) {
+    int bounds[261], nb = 0;
+    for (int i = 0; i < len && nb < 260; i += utf8_len((unsigned char)s[i])) bounds[nb++] = i;
+    int lo = 0, hi = nb;   /* characters left out at the front: the fewer, the wider */
+    while (lo < hi) {
+        int mid = (lo + hi) / 2;
+        if (text_w(ui, s + bounds[mid], len - bounds[mid]) <= maxw) hi = mid; else lo = mid + 1;
+    }
+    return lo < nb ? bounds[lo] : len;
+}
+
 static bool is_break(const char *s, int i) {
     unsigned char c = (unsigned char)s[i];
     if (c == ' ' || c == '-' || c == '_' || c == '.') return true;
     return c == 0xE2 && (unsigned char)s[i + 1] == 0x80 && (unsigned char)s[i + 2] == 0x8C;   /* ZWNJ */
 }
 
+/* The last line of a name too wide for it: its start, an ellipsis, its end (at least the extension, with its dot). */
+static void middle_cut(cui_ctx *ui, const char *rest, int rl, float maxw, char *out) {
+    float avail = maxw - text_w(ui, "\xE2\x80\xA6", 3);
+    int t = fit_suffix(ui, rest, rl, avail * .5f);
+    int dot = -1;
+    for (int i = rl - 1; i > 0; i--) if (rest[i] == '.') { dot = i; break; }
+    if (dot >= 0 && dot < t && text_w(ui, rest + dot, rl - dot) <= avail * .75f) t = dot;   /* the extension is the last thing to give up */
+    int e = fit_prefix(ui, rest, t, avail - text_w(ui, rest + t, rl - t));
+    memcpy(out, rest, (size_t)e);
+    memcpy(out + e, "\xE2\x80\xA6", 3);
+    memcpy(out + e + 3, rest + t, (size_t)(rl - t) + 1);
+}
+
 static void layout_name(cui_ctx *ui, const char *name, float maxw, name_lines *out) {
     char buf[260];
     snprintf(buf, sizeof buf, "%s", name);
-    int len = (int)strlen(buf);
-    out->n = 1; out->cut = false;
-    if (text_w(ui, buf, len) <= maxw) { memcpy(out->line[0], buf, (size_t)len + 1); return; }
-    int k = fit_prefix(ui, buf, len, maxw);
-    if (k < 1) k = utf8_len((unsigned char)buf[0]);
-    int brk = k;
-    for (int i = k - 1; i > k / 2; i--)   /* prefer a break after a space, dash or ZWNJ */
-        if (is_break(buf, i)) { brk = i + (buf[i] == (char)0xE2 ? 3 : 1); break; }
-    memcpy(out->line[0], buf, (size_t)brk);
-    out->line[0][brk] = 0;
-    const char *rest = buf + brk;
-    while (*rest == ' ') rest++;
-    int rl = (int)strlen(rest);
-    out->n = 2;
-    if (text_w(ui, rest, rl) <= maxw) { memcpy(out->line[1], rest, (size_t)rl + 1); return; }
-    int e = fit_prefix(ui, rest, rl, maxw - text_w(ui, "\xE2\x80\xA6", 3));
-    memcpy(out->line[1], rest, (size_t)e);
-    memcpy(out->line[1] + e, "\xE2\x80\xA6", 4);
-    out->cut = true;
+    const char *rest = buf;
+    out->n = 0; out->cut = false;
+    while (out->n < NAME_LINES) {
+        int rl = (int)strlen(rest), k = out->n++;
+        if (text_w(ui, rest, rl) <= maxw) { memcpy(out->line[k], rest, (size_t)rl + 1); return; }
+        if (k == NAME_LINES - 1) { middle_cut(ui, rest, rl, maxw, out->line[k]); out->cut = true; return; }
+        int f = fit_prefix(ui, rest, rl, maxw);
+        if (f < 1) f = utf8_len((unsigned char)rest[0]);
+        int brk = f;
+        for (int i = f - 1; i > f / 2; i--)   /* prefer a break after a space, dash or ZWNJ */
+            if (is_break(rest, i)) { brk = i + (rest[i] == (char)0xE2 ? 3 : 1); break; }
+        memcpy(out->line[k], rest, (size_t)brk);
+        out->line[k][brk] = 0;
+        rest += brk;
+        while (*rest == ' ') rest++;
+    }
+}
+
+int ui_grid_label_lines(int idx, char out[][264]) {
+    name_lines nl;
+    if (idx >= A.vis_n || A.cols < 1) return 0;
+    layout_name(A.ui, app_item_name(idx), (A.content_w - 2 * GPAD) / (float)A.cols - 10, &nl);
+    for (int k = 0; k < nl.n; k++) memcpy(out[k], nl.line[k], sizeof nl.line[k]);
+    return nl.n;
 }
 
 /* ---- painting ---- */
@@ -445,7 +478,9 @@ static void select_click(int idx, int mods) {
 }
 
 /* Hover, click, right click and tooltip for the item under the pointer; returns the item to open on a double click. */
-static int item_input(int idx, bool on_item, bool clicked, float cell_w) {
+#define TIP_ID(idx) (0x7C100000u + (cui_id)(idx))
+
+static int item_input(int idx, bool on_item, bool clicked, cui_rect cell) {
     cui_ctx *ui = A.ui;
     if (on_item) A.hover = idx;
     if (clicked) {
@@ -464,12 +499,11 @@ static int item_input(int idx, bool on_item, bool clicked, float cell_w) {
         }
     }
     if (on_item && cui_mouse_clicked(ui, CUI_MOUSE_RIGHT)) { if (!A.sel[idx]) select_click(idx, 0); A.ctx_item = true; }
-    if (on_item && A.zoom <= Z_SMALL) cui_tooltip(ui, app_item_name(idx));
-    else if (on_item) {
-        name_lines nl;
-        layout_name(ui, app_item_name(idx), cell_w - 10, &nl);
-        if (nl.cut) cui_tooltip(ui, app_item_name(idx));
-    }
+    if (on_item) {   /* GNOME Files: the name's tooltip only when the name is cut short (on_label_query_tooltip) */
+        name_lines nl = { .cut = true };
+        if (A.zoom > Z_SMALL) layout_name(ui, app_item_name(idx), cell.w - 10, &nl);
+        if (nl.cut) ui_item_tooltip(ui, TIP_ID(idx), app_item_name(idx), label_box(ui, idx, cell));
+    } else if (idx >= 0) ui_item_tooltip(ui, TIP_ID(idx), NULL, (cui_rect){ 0 });   /* the next hover waits its delay again */
     return -1;
 }
 
@@ -478,6 +512,7 @@ static int item_input(int idx, bool on_item, bool clicked, float cell_w) {
 static int glide_input(void) {
     cui_vec2 m = cui_mouse_pos(A.ui);
     int hit = -1;
+    cui_rect hit_r = { 0 };
     if (G.hot && G.have_org) {
         float cw = (A.content_w - 2 * GPAD) / (float)A.cols;
         float best = -1;
@@ -487,10 +522,10 @@ static int glide_input(void) {
             cui_rect r = glide_rect(idx, A.cols, cw, A.cell_h);
             r.x += G.org_x; r.y += G.org_y;
             float a = main_alpha(item_of(idx));
-            if (a > best + 0.001f && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h) { hit = idx; best = a; }
+            if (a > best + 0.001f && m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h) { hit = idx; best = a; hit_r = r; }
         }
     }
-    return item_input(hit, hit >= 0, G.hot_click, (A.content_w - 2 * GPAD) / (float)A.cols);
+    return item_input(hit, hit >= 0, G.hot_click, hit_r);
 }
 
 static int build_cell(int idx) {
@@ -517,7 +552,7 @@ static int build_cell(int idx) {
         if (c.clicked) G.hot_click = true;
         return -1;
     }
-    return item_input(idx, c.hovered && idx < A.vis_n, c.clicked, c.rect.w);
+    return item_input(idx, c.hovered && idx < A.vis_n, c.clicked, c.rect);
 }
 
 void ui_grid_view(void) {

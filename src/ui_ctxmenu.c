@@ -9,6 +9,7 @@
 #include <string.h>
 #include "ui.h"
 #include "clip.h"
+#include "dlgtext.h"
 
 /* The clipboard hooks of CUI's text fields (rename, path, search: Ctrl+C, Ctrl+X, Ctrl+V). CUI's own hooks call
  * OpenClipboard once and give up when another program holds the clipboard, so a copy or paste was silently
@@ -70,6 +71,38 @@ void ui_popup_tooltips(cui_ctx *ui) {
     }
 }
 
+/* The hover tooltip of an item, CUI's own tooltip (its colours, fade and delay) shown as GTK shows one (gtktooltip.c,
+ * gtk_tooltip_set_display_area): under the box of the name, centred on it, above it when there is no room below, and
+ * never over the controls at the top of the window. CUI puts its tooltip above its anchor; a box that reaches from the
+ * top of the window to 6 px above the wanted place makes it flip below the box, at that place. A name too wide for the
+ * tooltip is broken between characters (Pango WRAP_WORD_CHAR) before CUI sets it, so the box is as wide as the text. */
+typedef struct { cui_ctx *ui; float size; } tip_measure;
+static float tip_text_w(void *c, const char *s, int len) {
+    tip_measure *m = c;
+    return len <= 0 ? 0 : cui_measure_text(m->ui, CUI_FONT_MEDIUM, m->size, s, len).width;
+}
+
+void ui_item_tooltip(cui_ctx *ui, cui_id id, const char *name, cui_rect label) {
+    if (!name) { if (ui->tooltip_id == id) ui->tooltip_id = 0; return; }   /* the pointer is not on this item */
+    enum { CUI_TIP_TEXT = 256, WRAP_W = 240, GAP = 6 };   /* CUI keeps 255 bytes; its box is 280 px less 2 x 9 of padding */
+    char shown[CUI_TIP_TEXT], text[CUI_TIP_TEXT];
+    tip_measure m = { ui, cui__fs(ui, ui->theme.text_sm) };
+    dlg_path_fit(name, shown, 200);   /* room for the line breaks; a longer name keeps its start and its end */
+    dlg_break_words(shown, text, sizeof text, WRAP_W, tip_text_w, &m);
+    int lines = 1;   /* what CUI will draw, a line too many rather than too few */
+    for (const char *p = text, *e; ; p = e + 1) {
+        e = strchr(p, '\n');
+        lines += 1 + (int)(tip_text_w(&m, p, e ? (int)(e - p) : (int)strlen(p)) / (WRAP_W + 12));
+        if (!e) break;
+    }
+    float h = (float)lines * m.size * 1.35f + 10.0f, pad = 4.0f, vh = cui_viewport_size(ui).y;
+    float bottom = label.y + label.h + pad;
+    cui_rect a = { label.x - pad, label.y, label.w + 2 * pad, 0 };   /* above the name */
+    if (bottom + h + 8.0f <= vh) { a.y = 0; a.h = bottom - GAP; }   /* below it */
+    cui__state_entry(ui, id)->rect = a;
+    cui__tooltip_passive(ui, id, text);
+}
+
 /* Any menu, popover, path-bar menu or view-options popup is open: one check over every CUI popup. */
 bool ui_popup_open_any(cui_ctx *ui) {
     for (int i = 0; i < ui->popup_count; i++) if (ui->popups[i].open) return true;
@@ -79,13 +112,42 @@ bool ui_popup_open_any(cui_ctx *ui) {
 /* Inspect the rendered tooltip surface, including any fading tooltip. */
 void ui_popup_snapshot(FILE *f) {
     cui_ctx *ui = A.ui;
-    int open = 0, tooltip = 0;
+    int open = 0, tooltip = 0, tipl = 0; float tipw = 0; cui_rect tipbox = { 0 }, tiprect = { 0 }; const char *tiptext = "";
     for (int i = 0; i < ui->popup_count; i++) open += ui->popups[i].open;
     for (int i = 0; i < ui->float_count; i++) {
         cui_node *n = &ui->nodes[ui->float_roots[i]];
-        if (n->id == 0x7001718u && n->opacity > 0) tooltip = 1;
+        if (n->id == 0x7001718u && n->opacity > 0) {
+            tooltip = 1;
+            /* test probe: the box, and the widest line of the text as it is shaped (not as the box was measured) */
+            float tw = 0; int tl = 0; const char *txt = ""; cui_rect trect = { 0 };
+            for (int c = n->first; c >= 0; c = ui->nodes[c].next) {
+                cui_node *t = &ui->nodes[c];
+                if (!(t->flags & CUI_NF_TEXT)) continue;
+                txt = t->text;
+                trect = t->rect;
+                /* a line CUI wraps is cut at a space: only a word wider than the box can be clipped */
+                for (const char *p = t->text; *p;) {
+                    while (*p == ' ' || *p == '\n') p++;
+                    const char *e = p;
+                    while (*e && *e != ' ' && *e != '\n') e++;
+                    float w = e > p ? cui_measure_text(ui, t->font, t->font_size, p, (int)(e - p)).width : 0;
+                    if (w > tw) tw = w;
+                    p = e;
+                }
+                tl = (int)(t->rect.h / (t->font_size * 1.35f) + .5f);
+            }
+            tipbox = n->rect; tipw = tw; tipl = tl; tiptext = txt; tiprect = trect;
+        }
     }
     fprintf(f, ",\"popups\":%d,\"tooltip\":%d", open, tooltip);
+    if (tooltip) {
+        fprintf(f, ",\"tip\":{\"box\":[%.2f,%.2f,%.2f,%.2f],\"text_w\":%.2f,\"lines\":%d,\"text_rect\":[%.2f,%.2f,%.2f,%.2f],\"pad\":%.2f,\"text\":\"", tipbox.x, tipbox.y, tipbox.w, tipbox.h, tipw, tipl, tiprect.x, tiprect.y, tiprect.w, tiprect.h, 9.0f);
+        for (const char *p = tiptext; *p; p++) {
+            if (*p == '"' || *p == '\\') fputc('\\', f);
+            if (*p == '\n') fputs("\\n", f); else fputc(*p, f);
+        }
+        fputs("\"}", f);
+    }
 }
 
 /* A geometry-only popover anchor must not cover the selected row's hit target. */

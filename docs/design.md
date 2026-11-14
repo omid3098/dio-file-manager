@@ -55,8 +55,9 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   Trash shows an item-count badge when nonempty. CUI 1.4.0 has no empty-bin icon,
   so the icon stays the same when the bin is empty or full.
 - **Grid view (default):** cells about 112 px wide; a 64 px icon above the name; the name centred,
-  up to two lines then cut short with an ellipsis (whole name in a tooltip, and in full while
-  selected). Folders are drawn filled in the accent colour (a back flap a step darker), not as
+  up to two lines (GNOME Files 47 has three: lines 3, wrap word-char, ellipsize middle; three lines make the
+  reflow motion check fail, see NAME_LINES in ui_grid.c), the ellipsis in the middle of the last line, so a longer name
+  keeps its start and its end and the extension stays visible; the whole name is in a tooltip under it (wrapped inside its box). Folders are drawn filled in the accent colour (a back flap a step darker), not as
   outline icons. Files are a page with a folded corner, with a small type label ("PDF", "JPG")
   or a Lucide type icon; image files show a thumbnail (aspect kept, rounded corners, soft shadow) once it
   is read, only for the cells in view, with the page icon until then. The icon stops use 32, 64,
