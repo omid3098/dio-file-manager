@@ -225,18 +225,27 @@ int views_state(void) { return (V.delete_open ? 1 : 0) | (V.empty_open ? 2 : 0) 
 
 static int hover_drive = -1;
 
-#define DRIVE_H 76
-#define DRIVE_TEXT_Y 52
+#define DRIVE_H 64   /* name and bar only; the rows with a second line of text stay 76 */
 #define DRIVE_BAR_MAX 420     /* the widest meter */
+
+/* The unit of a drive's sizes in the meter, picked from its total so the numbers stay short: TB with one decimal from
+   1 TB, GB with one decimal from 1 GB, else MB. Decimal like fs_format_size. */
+static void drive_unit(const fs_drive *d, double *div, const char **unit, const char **fmt) {
+    if (d->total >= 1000000000000ull) { *div = 1e12; *unit = "TB"; *fmt = "%.1f"; }
+    else if (d->total >= 1000000000ull) { *div = 1e9; *unit = "GB"; *fmt = "%.1f"; }
+    else { *div = 1e6; *unit = "MB"; *fmt = "%.0f"; }
+}
 
 /* The used space of a drive: one meter part in the accent, danger above 90% used; the rest of the bar is free. */
 static bool drive_meter(cui_ctx *ui, const fs_drive *d) {
     bool hovered = false;
-    float total = (float)((double)d->total / 1e9), used = (float)((double)(d->total - d->free) / 1e9);
+    double div; const char *unit, *fmt;
+    drive_unit(d, &div, &unit, &fmt);
+    float total = (float)((double)d->total / div), used = (float)((double)(d->total - d->free) / div);
     cui_meter_part part = { .name = "Used", .value = used, .color = used > total * 0.9f ? CUI_COLOR_DANGER : CUI_COLOR_ACCENT, .density = 1 };
     cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad_left = 68, .pad_right = 20, .pad_top = 11) {
         cui_column(ui, .width = CUI_FILL, .max_width = DRIVE_BAR_MAX) {
-            cui_pattern_meter(ui, "used", &part, 1, .total = total, .unit = "GB", .format = "%.1f", .no_legend = true, .height = 8);
+            cui_pattern_meter(ui, "used", &part, 1, .total = total, .unit = unit, .format = fmt, .no_legend = true, .height = 8);
             hovered = cui_last_hovered(ui);
         }
     }
@@ -254,9 +263,13 @@ static void paint_drive(cui_ctx *ui, cui_rect r, void *user) {
     snprintf(name, sizeof name, "%s", d->name);
     if (d->total) {   /* the meter's readout shares this line: the name gives way, whole characters then an ellipsis */
         char idle[64], hover[64];   /* the widest things the meter writes over the bar */
-        double used = (double)(d->total - d->free) / 1e9;
-        snprintf(idle, sizeof idle, "%.1f / %.1f GB", used, (double)d->total / 1e9);
-        snprintf(hover, sizeof hover, "Used \xC2\xB7 %.1f GB \xC2\xB7 100%%", used);
+        double div; const char *unit, *fmt;
+        char used[32], total[32];
+        drive_unit(d, &div, &unit, &fmt);
+        snprintf(used, sizeof used, fmt, (double)(d->total - d->free) / div);
+        snprintf(total, sizeof total, fmt, (double)d->total / div);
+        snprintf(idle, sizeof idle, "%s / %s %s", used, total, unit);
+        snprintf(hover, sizeof hover, "Used \xC2\xB7 %s %s \xC2\xB7 100%%", used, unit);
         float w = cui_measure_text(ui, CUI_FONT_BODY, 15, idle, (int)strlen(idle)).width, w2 = cui_measure_text(ui, CUI_FONT_BODY, 15, hover, (int)strlen(hover)).width;
         float room = (r.w - 68 - 20 > DRIVE_BAR_MAX ? DRIVE_BAR_MAX : r.w - 68 - 20) - (w > w2 ? w : w2) - 16;
         size_t n = strlen(name);
@@ -266,13 +279,7 @@ static void paint_drive(cui_ctx *ui, cui_rect r, void *user) {
         }
     }
     cui_draw_text(ui, CUI_FONT_MEDIUM, 14, (cui_vec2){ tx, r.y + 12 }, CUI_COLOR_FOREGROUND, name, -1);
-    if (d->total) {
-        char f[48], t[48], line[120];
-        fs_format_size(f, sizeof f, d->free);
-        fs_format_size(t, sizeof t, d->total);
-        snprintf(line, sizeof line, "%s free of %s", f, t);
-        cui_draw_text(ui, CUI_FONT_BODY, 12, (cui_vec2){ tx, r.y + DRIVE_TEXT_Y }, CUI_COLOR_TEXT_SECONDARY, line, -1);
-    } else {
+    if (!d->total) {
         const char *kind = d->type == DRIVE_CDROM ? "Optical drive" : d->type == DRIVE_REMOTE ? "Network location" : "Not available";
         cui_draw_text(ui, CUI_FONT_BODY, 12, (cui_vec2){ tx, r.y + 36 }, CUI_COLOR_TEXT_SECONDARY, kind, -1);
     }
