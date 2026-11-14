@@ -225,6 +225,25 @@ int views_state(void) { return (V.delete_open ? 1 : 0) | (V.empty_open ? 2 : 0) 
 
 static int hover_drive = -1;
 
+#define DRIVE_H 76
+#define DRIVE_TEXT_Y 52
+#define DRIVE_BAR_MAX 420     /* the widest meter */
+#define DRIVE_READOUT_W 150   /* what its readout over the bar may take of that line ("Used · 2000.0 GB · 100%") */
+
+/* The used space of a drive: one meter part in the accent, danger above 90% used; the rest of the bar is free. */
+static bool drive_meter(cui_ctx *ui, const fs_drive *d) {
+    bool hovered = false;
+    float total = (float)((double)d->total / 1e9), used = (float)((double)(d->total - d->free) / 1e9);
+    cui_meter_part part = { .name = "Used", .value = used, .color = used > total * 0.9f ? CUI_COLOR_DANGER : CUI_COLOR_ACCENT, .density = 1 };
+    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad_left = 68, .pad_right = 20, .pad_top = 11) {
+        cui_column(ui, .width = CUI_FILL, .max_width = DRIVE_BAR_MAX) {
+            cui_pattern_meter(ui, "used", &part, 1, .total = total, .unit = "GB", .format = "%.1f", .no_legend = true, .height = 8);
+            hovered = cui_last_hovered(ui);
+        }
+    }
+    return hovered;
+}
+
 static void paint_drive(cui_ctx *ui, cui_rect r, void *user) {
     int i = *(int *)user;
     const fs_drive *d = &A.drives[i];
@@ -232,19 +251,23 @@ static void paint_drive(cui_ctx *ui, cui_rect r, void *user) {
     if (hover_drive == i) cui_draw_rect(ui, r, CUI_CORNERS(14), CUI_COLOR_HOVER);
     cui_draw_icon(ui, CUI_ICON_SERVER, (cui_rect){ r.x + 18, r.y + (r.h - 32) * 0.5f, 32, 32 }, 32, CUI_COLOR_ACCENT);
     float tx = r.x + 68;
-    cui_draw_text(ui, CUI_FONT_MEDIUM, 14, (cui_vec2){ tx, r.y + 12 }, CUI_COLOR_FOREGROUND, d->name, -1);
+    char name[sizeof d->name + 4];
+    snprintf(name, sizeof name, "%s", d->name);
+    if (d->total) {   /* the meter's readout shares this line: the name gives way, whole characters then an ellipsis */
+        float room = (r.w - 68 - 20 > DRIVE_BAR_MAX ? DRIVE_BAR_MAX : r.w - 68 - 20) - DRIVE_READOUT_W;
+        size_t n = strlen(name);
+        while (n && cui_measure_text(ui, CUI_FONT_MEDIUM, 14, name, (int)strlen(name)).width > room) {
+            do n--; while (n && ((unsigned char)name[n] & 0xC0) == 0x80);
+            memcpy(name + n, "\xE2\x80\xA6", 4);
+        }
+    }
+    cui_draw_text(ui, CUI_FONT_MEDIUM, 14, (cui_vec2){ tx, r.y + 12 }, CUI_COLOR_FOREGROUND, name, -1);
     if (d->total) {
-        float bw = r.w - 68 - 20;
-        if (bw > 420) bw = 420;
-        float used = (float)((double)(d->total - d->free) / (double)d->total);
-        cui_rect track = { tx, r.y + 38, bw, 6 };
-        cui_draw_rect(ui, track, CUI_CORNERS(3), CUI_COLOR_BORDER_STRONG);
-        if (used > 0.004f) cui_draw_rect(ui, (cui_rect){ tx, track.y, bw * used, 6 }, CUI_CORNERS(3), used > 0.9f ? CUI_COLOR_DANGER : CUI_COLOR_ACCENT);
         char f[48], t[48], line[120];
         fs_format_size(f, sizeof f, d->free);
         fs_format_size(t, sizeof t, d->total);
         snprintf(line, sizeof line, "%s free of %s", f, t);
-        cui_draw_text(ui, CUI_FONT_BODY, 12, (cui_vec2){ tx, r.y + 50 }, CUI_COLOR_TEXT_SECONDARY, line, -1);
+        cui_draw_text(ui, CUI_FONT_BODY, 12, (cui_vec2){ tx, r.y + DRIVE_TEXT_Y }, CUI_COLOR_TEXT_SECONDARY, line, -1);
     } else {
         const char *kind = d->type == DRIVE_CDROM ? "Optical drive" : d->type == DRIVE_REMOTE ? "Network location" : "Not available";
         cui_draw_text(ui, CUI_FONT_BODY, 12, (cui_vec2){ tx, r.y + 36 }, CUI_COLOR_TEXT_SECONDARY, kind, -1);
@@ -260,9 +283,16 @@ void ui_other_locations(void) {
             cui_gap(ui, 2);
             for (int i = 0; i < A.drive_n; i++) {
                 cui_push_id_int(ui, i);
-                cui_canvas_result c = cui_canvas(ui, "drive", CUI_FILL, CUI_PX(76), paint_drive, &i, sizeof i);
-                if (c.hovered) hover_drive = i;
-                if (c.clicked) app_navigate(A.drives[i].root);
+                cui_canvas_result c;
+                bool bar_hovered = false;   /* the meter sits over the row: it takes the pointer from the canvas */
+                if (A.drives[i].total) {
+                    cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_PX(DRIVE_H)) {
+                        c = cui_canvas(ui, "drive", CUI_FILL, CUI_PX(DRIVE_H), paint_drive, &i, sizeof i);
+                        bar_hovered = drive_meter(ui, &A.drives[i]);
+                    }
+                } else c = cui_canvas(ui, "drive", CUI_FILL, CUI_PX(76), paint_drive, &i, sizeof i);
+                if (c.hovered || bar_hovered) hover_drive = i;
+                if (c.clicked || (bar_hovered && cui_mouse_clicked(ui, CUI_MOUSE_LEFT))) app_navigate(A.drives[i].root);
                 cui_pop_id(ui);
             }
         }

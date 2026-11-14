@@ -188,7 +188,9 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 - Trash shows the Recycle Bin with Original Location and Date Deleted columns.
   Its bar shows an item count, Restore for the selection and Empty Trash.
   Empty Trash and Delete Permanently require confirmation.
-- Other Locations lists drives with a usage bar and free/total space. Clicking one opens it.
+- Other Locations lists drives with free/total space and a CUI pattern meter of the used space (one part, "Used",
+  in the accent, danger above 90% used; no legend). Its readout sits on the name line: used/total, and on hover
+  the used size and share. The name gives way to it with an ellipsis. Clicking a row, the meter included, opens the drive.
 - A file that is still being copied into the shown folder is listed under its final name, dimmed, with
   "Copying..." in the size column (list) and no thumbnail. The copy writes to a hidden temporary name
   `.<name>.dfm-copy-<pid>-<n>.tmp`; the listing shows such a file only while the copying process is alive and
