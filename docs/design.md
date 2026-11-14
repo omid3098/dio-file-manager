@@ -121,8 +121,9 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
     With nothing being measured the engine does nothing (idle CPU below 0.1 % of one core, also while other programs write
     to the drive). A folder changed on disk shows its new size the next time its parent is entered.
   - No waiting time keeps an old number: a folder changed on disk shows its new size as soon as its parent is entered
-    again, also at once after it was left. Only a folder whose measurement began after the shown folder was entered (a
-    reload of the same folder) is not walked again, and a folder inside a walk that is still running waits for that
+    again, also at once after it was left, and after a reload (F5, or the list made again when an operation ends). Only a folder
+    whose measurement began after the shown folder was entered (the quiet re-listing while a copy runs) is not walked again,
+    and a folder inside a walk that is still running waits for that
     walk: entering E:\ and, right after, E:\w costs one walk of E:\w, not two. A folder made after that walk read its
     parent is measured when the walk ends.
   - A folder or file the program may not read counts as 0 bytes (what can be read is counted; the same as the folder

@@ -162,7 +162,7 @@ only after restoration. `clipboard_guard.clipboard_test_lock` waits up to 15 min
 `clipboard_guard.preserved_clipboard` always takes it, including nested checks.
 ## Folder size checks
 
-`test_foldersize.c` (CTest target `dfm-foldersize-tests`, console, 39 checks) builds a sandbox under the task folder and checks
+`test_foldersize.c` (CTest target `dfm-foldersize-tests`, console, 43 checks) builds a sandbox under the task folder and checks
 the engine alone: exact sizes, nested totals, a junction not followed, a walk cancelled when the view moves on, one shown folder
 walked by several threads at once (peak >= 3), ten shown folders surviving a cache cap of 4, and 10,000 lookups under 25 ms.
 Entering a folder again: the same folder asked again at once reads no directory; a file changed while another folder is shown

@@ -71,8 +71,9 @@ void sizes_forget(void) { req_list = NULL; }   /* the listing was dropped: a new
 void sizes_frame(void) {
     if (!wanted()) return;
     if (req_list != A.list) {
+        bool entered = !req_list;   /* a quiet reload (a copy running) swaps the listing without forgetting it */
         req_list = A.list; req_done = false;
-        fsz_view(A.path);
+        fsz_view(A.path, entered);
         char p[FS_PATH_MAX + 300];
         for (int i = 0; i < A.list->count; i++) {   /* the listing's order: the folders nearest the top of the view first */
             const fs_entry *e = &A.list->items[i];

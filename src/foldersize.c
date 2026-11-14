@@ -339,10 +339,16 @@ static void run_task(task *t, BYTE *buf, wchar_t *scratch) {
     }
     free(L.names);
     EnterCriticalSection(&G.cs);
-    t->sum = L.own;
-    t->pend = n;
-    if (n) { push_front(first, last); ReleaseSemaphore(G.sem, n, NULL); }
-    else finalize(t);
+    if (t->w->cancel) {   /* the view left this walk while the folder was read: nothing of it is kept */
+        for (task *c = first, *nx; c; c = nx) { nx = c->next; free(c->path); free(c); }
+        t->failed = 1; t->sum = 0; t->pend = 0;
+        finalize(t);
+    } else {
+        t->sum = L.own;
+        t->pend = n;
+        if (n) { push_front(first, last); ReleaseSemaphore(G.sem, n, NULL); }
+        else finalize(t);
+    }
     LeaveCriticalSection(&G.cs);
 }
 
@@ -444,7 +450,7 @@ static void unpin_shown_locked(void) {
     evict();   /* the cap may have been exceeded while they were shown */
 }
 
-void fsz_view(const char *parent) {
+void fsz_view(const char *parent, bool entered) {
     wchar_t w[2200] = L"";
     size_t n = 0;
     if (!G.inited) return;
@@ -455,7 +461,6 @@ void fsz_view(const char *parent) {
     bool same = G.parent && n && wcslen(G.parent) == n && keq(G.parent, w, n);
     if (!same) {
         G.gen++;
-        G.view_seq = InterlockedIncrement(&G.seq);
         G.open = 0;
         free(G.parent);
         G.parent = n ? _wcsdup(w) : NULL;
@@ -468,6 +473,7 @@ void fsz_view(const char *parent) {
             if (e && e->state == ST_PENDING && !e->adopt && e->tid) revert(e);
         }
     }
+    if (entered || !same) G.view_seq = InterlockedIncrement(&G.seq);   /* what was measured before is measured again */
     unpin_shown_locked();
     LeaveCriticalSection(&G.cs);
 }

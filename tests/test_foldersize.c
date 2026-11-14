@@ -73,7 +73,7 @@ int main(void) {
     CHECK(fsz_eligible(root), "the sandbox drive is eligible: %s", root);
     CHECK(!fsz_eligible("\\\\server\\share\\x"), "a network path is not");
     fsz_start(on_notify);
-    fsz_view(root);
+    fsz_view(root, true);
     const char *kids[] = { "a", "b", "d" };
     for (int i = 0; i < 3; i++) { char p[MAX_PATH]; path_of(p, kids[i]); fsz_want(p); }
     { int s; size_of("a", &s); CHECK(s == FSZ_PENDING || s == FSZ_DONE, "asked folders are pending or done at once (%d)", s); }
@@ -86,17 +86,17 @@ int main(void) {
 
     /* the same view asked again: measured since it began, no new walk */
     unsigned r0 = fsz_test_reads();
-    fsz_view(root);
+    fsz_view(root, false);   /* listed again (a quiet reload), not entered again */
     for (int i = 0; i < 3; i++) { char p[MAX_PATH]; path_of(p, kids[i]); fsz_want(p); }
     Sleep(200);
     CHECK(fsz_test_reads() == r0 && fsz_open() == 0, "asked again at once: %u new directory reads, nothing open", fsz_test_reads() - r0);
 
     /* a file changed while another folder is shown: entering the parent again shows the new size; the old one stays
        readable (and marked as being measured) until it arrives */
-    { char bp[MAX_PATH]; path_of(bp, "b"); fsz_view(bp); }
+    { char bp[MAX_PATH]; path_of(bp, "b"); fsz_view(bp, true); }
     write_file("a\\sub\\x", 50, true);
     fsz_test_delay(150);
-    fsz_view(root);
+    fsz_view(root, true);
     for (int i = 0; i < 3; i++) { char p[MAX_PATH]; path_of(p, kids[i]); fsz_want(p); }
     { char ap[MAX_PATH]; uint64_t v = 0; path_of(ap, "a"); int st = fsz_get(ap, &v);
       CHECK(st == FSZ_DONE && v == 130 && fsz_stale(ap), "the old size stays readable while it is measured again (state %d, %llu)", st, U(v)); }
@@ -118,18 +118,18 @@ int main(void) {
     }
     char sp[MAX_PATH]; path_of(sp, "slow");
     fsz_test_delay(150);
-    fsz_view(sp);
+    fsz_view(sp, true);
     for (int i = 1; i <= 3; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "slow\\%d", i); path_of(p, r); fsz_want(p); }
     Sleep(60);
     CHECK(fsz_open() > 0, "work is running (%d)", fsz_open());
-    fsz_view(root);   /* navigate away */
+    fsz_view(root, true);   /* navigate away */
     CHECK(fsz_open() == 0, "leaving the folder ends the view's open work at once");
     Sleep(1500);
     int none = 0;
     for (int i = 1; i <= 3; i++) { char r[64]; int s; snprintf(r, sizeof r, "slow\\%d", i); size_of(r, &s); if (s == FSZ_NONE) none++; }
     CHECK(none == 3, "cancelled folders are not cached half done (%d of 3 gone)", none);
     fsz_test_delay(0);
-    fsz_view(sp);
+    fsz_view(sp, true);
     for (int i = 1; i <= 3; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "slow\\%d", i); path_of(p, r); fsz_want(p); }
     CHECK(wait_open0(10000), "asked again, they finish");
     CHECK(size_of("slow\\2", NULL) == 33, "slow\\2 = 33 (got %llu)", U(size_of("slow\\2", NULL)));
@@ -144,11 +144,11 @@ int main(void) {
     }
     char kp[MAX_PATH]; path_of(kp, "back");
     fsz_test_delay(150);
-    fsz_view(kp);
+    fsz_view(kp, true);
     for (int i = 1; i <= 3; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "back\\%d", i); path_of(p, r); fsz_want(p); }
     Sleep(60);
-    fsz_view(root);
-    fsz_view(kp);
+    fsz_view(root, true);
+    fsz_view(kp, true);
     for (int i = 1; i <= 3; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "back\\%d", i); path_of(p, r); fsz_want(p); }
     CHECK(wait_open0(20000), "left and entered again at once: the children finish");
     fsz_test_delay(0);
@@ -166,7 +166,7 @@ int main(void) {
     char bp[MAX_PATH]; path_of(bp, "big");
     fsz_test_delay(40);
     fsz_test_peak();
-    fsz_view(root);
+    fsz_view(root, true);
     fsz_want(bp);
     CHECK(wait_open0(20000), "the big folder finishes");
     fsz_test_delay(0);
@@ -183,21 +183,41 @@ int main(void) {
     char tp[MAX_PATH]; path_of(tp, "tree");
     fsz_test_delay(60);
     r0 = fsz_test_reads();
-    fsz_view(root); fsz_want(tp);
+    fsz_view(root, true); fsz_want(tp);
     Sleep(100);
-    fsz_view(tp);   /* the walk of tree is still running */
+    fsz_view(tp, true);   /* the walk of tree is still running */
     for (int i = 0; i < 3; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "tree\\c%d", i); path_of(p, r); fsz_want(p); }
     CHECK(wait_open0(20000), "the children of a folder entered during its walk finish");
     fsz_test_delay(0);
     { unsigned d = fsz_test_reads() - r0; CHECK(d == 10, "tree and its children cost %u directory reads, not more than the 10 directories", d); }
     CHECK(size_of("tree\\c1", NULL) == 20 && size_of("tree", NULL) == 60, "tree = 60, c1 = 20 (got %llu, %llu)", U(size_of("tree", NULL)), U(size_of("tree\\c1", NULL)));
+    /* the same folder reloaded: no other view in between, the new size shows */
+    fsz_view(tp, true);
+    for (int i = 0; i < 3; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "tree\\c%d", i); path_of(p, r); fsz_want(p); }
+    CHECK(wait_open0(20000), "entered, the children finish");
+    write_file("tree\\c0\\g0\\f", 5, true);
+    fsz_view(tp, true);
+    for (int i = 0; i < 3; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "tree\\c%d", i); path_of(p, r); fsz_want(p); }
+    CHECK(wait_open0(20000), "reloaded, the children finish");
+    CHECK(wait_size("tree\\c0", 25, 5000), "tree\\c0 = 25 after a reload (got %llu)", U(size_of("tree\\c0", NULL)));
+
     /* a file changes and the folder is left and entered again at once: no waiting time keeps the old size */
     write_file("tree\\c1\\g0\\f", 15, true);
-    fsz_view(root); fsz_want(tp);
-    fsz_view(tp);
+    fsz_view(root, true); fsz_want(tp);
+    fsz_view(tp, true);
     for (int i = 0; i < 3; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "tree\\c%d", i); path_of(p, r); fsz_want(p); }
     CHECK(wait_open0(20000), "entered again at once, the children finish");
     CHECK(wait_size("tree\\c1", 35, 5000), "tree\\c1 = 35 right after the change (got %llu)", U(size_of("tree\\c1", NULL)));
+
+    /* a folder being read while the view leaves its walk is not cached afterwards */
+    mkdirs("cx"); mkdirs("cx\\a"); mkdirs("cx\\a\\L"); write_file("cx\\a\\L\\f", 10, false);
+    fsz_test_delay(200);
+    fsz_view(root, true); { char cp[MAX_PATH]; path_of(cp, "cx"); fsz_want(cp); }
+    Sleep(500);   /* cx and a are read, L is being read */
+    fsz_view(sp, true);
+    Sleep(800);
+    fsz_test_delay(0);
+    { int st; size_of("cx\\a\\L", &st); CHECK(st == FSZ_NONE, "a folder read after its walk was cancelled is not kept (state %d)", st); }
 
     /* a folder made after the walk of its parent read the parent is measured, not left empty */
     mkdirs("grow");
@@ -210,10 +230,10 @@ int main(void) {
     }
     char gp[MAX_PATH]; path_of(gp, "grow");
     fsz_test_delay(120);
-    fsz_view(root); fsz_want(gp);
+    fsz_view(root, true); fsz_want(gp);
     Sleep(250);   /* grow is read, the deep chains below it are still running */
     mkdirs("grow\\new"); write_file("grow\\new\\f", 7, false);
-    fsz_view(gp);
+    fsz_view(gp, true);
     { const char *gk[] = { "grow\\g0", "grow\\g1", "grow\\new" };
       for (int i = 0; i < 3; i++) { char p[MAX_PATH]; path_of(p, gk[i]); fsz_want(p); } }
     CHECK(wait_open0(20000), "the folders of a walk that missed one finish");
@@ -226,7 +246,7 @@ int main(void) {
     for (int i = 0; i < 10; i++) { char r[64]; snprintf(r, sizeof r, "many\\m%d", i); mkdirs(r); snprintf(r, sizeof r, "many\\m%d\\f", i); write_file(r, 3, false); }
     char mp[MAX_PATH]; path_of(mp, "many");
     fsz_test_cap(4);
-    fsz_view(mp);
+    fsz_view(mp, true);
     for (int i = 0; i < 10; i++) { char r[64], p[MAX_PATH]; snprintf(r, sizeof r, "many\\m%d", i); path_of(p, r); fsz_want(p); }
     CHECK(wait_open0(10000), "the ten shown folders finish");
     { int done = 0; for (int i = 0; i < 10; i++) { char r[64]; int s; snprintf(r, sizeof r, "many\\m%d", i); if (size_of(r, &s) == 3 && s == FSZ_DONE) done++; }
@@ -237,7 +257,7 @@ int main(void) {
     mkdirs("wide");
     for (int i = 0; i < 10000; i++) { char r[64]; snprintf(r, sizeof r, "wide\\w%05d", i); mkdirs(r); }
     char wp[MAX_PATH]; path_of(wp, "wide");
-    fsz_view(wp);
+    fsz_view(wp, true);
     double worst_ms = 0;   /* the longest one call of the window thread took while the workers were busy */
     LARGE_INTEGER qf, q0, q1; QueryPerformanceFrequency(&qf);
     for (int i = 0; i < 10000; i++) {
