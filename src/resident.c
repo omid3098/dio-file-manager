@@ -24,6 +24,7 @@ static HWND win;
 static UINT taskbar_created;
 static bool registered;
 static bool bridge;               /* the switch is off, Win+E is still ours: it opens Explorer until Explorer restarts */
+static DWORD tray_pid;            /* the process that owned the taskbar when the bridge began: 0 when there was none */
 static wchar_t tail[1200];        /* what follows --resident: handed to the app as the launcher hands over its own */
 
 static void log_line(const wchar_t *what, const wchar_t *a) {
@@ -118,7 +119,7 @@ bool resident_keys_restore(void) {
         if (ok && existed) {
             n = sizeof saved - sizeof *saved;
             ok = !RegQueryValueExW(rec, L"Value", NULL, &t, (BYTE *)saved, &n) && t == REG_SZ;
-            saved[n / sizeof *saved] = 0;
+            if (ok) saved[n / sizeof *saved] = 0;   /* n is the size needed, not the size read, when the value is too long */
         }
         RegCloseKey(rec);
         if (ok && !RegCreateKeyExW(HKEY_CURRENT_USER, dfm_adv_base(), 0, NULL, 0, KEY_SET_VALUE, NULL, &adv, NULL)) {
@@ -127,6 +128,7 @@ bool resident_keys_restore(void) {
             RegCloseKey(adv);
         } else ok = false;
     }
+    if (!ok) return false;   /* E is still in DisabledHotkeys: the Run entry stays, so the next sign-in still starts the process */
     r = RegOpenKeyExW(HKEY_CURRENT_USER, dfm_run_base(), 0, KEY_SET_VALUE, &run);
     if (!r) {
         r = RegDeleteValueW(run, RUN_VALUE);
@@ -171,8 +173,23 @@ static int ask_process(UINT msg) {
     return (int)r;
 }
 
+/* Explorer's identity is the process behind its taskbar window: "TaskbarCreated" is also sent when the primary display's scale changes. */
+static DWORD shell_pid(void) {
+    DWORD p = 0;
+    HWND t = FindWindowW(L"Shell_TrayWnd", NULL);
+    if (t) GetWindowThreadProcessId(t, &p);
+    return p;
+}
+
+static bool start_bridge(void) {
+    if (!registered) return false;
+    bridge = true;
+    tray_pid = shell_pid();
+    return true;
+}
+
 bool resident_release(void) {
-    if (in_resident) { bridge = registered; return bridge; }   /* the process itself turned the switch off (the app is gone) */
+    if (in_resident) return start_bridge();   /* the process itself turned the switch off (the app is gone) */
     return ask_process(MSG_RELEASE) == 1;
 }
 
@@ -238,7 +255,7 @@ static void open_home(void) {
 static LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_HOTKEY && w == HOTKEY_ID) { open_home(); return 0; }
     if (m == MSG_RELEASE) {
-        if (registered) { bridge = true; log_line(L"bridge", NULL); return 1; }
+        if (start_bridge()) { log_line(L"bridge", NULL); return 1; }
         PostMessageW(h, WM_CLOSE, 0, 0);   /* Explorer still owns Win+E, nothing to bridge */
         return 0;
     }
@@ -250,6 +267,7 @@ static LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == taskbar_created && m) {
         log_line(L"taskbar-created", NULL);
         if (bridge) {   /* Explorer restarted and read the restored DisabledHotkeys: Win+E is its own again */
+            if (tray_pid && shell_pid() == tray_pid) return 0;   /* the same Explorer: it did not restart */
             log_line(L"bridge-exit", NULL);
             if (registered) { UnregisterHotKey(h, HOTKEY_ID); registered = false; }
             defaultfm_bridge_ended();

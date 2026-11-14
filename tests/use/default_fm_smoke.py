@@ -384,6 +384,24 @@ def inside():
         if w:
             user32.PostMessageW(ctypes.c_void_p(w), user32.RegisterWindowMessageW('TaskbarCreated'), 0, 0)
 
+    def fake_taskbar():
+        """A window of Explorer's taskbar class on this desktop: the process tells an Explorer restart from a display-scale change by
+        the process behind that window."""
+        user32 = ctypes.windll.user32
+
+        class WndClass(ctypes.Structure):
+            _fields_ = [('style', ctypes.c_uint), ('proc', ctypes.c_void_p), ('cls', ctypes.c_int), ('wnd', ctypes.c_int), ('inst', ctypes.c_void_p),
+                        ('icon', ctypes.c_void_p), ('cursor', ctypes.c_void_p), ('brush', ctypes.c_void_p), ('menu', ctypes.c_wchar_p),
+                        ('name', ctypes.c_wchar_p)]
+        wc = WndClass()
+        wc.proc = ctypes.cast(user32.DefWindowProcW, ctypes.c_void_p).value
+        wc.name = 'Shell_TrayWnd'
+        user32.RegisterClassW(ctypes.byref(wc))
+        user32.CreateWindowExW.restype = ctypes.c_void_p
+        w = user32.CreateWindowExW(0, 'Shell_TrayWnd', 'taskbar', 0x80000000, 0, 0, 0, 0, None, None, None, None)
+        assert w, 'No stand-in taskbar window'
+        return w
+
     def sign_in():
         """What Windows does at the next sign-in: it deletes the RunOnce value and runs its command. The real launcher is never
         touched: the command carries --test-state, so it works on the redirected folder."""
@@ -971,6 +989,7 @@ def inside():
         before = dump()
         assert on() == 0
         pid = resident_up()
+        taskbar = fake_taskbar()
         assert off_raw() == 0
         assert pid_alive(pid), 'The process ended with the switch: Win+E does nothing until Explorer restarts'
         assert run_value() is None and adv_value() is None, 'The keys are not back'
@@ -985,6 +1004,13 @@ def inside():
         post_hotkey()
         wait_for('A second Win+E did not open a second window', lambda: len(standin_lines()) == 2)
         assert pid_alive(pid)
+        explorer_restarts()   # the same taskbar owner: a display-scale change sends the message too, Explorer did not restart
+        wait_for('TaskbarCreated did not arrive', lambda: has_line('taskbar-created'))
+        time.sleep(.3)
+        assert pid_alive(pid) and not has_line('bridge-exit'), 'The bridge ended although Explorer did not restart: %r' % res_lines()
+        post_hotkey()
+        wait_for('Win+E did not open Explorer after a TaskbarCreated of the same Explorer', lambda: len(standin_lines()) == 3)
+        ctypes.windll.user32.DestroyWindow(ctypes.c_void_p(taskbar))   # Explorer is gone, a new one starts
         explorer_restarts()
         wait_for('The process did not end when Explorer restarted', lambda: not pid_alive(pid))
         assert has_line('bridge-exit')
