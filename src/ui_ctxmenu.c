@@ -135,6 +135,15 @@ bool ctxmenu_begin(cui_ctx *ui, const char *id, bool open_here) {
     return cui__popup_begin(ui, pid, 0, CUI_PLACE_BOTTOM_START, 0, 6, 0, true);
 }
 
+/* The popover of CUI's cui_popover_begin, built as a menu popup so Up and Down move a highlight through its menu items. */
+bool popover_menu_begin(cui_ctx *ui, const char *id, int placement, float width, float pad, float gap) {
+    cui_id pid = cui_make_id(ui, id);
+    cui_popup *p = cui__popup_get(ui, pid, false);
+    if (!p) return false;
+    if (!p->anchor || p->opened_frame + 1 >= ui->frame) p->anchor = ui->last_id;
+    return cui__popup_begin(ui, pid, p->anchor, placement, width, pad, gap, true);
+}
+
 void ctxmenu_end(cui_ctx *ui) { cui__popup_end(ui); }
 
 bool ctxmenu_is_open(cui_ctx *ui) {
@@ -310,8 +319,11 @@ void ui_band_begin(void) {
 static cui_id rows_scroll;
 static int rows_seen;
 static cui_rect hl_row, hl_view;   /* the highlighted row and the scrolling column, last frame they were built */
+enum { ROWS_MAX = 16 };
+static cui_rect all_rows[ROWS_MAX], all_view;   /* every row of the open menu and its scrolling column (test state) */
+static int all_rows_n, hl_index;
 
-void menu_frame_begin(void) { memset(&hl_row, 0, sizeof hl_row); memset(&hl_view, 0, sizeof hl_view); }
+void menu_frame_begin(void) { memset(&hl_row, 0, sizeof hl_row); memset(&hl_view, 0, sizeof hl_view); memset(all_rows, 0, sizeof all_rows); memset(&all_view, 0, sizeof all_view); all_rows_n = 0; hl_index = -1; }
 
 void menu_rows_begin(const char *scroll_id) { rows_scroll = cui_make_id(A.ui, scroll_id); rows_seen = 0; }
 
@@ -320,8 +332,11 @@ bool menu_row(const char *label, bool chosen) {
     int index = rows_seen++;
     if (ui->pb_depth <= 0 || !rows_scroll) return chosen;
     cui__menu_nav *nav = cui_state(ui, ui->pb_stack[ui->pb_depth - 1].id ^ 0x4E4156u, sizeof *nav);
-    if (nav->highlight != index) return chosen;
     cui_rect row = cui__prev_rect(ui, cui_make_id(ui, label)), view = cui__prev_rect(ui, rows_scroll);
+    if (index < ROWS_MAX) { all_rows[index] = row; all_rows_n = index + 1; }
+    all_view = view;
+    if (nav->highlight != index) return chosen;
+    hl_index = index;
     hl_row = row; hl_view = view;
     if (!nav->keyboard) return chosen;
     if (row.h <= 0 || view.h <= 0) return chosen;
@@ -334,6 +349,8 @@ bool menu_row(const char *label, bool chosen) {
 
 /* Test state: where the menu's highlighted row is and the part of the menu that shows rows. */
 void menu_snapshot(FILE *f) {
-    fprintf(f, ",\"menu_row\":[%.2f,%.2f,%.2f,%.2f],\"menu_view\":[%.2f,%.2f,%.2f,%.2f]",
-            hl_row.x, hl_row.y, hl_row.w, hl_row.h, hl_view.x, hl_view.y, hl_view.w, hl_view.h);
+    fprintf(f, ",\"menu_row\":[%.2f,%.2f,%.2f,%.2f],\"menu_view\":[%.2f,%.2f,%.2f,%.2f],\"menu_index\":%d,\"menu_scroll\":[%.2f,%.2f,%.2f,%.2f],\"menu_rows\":[",
+            hl_row.x, hl_row.y, hl_row.w, hl_row.h, hl_view.x, hl_view.y, hl_view.w, hl_view.h, hl_index, all_view.x, all_view.y, all_view.w, all_view.h);
+    for (int i = 0; i < all_rows_n; i++) fprintf(f, "%s[%.2f,%.2f,%.2f,%.2f]", i ? "," : "", all_rows[i].x, all_rows[i].y, all_rows[i].w, all_rows[i].h);
+    fputc(']', f);
 }

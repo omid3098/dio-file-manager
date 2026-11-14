@@ -439,7 +439,9 @@ static void frame(void) {
         }
         cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .bg = CUI_COLOR_SURFACE, .border_color = CUI_COLOR_BORDER_SUBTLE) {
             ui_content_header();
-            cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_FILL, .clip = true) {
+            /* The content takes the height the header and the bottom bar leave, not what it asks for: an empty folder's picture and text
+             * would otherwise push the bottom bar below the window. */
+            cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_PX(A.content_h), .clip = true) {
                 content_body();
                 app_count_selection();
                 ui_status_pill();

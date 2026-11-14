@@ -15,6 +15,8 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# The main menu holds the default file manager switch: a stray pick must never reach the real registry or launcher folder.
+os.environ.setdefault('DFM_TEST_REGROOT', r'Software\DioFmTest\chrome-%d' % os.getpid())
 import input_smoke as base
 from input_smoke import App, U, K, WORK, ROOT, EXE
 
@@ -513,8 +515,12 @@ def inside():
             assert a.snap()['jobs'], 'The copy ended before the clicks were done'
             c = a.snap()['chrome']
             btn = c['buttons']
-            for r in [r for r in c['nodrag'] if r[1] < 46 and r[2] > 0]:
+            hdr = sorted((r for r in c['nodrag'] if r[1] < 46 and r[2] > 0), key=lambda r: r[0])
+            for r in hdr:
                 assert r[0] + r[2] <= btn[0][0] + 0.5, f'Header control {r} reaches the window buttons {btn[0]}'
+            for r, n in zip(hdr, hdr[1:]):
+                assert r[0] + r[2] <= n[0] + 0.5, f'Header controls overlap while copying: {r} {n}'
+            assert len(hdr) == 5, f'The header should hold the sidebar button, path bar, copy ring, Search and the menu while a copy runs: {hdr}'
 
     def menu_follows_keyboard(a, theme):
         """S2: in a window too short for the whole menu, the row the arrow keys highlight stays on screen, and Enter picks it.
@@ -550,13 +556,138 @@ def inside():
                 step(0x26, f'Up {n + 2}')
             for n in range(12):
                 step(0x28, f'Down {n + 1}')   # passes the end and wraps to the top
-            a.key(0x1B)   # the reported case: open the menu, press Up, then Enter
-            time.sleep(.4)
+            a.key(0x1B)   # the reported case: open the menu, press Up, then Enter. The last row is the default file manager switch,
+            time.sleep(.4)   # so Up twice reaches Show Hidden Files: a check never presses the switch
             a.click(*g.mid(mr))
             time.sleep(.6)
             step(0x26, 'Up on a freshly opened menu')
+            step(0x26, 'a second Up on a freshly opened menu')
             a.key(13)
             a.until(f'{cw} px: Enter did not pick Show Hidden Files', lambda: a.snap()['hidden'] != before)
+
+    def client_h(s):
+        c = s['chrome']
+        return (c['client'][3] - c['client'][1]) / c['scale']
+
+    def row_visible(s, r):
+        """A menu row is on screen: inside the window and, when the menu scrolls, inside its scrolling column."""
+        v = s['menu_scroll']
+        inside = r[3] > 0 and r[1] >= 0 and r[1] + r[3] <= client_h(s) + 0.5
+        return inside and (v[3] <= 0 or (r[1] >= v[1] - 0.5 and r[1] + r[3] <= v[1] + v[3] + 0.5))
+
+    def view_options_reachable(a, theme):
+        """S4: at 360x280 every View options row (Name, Size, Modified, Type, Reversed Order, Show Hidden Files) can be reached with
+        the mouse wheel and with the keyboard, and the keyboard's highlighted row stays on screen."""
+        set_client(a, 360, 280)
+        g = Geo(a)
+        bar = bottom_bar(a)
+        assert len(bar) == 5, f'bottom bar {bar}'
+
+        def open_menu():
+            a.click(*g.mid(bar[4]))
+            a.until('View options did not open', lambda: a.snap()['popups'] >= 1)
+            time.sleep(.5)
+        open_menu()
+        s = a.snap()
+        assert len(s['menu_rows']) == 6, f"View options should list 6 rows, not {s['menu_rows']}"
+        if os.environ.get('DFM_CHROME_PICTURES'):
+            shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'view-options-{theme}-360x280.png')
+        seen = set()
+
+        def collect():
+            s = a.snap()
+            seen.update(i for i, r in enumerate(s['menu_rows']) if row_visible(s, r))
+        collect()
+        a.msg(0x200, 0, a.point(200, 120))
+        for _ in range(14):
+            a.msg(0x20A, (0x10000 - 120) << 16)
+            time.sleep(.12)
+            collect()
+        time.sleep(.4)
+        collect()
+        assert 5 in seen, f'Wheel down never showed Show Hidden Files (row 5): rows seen {sorted(seen)}'
+        if os.environ.get('DFM_CHROME_PICTURES'):
+            a.snap()
+            shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'view-options-{theme}-360x280-scrolled.png')
+        for _ in range(14):
+            a.msg(0x20A, 120 << 16)
+            time.sleep(.12)
+            collect()
+        assert seen == set(range(6)), f'Wheel scrolling reached rows {sorted(seen)} of 0-5: {a.snap()["menu_rows"]}'
+        a.key(0x1B)
+        a.until('View options did not close', lambda: a.snap()['popups'] == 0)
+        open_menu()
+        want = 5
+
+        def on_screen():
+            s = a.snap()
+            return s['menu_index'] == want and row_visible(s, s['menu_row'])
+
+        def step(key, what):
+            a.key(key)
+            a.until(f'keyboard {what}: highlighted row {want} is not on screen: {a.snap()["menu_index"]} {a.snap()["menu_row"]} in {a.snap()["menu_scroll"]}', on_screen)
+        step(0x26, 'Up from the top (to the last row)')
+        for n in range(5):
+            want -= 1
+            step(0x26, f'Up {n + 2}')
+        for n in range(7):
+            want = (want + 1) % 6
+            step(0x28, f'Down {n + 1}')   # passes the end and wraps to the top
+
+    def bottom_bar_inside(a, theme):
+        """S5: at 360x280 the whole bottom bar is inside the window, in an empty folder and in a full one."""
+        fixture = Path(a.folder)
+        set_client(a, 360, 280)
+        for folder, what in ((fixture / 'A', 'empty'), (fixture, 'full')):
+            a.path(folder)
+            a.until(f'{what} folder not shown', lambda: ends_with(a, folder.name) and (a.snap()['listed'] == 0) == (what == 'empty'))
+            time.sleep(.4)
+            s = a.snap()
+            h = client_h(s)
+            bar = bottom_bar(a)
+            assert len(bar) == 5, f'{what}: bottom bar {bar}'
+            for r in bar:
+                assert r[1] >= 0 and r[1] + r[3] <= h + 0.5, f'{what} folder at 360x280: bottom-bar button {r} reaches below the {h:.1f} px window'
+                assert abs(r[1] + r[3] / 2 - (h - 23)) <= 1.5, f'{what} folder: bottom-bar button {r} is not centred in the 46 px bar of a {h:.1f} px window'
+            if what == 'empty' and os.environ.get('DFM_CHROME_PICTURES'):
+                shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'empty-{theme}-360x280.png')
+
+    def search_in_header(a, theme):
+        """GNOME Files keeps Search in the header at every width: at 360 px it is a header button, not a menu row."""
+        set_client(a, 360, 600)
+        g = Geo(a)
+        hdr = sorted((r for r in g.c['nodrag'] if r[1] < 46 and r[2] > 0), key=lambda r: r[0])
+        assert len(hdr) == 4, f'360 px header should hold the sidebar button, path bar, Search and the menu: {hdr}'
+        search = hdr[2]
+        assert 30 <= search[2] <= 40, f'the third header control is not an icon button: {hdr}'
+        btn = g.c['buttons']
+        assert all(r[0] + r[2] <= btn[0][0] + 0.5 for r in hdr), f'header controls reach the window buttons {hdr} {btn}'
+        a.click(*g.mid(search))
+        a.until('Search did not open from the header at 360 px', lambda: a.snap()['search'] == 1)
+        a.key(0x1B)
+        a.click(*g.mid(hdr[3]))
+        a.until('The main menu did not open', lambda: a.snap()['popups'] >= 1)
+        time.sleep(.4)
+        assert len(a.snap()['menu_rows']) == 5, f"The 360 px main menu should hold Theme, Show Hidden Files and the default file manager switch only: {a.snap()['menu_rows']}"
+
+    def menu_switch(a, theme):
+        """The main menu holds the default file manager switch inside the window, in the sidebar (1280 px) and in the narrow header menu (360 px)."""
+        for cw in (1280, 360):
+            set_client(a, cw, 700)
+            g = Geo(a)
+            header = [r for r in g.c['nodrag'] if r[1] < 46 and r[2] > 0]
+            a.click(*g.mid(min(header) if cw >= 683 else header[-1]))
+            a.until(f'{cw} px: the main menu did not open', lambda: a.snap()['popups'] >= 1)
+            time.sleep(.5)
+            s = a.snap()
+            item = s['dfm_item']
+            assert item[2] > 0 and item[3] > 0, f'{cw} px: the default file manager switch is not in the menu: {item}'
+            assert item[0] >= 0 and item[0] + item[2] <= cw + 0.5 and item[1] >= 0 and item[1] + item[3] <= client_h(s) + 0.5,                 f'{cw} px: the default file manager switch {item} is outside the {cw} px window'
+            if os.environ.get('DFM_CHROME_PICTURES'):
+                a.snap()
+                shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'menu-switch-{theme}-{cw}.png')
+            a.key(0x1B)
+            time.sleep(.3)
 
     check('1-hit-testing', hit_testing)
     check('2-drag', drag)
@@ -576,6 +707,10 @@ def inside():
         check(f'13-menu-follows-keyboard-{theme}', lambda a, t=theme: menu_follows_keyboard(a, t), theme)
         check(f'14-bottom-bar-history-{theme}', lambda a, t=theme: bottom_bar_history(a, t), theme)
         check(f'15-bottom-bar-history-copying-{theme}', lambda a, t=theme: bottom_bar_copying(a, t), theme)
+        check(f'16-view-options-reachable-{theme}', lambda a, t=theme: view_options_reachable(a, t), theme)
+        check(f'17-bottom-bar-inside-{theme}', lambda a, t=theme: bottom_bar_inside(a, t), theme)
+        check(f'18-search-in-header-{theme}', lambda a, t=theme: search_in_header(a, t), theme)
+        check(f'19-menu-switch-{theme}', lambda a, t=theme: menu_switch(a, t), theme)
     (WORK / 'results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 

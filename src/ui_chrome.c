@@ -19,12 +19,13 @@ static bool same_path(const char *a, const char *b) {
 bool app_at_place(int which) { return A.loc == LOC_FOLDER && A.places[which][0] && same_path(A.path, A.places[which]); }
 
 /* ---- the header's width budget ----
- * The three window buttons never leave the window. The path bar gives way first (down to PATH_PREF), then the header's
- * actions move into the main menu, lowest priority first: the grid and list buttons, then search. View options stay in the
- * header (a wide window is at least 443 px wide beside the sidebar). The path bar never goes below PATH_MIN, its own smallest size. Back and Forward never go into the menu: GNOME Files 47 keeps them in the
- * header, and below its 682 px breakpoint (NARROW_BELOW) moves them, with the view controls, into a bar at the window's
- * bottom (ui_bottom_bar), so a narrow header only has the sidebar button, the path bar, search and the menu. */
-enum { PATH_PREF = 144, PATH_MIN = 116, PATH_MAX_W = 480, DRAG_MIN = 32 };
+ * The three window buttons never leave the window. In a wide window the path bar gives way first (down to PATH_PREF), then the
+ * header's actions move into the main menu, lowest priority first: the grid and list buttons, then search. View options stay in the
+ * header (a wide window is at least 443 px wide beside the sidebar). Back and Forward never go into the menu: GNOME Files 47 keeps
+ * them in the header, and below its 682 px breakpoint (NARROW_BELOW) moves them, with the view controls, into a bar at the
+ * window's bottom (ui_bottom_bar). A narrow header has the sidebar button, the path bar, search and the menu, and keeps search in
+ * the header as GNOME does (nautilus-toolbar.ui): when it is tight, the path bar alone shrinks, below PATH_MIN too, to PATH_FLOOR. */
+enum { PATH_PREF = 144, PATH_MIN = 116, PATH_FLOOR = 40, PATH_MAX_W = 480, DRAG_MIN = 32 };
 static const int WIDE_RIGHT[3] = { 4, 2, 1 };   /* header buttons kept beside the path bar, per tier (wide windows) */
 
 /* The "Use as Default File Manager" item lives in the main menu. Its rectangles are kept for real-input checks. */
@@ -36,8 +37,7 @@ void ui_default_fm_snapshot(FILE *f) {
             dfm_menu.item.x, dfm_menu.item.y, dfm_menu.item.w, dfm_menu.item.h);
 }
 
-/* tier 0: everything in the header; 1: grid and list in the menu; 2: search too. A narrow window is
- * at tier 0 (search in the header) or 2 (search in the menu) and never has the view buttons in its header. */
+/* tier 0: everything in the header; 1: grid and list in the menu; 2: search too (a wide window only: a narrow one is always tier 0). */
 typedef struct header_plan { int tier; float path_w; bool menu_here, bottom; } header_plan;
 
 static header_plan plan_header(void) {
@@ -47,22 +47,21 @@ static header_plan plan_header(void) {
     float avail = narrow ? vp : vp - 240.0f;
     bool job = act_jobs_active();
     hp.menu_here = hp.bottom = narrow;
-    int steps = narrow ? 2 : 3;
+    int steps = narrow ? 1 : 3;
     for (int step = 0; step < steps; step++) {
-        int t = narrow ? step * 2 : step;
-        int right = narrow ? (step == 0 ? 1 : 0) : WIDE_RIGHT[step];
+        int right = narrow ? 1 : WIDE_RIGHT[step];   /* narrow: search */
         int left = narrow ? 1 : 2;   /* the sidebar button, or Back and Forward */
         /* children of the header row: the left buttons, the path bar, a spacer, the job ring, the actions, the menu (narrow
          * only), a 4 px gap and the window buttons (84 px); every child is 4 px from the next and the row pads 8 px each side. */
         int kids = left + 1 + 1 + (job ? 1 : 0) + right + (narrow ? 1 : 0) + 1 + 1;
         float rest = 16 + 36.0f * left + (job ? 36 : 0) + 36.0f * right + (narrow ? 36 : 0) + 4 + 84 + 4.0f * (kids - 1) + 4;
-        hp.tier = t;
+        hp.tier = step;
         hp.path_w = avail - rest;
         if (hp.path_w >= (step < steps - 1 ? PATH_PREF : PATH_MIN)) break;
     }
     if (hp.path_w > DRAG_MIN + PATH_PREF) hp.path_w -= DRAG_MIN;   /* keep some empty header to drag the window by */
     if (hp.path_w > PATH_MAX_W) hp.path_w = PATH_MAX_W;
-    if (hp.path_w < PATH_MIN) hp.path_w = PATH_MIN;
+    if (hp.path_w < (narrow ? PATH_FLOOR : PATH_MIN)) hp.path_w = narrow ? (float)PATH_FLOOR : (float)PATH_MIN;
     return hp;
 }
 
@@ -71,7 +70,7 @@ static header_plan plan_header(void) {
 
 static void main_menu(const header_plan *hp) {
     cui_ctx *ui = A.ui;
-    bool views = !hp->bottom && hp->tier >= 1, search = hp->tier >= 2;
+    bool views = !hp->bottom && hp->tier >= 1, search = hp->tier >= 2;   /* a narrow window is at tier 0: neither is in its menu */
     cui_box(ui, .dir = CUI_STACK, .width = CUI_PX(36), .height = CUI_PX(36)) {
         bool menu_open = cui_menu_begin(ui, "Main Menu", &(cui_menu_opts){ .icon = CUI_ICON_MENU, .icon_only = true });
         dfm_menu.button = cui_last_rect(ui);
@@ -290,8 +289,10 @@ static void view_options_menu(cui_placement where) {
     static const char *const names[Z_COUNT] = { "Details", "List", "Small icons", "Medium icons", "Large icons", "Extra large icons" };
     if (cui_icon_button(ui, CUI_ICON_SLIDERS_HORIZONTAL, .tooltip = "View options", .selected = ui_view_options_open(), .color = chrome_icon_color())) cui_popover_toggle(ui, "view-options");
     chrome_nodrag_last();
-    if (!cui_popover_begin(ui, "view-options", &(cui_popover_opts){ .placement = where, .width = 300, .pad = 12, .gap = 4 })) return;
+    /* A menu popup, so the arrow keys move a highlight through its rows; the rows scroll in a window too short for all of them. */
+    if (!popover_menu_begin(ui, "view-options", where, 300, 12, 4)) return;
     ui_view_options_surface();
+    cui_column(ui, .id = "view-scroll", .width = CUI_FILL, .gap = 4, .max_height = cui_viewport_size(ui).y - 80, .scroll_y = true) {
     float stop = (float)A.zoom;
     if (cui_slider(ui, "View size", &stop, 0, Z_COUNT - 1, .step = 1, .width = CUI_FILL)) app_set_zoom((int)(stop + 0.5f));
     A.zoom_rect = cui_last_rect(ui);
@@ -299,11 +300,13 @@ static void view_options_menu(cui_placement where) {
     cui_text(ui, names[A.zoom], .width = CUI_FILL, .align = CUI_TEXT_CENTER, .size = 13, .color = CUI_COLOR_TEXT_SECONDARY);
     cui_menu_separator(ui);
     cui_menu_label(ui, "Sort by");
+    menu_rows_begin("view-scroll");
     for (int i = 0; i < 4; i++)
-        if (cui_menu_item(ui, KEYS[i], .checked = A.sort_key == i)) { A.sort_key = i; app_resort(); }
+        if (ROW(KEYS[i], .checked = A.sort_key == i)) { A.sort_key = i; app_resort(); }
     cui_menu_separator(ui);
-    if (cui_menu_item(ui, "Reversed Order", .checked = A.sort_desc)) { A.sort_desc = !A.sort_desc; app_resort(); }
-    if (cui_menu_item(ui, "Show Hidden Files", .checked = A.show_hidden, .shortcut = "Ctrl H")) { A.show_hidden = !A.show_hidden; app_rebuild_view(); }
+    if (ROW("Reversed Order", .checked = A.sort_desc)) { A.sort_desc = !A.sort_desc; app_resort(); }
+    if (ROW("Show Hidden Files", .checked = A.show_hidden, .shortcut = "Ctrl H")) { A.show_hidden = !A.show_hidden; app_rebuild_view(); }
+    }
     cui_popover_end(ui);
 }
 
@@ -411,9 +414,10 @@ void ui_search_bar(void) {}   /* the field lives in the content header now */
 
 void ui_state_view(const char *icon, const char *title, const char *detail) {
     cui_ctx *ui = A.ui;
-    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_CENTER, .justify = CUI_JUSTIFY_CENTER, .gap = 10, .pad = 24) {
-        cui_icon(ui, icon, 96, cui_alpha(CUI_COLOR_TEXT_MUTED, 0.7f));
-        cui_gap(ui, 6);
+    bool tight = A.content_h < 260;   /* a short window (360x280 leaves 188 px): a smaller picture, so the text still fits */
+    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_CENTER, .justify = CUI_JUSTIFY_CENTER, .gap = 10, .pad = tight ? 8.0f : 24.0f) {
+        cui_icon(ui, icon, tight ? 56.0f : 96.0f, cui_alpha(CUI_COLOR_TEXT_MUTED, 0.7f));
+        cui_gap(ui, tight ? 0.0f : 6.0f);
         cui_text(ui, title, .font = CUI_FONT_MEDIUM, .size = 22, .align = CUI_TEXT_CENTER, .width = CUI_FILL);
         if (detail && detail[0]) cui_text(ui, detail, .color = CUI_COLOR_TEXT_SECONDARY, .align = CUI_TEXT_CENTER, .width = CUI_FILL);
     }

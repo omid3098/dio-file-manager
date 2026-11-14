@@ -205,6 +205,7 @@ cui_color ui_dimmed(cui_ctx *ui, cui_color c);
 
 /* ui_ctxmenu.c: keyboard in a scrolling menu */
 void menu_frame_begin(void);                   /* start of each frame: no highlighted row yet */
+bool popover_menu_begin(cui_ctx *ui, const char *id, int placement, float width, float pad, float gap);   /* cui_popover_begin as a menu popup: the arrow keys highlight its cui_menu_items */
 void menu_rows_begin(const char *scroll_id);   /* before the scrolling column of a menu: its id and the first row */
 bool menu_row(const char *label, bool chosen); /* around each cui_menu_item (same label): scrolls the column to the row the keyboard highlights */
 void menu_snapshot(FILE *f);                   /* test state: the highlighted menu row and the rows' view */                    /* around each cui_menu_item: scrolls the column to the row the keyboard highlights */
