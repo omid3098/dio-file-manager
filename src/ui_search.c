@@ -64,6 +64,7 @@ void fsearch_end(void) {
     A.list_seen = saved_seen;
     saved = NULL;
     A.searching = false;
+    sizes_forget();   /* back in the folder: its children are measured again */
 }
 
 static void begin(void) {
