@@ -113,9 +113,11 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   first and sorts them by size among themselves (files by size among themselves); it orders by size once, when every shown
   folder is in, and keeps the selection and the scroll where they were. A folder that changes on disk while it is shown
   is updated in place: the engine reads only the changed directory again, moves the difference up to the cached folders
-  above it, and walks a new subfolder on its own; nothing is measured again from the top. A full walk again happens only
-  for data that is missing (it left the cache, or the change list overflowed), and not sooner than the longer of 1 s and
-  3 times the last walk. Local drives only (network and removable drives keep the empty
+  above it, and walks a new subfolder on its own; nothing is measured again from the top. A folder whose tree is bigger
+  than the cache keeps the size it was measured at while it stays shown: a change in a part that left the cache only
+  marks it stale, and it is measured again the next time it is shown (opened again, reloaded, or returned to from a
+  subfolder), no sooner than the longer of 1 s and 3 times its last walk. This is a deliberate limit that keeps the
+  idle cost near zero. Local drives only (network and removable drives keep the empty
   cell), folders in a normal listing only (not search, Recent, Starred or Trash), grid view unchanged. On by default.
 - **Floating status pill:** bottom right of the content pane, over the files, only while something
   is selected or loading: "“report.pdf” selected (2.4 MB)", "3 items selected (5.1 MB)",
@@ -254,10 +256,18 @@ E:\w\dio-file-manager (2,423 folders, 0.6 MB of cache), 164 MB for E:\w (539,000
 65,536 entries and 24.5 MB, the rest of the working set is the walk and the window). Every directory is its own task for
 4 below-normal workers, so one big shown folder uses all four; E:\w is all in after 14 s on the engine alone (warm), 57 s in
 the window while other programs change that drive.
-A tree with more folders than the cache holds cannot keep its totals up to date by reading single directories: a change
-in a folder that left the cache makes the nearest cached folder above it walk again (at most one walk per 3 times its own
-last one). Measured with a writer of 20 small writes a second: 0.7 to 1.1 % of one core for a tree that fits (E:\w\dio-file-manager),
-but 12 to 28 % of one core for all of E:\w, which other programs also change all the time.
+A tree with more folders than the cache holds cannot keep its totals up to date by reading single directories. A folder
+with more subfolders than the cache holds therefore keeps the size measured when it was shown; it is measured again the
+next time it is shown. A change in a folder that left the cache marks the cached folders above it stale and starts no
+walk (a watcher overflow over such a tree does the same); a change in a cached folder is still one directory read and a
+difference moved up. When it is shown again the walk waits for the rate limit (no sooner than the longer of 1 s and 3
+times its own last walk). The cache cap and the memory budget are unchanged. Before this rule a change under an evicted
+part walked the nearest cached folder again: 12 to 28 % of one core for E:\w while other programs changed that drive,
+19 % with a writer of 20 small writes a second. Now: E:\w idle 0.05 % and 0.16 % with the writer; E:\w\dio-file-manager
+opened by itself (a tree that fits) keeps its live updates, 0.3 to 0.5 % of one core with the writer, and a 400 MB write
+shows in its row within about a second. The cache is shared by every folder that is shown: a small folder shown as a row
+next to a huge one (E:\w\dio-file-manager inside the listing of E:\w) can lose its cached subfolders to the huge one's
+walk, and then keeps its measured size until it is shown again.
 
 ## Window: the header is the title bar
 

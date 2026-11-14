@@ -4,7 +4,10 @@
  * total in an LRU cache. One ReadDirectoryChangesW per drive turns a change into a small request: the changed folder's
  * own entries are read again (one directory read) and the difference is added to its cached ancestors; a new subfolder
  * is walked on its own, a removed one is subtracted. Only data that is missing (evicted, or a watcher overflow) is
- * walked again, no sooner than max(1 s, 3 x the last walk). Everything is guarded by one lock held only for table work. */
+ * walked again, no sooner than max(1 s, 3 x the last walk), and only when it is shown again: a change under a part of
+ * the tree that is no longer in the cache (or a watcher overflow over a tree bigger than the cache) only marks the
+ * cached folders above it stale ("lost"); no walk starts for them while they stay shown. Everything is guarded by one
+ * lock held only for table work. */
 #include <windows.h>
 #include <process.h>
 #include <stdlib.h>
@@ -41,7 +44,7 @@ typedef struct entry {
     uint32_t walk_ms, last_end;  /* how long its last walk took, and when it ended (ms ticks, low 32 bits) */
     uint32_t tid;                /* the task that owns its PENDING state */
     LONG open_gen;               /* the view generation that counts this folder as open work */
-    uint8_t state, have, pinned, drive, incomplete, inlru, qbits;
+    uint8_t state, have, pinned, drive, incomplete, inlru, qbits, lost;   /* lost: stale for good until it is shown again */
 } entry;
 
 typedef struct task {
@@ -256,7 +259,7 @@ static bool mark_drive(int d) {
         for (entry *e = G.buckets[b]; e; e = e->hnext)
             if (e->drive == d && e->state == ST_DONE) {
                 e->state = ST_STALE; any = true;
-                if (e->pinned) queue_rewalk(e);
+                if (e->pinned) { if (e->incomplete) e->lost = 1; else queue_rewalk(e); }   /* a tree bigger than the cache waits to be shown again */
             }
     return any;
 }
@@ -303,14 +306,21 @@ static void parent_of(const wchar_t *p, size_t pl, size_t *xl) {
     *xl = i <= 4 ? 3 : i - 1;
 }
 
-/* The nearest cached folder above a path loses trust: it is walked again, rate limited. */
-static void fallback_rewalk(const wchar_t *p, size_t pl) {
-    chain c; size_t len; uint32_t h; entry *best = NULL;
+/* A change where the data is not in the cache: every cached folder above the path (and the path itself when asked)
+ * no longer shows the right total. They are marked stale and "lost": no walk starts for them; the next time one of
+ * them is shown it is measured again (fsz_want), no sooner than max(1 s, 3 x its last walk). */
+static void lose_chain(const wchar_t *p, size_t pl, bool include_self) {
+    chain c; size_t len; uint32_t h; bool shown = false;
     chain_init(&c, p, pl);
-    while (chain_next(&c, &len, &h)) { if (len == pl) break; entry *e = find(p, len, h); if (e) best = e; }
-    if (!best) return;
-    if (best->state == ST_DONE) best->state = ST_STALE;
-    if (best->state == ST_STALE) queue_rewalk(best);
+    while (chain_next(&c, &len, &h)) {
+        if (!include_self && len == pl) break;
+        entry *e = find(p, len, h);
+        if (!e || !e->have) continue;
+        if (e->state == ST_DONE) { e->state = ST_STALE; e->lost = 1; if (e->pinned) shown = true; }
+        else if (e->state == ST_STALE && !(e->qbits & Q_REW)) e->lost = 1;
+        relist(e);
+    }
+    if (shown) bump();
 }
 
 typedef struct fni { DWORD next, action, name_len; WCHAR name[1]; } fni;
@@ -480,7 +490,7 @@ static void enqueue_root(entry *e, LONG gen, bool counted, bool isnew) {
     if (!t) { e->state = ST_STALE; return; }
     t->root = 1; t->gen = gen; t->counted = counted; t->isnew = isnew; t->kind = K_WALK;
     t->id = e->tid = ++G.tid;
-    e->state = ST_PENDING; e->qbits &= (uint8_t)~Q_REW; e->incomplete = 0;
+    e->state = ST_PENDING; e->qbits &= (uint8_t)~Q_REW; e->incomplete = 0; e->lost = 0;
     if (counted) { G.open++; e->open_gen = G.gen; }
     relist(e);
     push_back(t);
@@ -568,7 +578,7 @@ static void finish_refresh(task *t, listing *L, wchar_t *scratch) {
         memcpy(scratch + k, L->names + at - nl - 1, nl * sizeof *scratch); k += nl; scratch[k] = 0;
         uint32_t ch = hash_of(scratch, k);
         if (find(scratch, k, ch)) continue;
-        if (e->incomplete) { e->state = ST_STALE; queue_rewalk(e); break; }   /* a subfolder we may have held: walk this one again */
+        if (e->incomplete) { lose_chain(t->path, t->len, true); break; }   /* a subfolder we may have held: this folder and the ones above wait to be shown again */
         entry *c = add(scratch, k, ch);
         if (c) enqueue_root(c, 0, false, true);   /* a new subfolder: walked on its own, its total moves up when done */
     }
@@ -663,10 +673,10 @@ static bool req_do(req *r) {
             size_t xl; parent_of(p, pl, &xl);
             entry *x = find(p, xl, hash_of(p, xl));
             if (x && !x->incomplete) { if (!(x->qbits & Q_REQ)) { x->qbits |= Q_REQ; relist(x); req_push(RQ_REFRESH, p, xl, 0); } }
-            else fallback_rewalk(p, pl);
+            else lose_chain(p, pl, false);
             return true;
         }
-        if (e->state == ST_STALE) { e->qbits &= (uint8_t)~Q_REQ; queue_rewalk(e); relist(e); return true; }
+        if (e->state == ST_STALE) { e->qbits &= (uint8_t)~Q_REQ; if (!e->lost) queue_rewalk(e); relist(e); return true; }
         if (e->qbits & Q_RUN) return false;
         e->qbits = (uint8_t)((e->qbits & ~Q_REQ) | Q_RUN);
         relist(e);
@@ -688,7 +698,7 @@ static bool req_do(req *r) {
         size_t xl; parent_of(p, pl, &xl);
         entry *x = find(p, xl, hash_of(p, xl));
         if (x && !x->incomplete) { if (!(x->qbits & Q_REQ)) { x->qbits |= Q_REQ; relist(x); req_push(RQ_REFRESH, p, xl, 0); } }
-        else fallback_rewalk(p, pl);   /* it may have been a folder we no longer hold */
+        else lose_chain(p, pl, false);   /* it may have been a folder we no longer hold */
         return true;
     }
     }
@@ -833,6 +843,8 @@ void fsz_want(const char *path) {
     if (!e) {
         e = add(w, n, h);
         if (e) enqueue_root(e, G.gen, true, false);
+    } else if (e->state == ST_STALE && e->have && (int32_t)(rewalk_due(e) - tick32()) > 0) {
+        e->lost = 0; queue_rewalk(e);   /* shown again, but walked again no sooner than max(1 s, 3 x its last walk) */
     } else if (e->state == ST_STALE || (e->state == ST_DONE && dr->broken) || (e->state == ST_PENDING && !e->have && e->open_gen != G.gen)) {
         enqueue_root(e, G.gen, true, false);
     }

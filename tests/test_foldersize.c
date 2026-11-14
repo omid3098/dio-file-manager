@@ -1,7 +1,7 @@
 /* Console checks of the folder-size engine (src/foldersize.c) on a sandbox tree: exact sizes, nested totals kept,
  * a junction not followed, a change moving up through the ancestors with one directory read, a move, cancel on navigate,
  * one big folder walked by several threads, a new and a removed subfolder, the cache never dropping a shown folder,
- * missing data walked again no sooner than a second later, and the cost of ten thousand lookups. */
+ * a change under a part that is no longer cached only marks the folder stale: it reads nothing until the folder is shown again, and the cost of ten thousand lookups. */
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,6 +50,10 @@ static bool wait_size(const char *rel, uint64_t want, int ms) {
         Sleep(20);
     }
     return false;
+}
+static void wait_quiet(void) {   /* the events of earlier writes are read: no directory read for 800 ms */
+    unsigned n0 = fsz_test_reads();
+    for (int w = 0, quiet = 0; quiet < 8 && w < 100; w++) { Sleep(100); unsigned n = fsz_test_reads(); if (n == n0) quiet++; else { quiet = 0; n0 = n; } }
 }
 static volatile LONG wakes;
 static void on_notify(void) { InterlockedIncrement(&wakes); }
@@ -183,7 +187,8 @@ int main(void) {
       CHECK(done == 10, "all ten shown folders stay cached over a cap of 4 (%d)", done); }
     fsz_test_cap(0);
 
-    /* data that is missing is walked again, not sooner than a second later; the walk puts the folder back in the cache */
+    /* a tree bigger than the cache: a change under a part that is not cached marks the shown folder stale and reads
+     * nothing while it stays shown; it is walked again when it is shown again, no sooner than a second after its last walk */
     mkdirs("miss"); mkdirs("miss\\x"); mkdirs("miss\\x\\y"); write_file("miss\\x\\y\\f", 10, false);
     char xp[MAX_PATH]; path_of(xp, "miss");
     fsz_test_cap(1);
@@ -191,13 +196,21 @@ int main(void) {
     CHECK(wait_open0(10000), "miss finishes with an almost empty cache");
     fsz_test_cap(0);
     { int s; size_of("miss\\x\\y", &s); CHECK(s == FSZ_NONE, "the nested folders were not kept (state %d)", s); }
-    DWORD t0 = GetTickCount();   /* the walk above just ended: the next one is due a second after it */
-    Sleep(300);
+    wait_quiet();
+    r0 = fsz_test_reads();
+    DWORD t0 = GetTickCount();
     write_file("miss\\x\\y\\f", 5, true);
-    Sleep(500);
-    CHECK(size_of("miss", NULL) == 10, "no walk before a second has passed (got %llu)", U(size_of("miss", NULL)));
-    CHECK(wait_size("miss", 15, 6000), "miss = 15 after the walk (got %llu)", U(size_of("miss", NULL)));
-    CHECK(GetTickCount() - t0 >= 950, "the walk waited about a second after the last one (%lu ms)", (unsigned long)(GetTickCount() - t0));
+    Sleep(1000);
+    CHECK(fsz_stale(xp), "a change under an uncached part marks the shown folder stale");
+    Sleep(1800);   /* longer than the one second a walk would wait */
+    CHECK(size_of("miss", NULL) == 10, "no walk while it stays shown (got %llu)", U(size_of("miss", NULL)));
+    CHECK(fsz_test_reads() == r0, "zero directory reads for the change (%u)", fsz_test_reads() - r0);
+    CHECK(fsz_stale(xp), "it is still marked stale");
+    unsigned r1 = fsz_test_reads();
+    fsz_view(root); fsz_want(xp);   /* shown again */
+    CHECK(wait_size("miss", 15, 6000), "miss = 15 after it was shown again (got %llu)", U(size_of("miss", NULL)));
+    CHECK(GetTickCount() - t0 >= 2500, "it was walked only when shown again, long after the change (%lu ms)", (unsigned long)(GetTickCount() - t0));
+    CHECK(fsz_test_reads() - r1 == 3, "one walk of the three folders: %u reads", fsz_test_reads() - r1);
     { int s; size_of("miss\\x\\y", &s); CHECK(s == FSZ_DONE, "the walk cached the changed folder (state %d)", s); }
     Sleep(300);
     r0 = fsz_test_reads();
@@ -205,6 +218,19 @@ int main(void) {
     CHECK(wait_size("miss", 20, 6000), "the next change is a cheap read: miss = 20 (got %llu)", U(size_of("miss", NULL)));
     Sleep(500);
     { unsigned d = fsz_test_reads() - r0; CHECK(d <= 2, "the next change read %u directories", d); }
+    /* shown again right after a walk: it waits for the rate limit, then walks once */
+    fsz_test_cap(1);
+    mkdirs("miss2"); mkdirs("miss2\\x"); write_file("miss2\\x\\f", 1, false);
+    char x2[MAX_PATH]; path_of(x2, "miss2");
+    fsz_view(root); fsz_want(x2);
+    CHECK(wait_open0(10000), "miss2 finishes");
+    fsz_test_cap(0);
+    wait_quiet();
+    write_file("miss2\\x\\f", 1, true);
+    Sleep(1000);
+    CHECK(fsz_stale(x2), "miss2 is stale after the change");
+    fsz_view(root); fsz_want(x2);   /* shown again at once: not sooner than max(1 s, 3 x the last walk) after the last one */
+    CHECK(wait_size("miss2", 2, 6000), "miss2 = 2 at last (got %llu)", U(size_of("miss2", NULL)));
 
     /* sizes_fill asks for one folder at a time: ten thousand lookups must not eat the 50 ms budget */
     mkdirs("wide");
