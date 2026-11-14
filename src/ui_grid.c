@@ -19,7 +19,7 @@ static float cell_height(void) { return A.zoom == Z_SMALL ? icon_size() + 16 : i
  * here NAME_LINES). Every line but the last is whole; a name that needs more keeps its start and its end on its last line, so the
  * extension stays visible. ---- */
 
-typedef struct name_lines { char line[NAME_LINES][264]; int n; bool cut; } name_lines;
+typedef struct name_lines { char line[NAME_LINES][UI_NAME_BYTES]; int n; bool cut; } name_lines;
 
 static float text_w(cui_ctx *ui, const char *s, int len) {
     return len <= 0 ? 0 : cui_measure_text(ui, CUI_FONT_BODY, NAME_SIZE, s, len).width;
@@ -72,9 +72,7 @@ static void middle_cut(cui_ctx *ui, const char *rest, int rl, float maxw, char *
 }
 
 static void layout_name(cui_ctx *ui, const char *name, float maxw, name_lines *out) {
-    char buf[260];
-    snprintf(buf, sizeof buf, "%s", name);
-    const char *rest = buf;
+    const char *rest = name;   /* the name itself: a copy into a fixed buffer cut a long name in the middle of a letter */
     out->n = 0; out->cut = false;
     while (out->n < NAME_LINES) {
         int rl = (int)strlen(rest), k = out->n++;
@@ -92,7 +90,7 @@ static void layout_name(cui_ctx *ui, const char *name, float maxw, name_lines *o
     }
 }
 
-int ui_grid_label_lines(int idx, char out[][264]) {
+int ui_grid_label_lines(int idx, char out[][UI_NAME_BYTES]) {
     name_lines nl;
     if (idx >= A.vis_n || A.cols < 1) return 0;
     layout_name(A.ui, app_item_name(idx), (A.content_w - 2 * GPAD) / (float)A.cols - 10, &nl);
@@ -391,7 +389,7 @@ static void paint_compact(cui_ctx *ui, cui_rect r, const row_data *d) {
         float w = d->thumb.w * scale, h = d->thumb.h * scale;
         cui_draw_image(ui, d->thumb.tex, (cui_rect){ cx - w/2, cy - h/2, w, h }, (cui_rect){0,0,1,1}, CUI_CORNERS(2), (cui_color){0});
     } else { ui_set_dim(e->flags & FS_INCOMING); ui_draw_file(ui, cx, cy, icon, app_item_name(i), e->kind); ui_set_dim(false); }
-    char name[264];
+    char name[UI_NAME_BYTES];
     const char *full = app_item_name(i);
     float width = r.w - icon - 36;
     int len = (int)strlen(full), n = fit_prefix(ui, full, len, width);

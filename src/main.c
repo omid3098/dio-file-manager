@@ -626,7 +626,7 @@ static void test_snapshot(const char *base) {
     for (int i = 0; i < A.vis_n && i < 300; i++) { if (i) fputc(',', f); json_text(f, app_item_name(i)); }
     fprintf(f, "],\"labels\":[");
     for (int i = 0; i < A.vis_n && i < 40; i++) {
-        char ln[3][264];
+        char ln[3][UI_NAME_BYTES];
         int n = ui_grid_label_lines(i, ln);
         if (i) fputc(',', f);
         fputc('[', f);

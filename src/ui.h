@@ -251,7 +251,8 @@ void ui_status_pill(void);
 
 /* ui_grid.c, ui_list.c */
 void ui_grid_view(void);
-int ui_grid_label_lines(int idx, char out[][264]);   /* the lines of an item's grid label as they are drawn (test probe) */
+#define UI_NAME_BYTES 1028   /* a file name is at most 1023 bytes (fs.c add_entry); a label line adds an ellipsis and the end 0 */
+int ui_grid_label_lines(int idx, char out[][UI_NAME_BYTES]);   /* the lines of an item's grid label as they are drawn (test probe) */
 void ui_column_view(void);
 void ui_grid_keys(void);
 void ui_list_view(void);

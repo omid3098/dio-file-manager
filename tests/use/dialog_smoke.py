@@ -85,6 +85,8 @@ def inside():
             text = s.get('dialog_text', '')   # the dialog's own text: whole characters, middle cut, the name's real end
             assert text and '�' not in text, 'broken text in the dialog: %r' % text
             assert '…' in text and fname[-24:] in text, 'the name lost its end: %r' % text
+            label = s['labels'][0][-1]   # the grid label under it: its last line keeps the extension, whole letters
+            assert '…' in label and label.endswith('.txt') and '�' not in label, 'the grid label lost its end: %r' % label
             bad = band_outside(WORK / (name + '-open.png'), panel, band)
             assert not bad, 'text outside the dialog: %d pixels, first at %s (panel x %s)' % (len(bad), bad[0], panel)
             if shots:
