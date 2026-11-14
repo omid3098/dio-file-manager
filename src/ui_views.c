@@ -228,7 +228,6 @@ static int hover_drive = -1;
 #define DRIVE_H 76
 #define DRIVE_TEXT_Y 52
 #define DRIVE_BAR_MAX 420     /* the widest meter */
-#define DRIVE_READOUT_W 150   /* what its readout over the bar may take of that line ("Used · 2000.0 GB · 100%") */
 
 /* The used space of a drive: one meter part in the accent, danger above 90% used; the rest of the bar is free. */
 static bool drive_meter(cui_ctx *ui, const fs_drive *d) {
@@ -254,7 +253,12 @@ static void paint_drive(cui_ctx *ui, cui_rect r, void *user) {
     char name[sizeof d->name + 4];
     snprintf(name, sizeof name, "%s", d->name);
     if (d->total) {   /* the meter's readout shares this line: the name gives way, whole characters then an ellipsis */
-        float room = (r.w - 68 - 20 > DRIVE_BAR_MAX ? DRIVE_BAR_MAX : r.w - 68 - 20) - DRIVE_READOUT_W;
+        char idle[64], hover[64];   /* the widest things the meter writes over the bar */
+        double used = (double)(d->total - d->free) / 1e9;
+        snprintf(idle, sizeof idle, "%.1f / %.1f GB", used, (double)d->total / 1e9);
+        snprintf(hover, sizeof hover, "Used \xC2\xB7 %.1f GB \xC2\xB7 100%%", used);
+        float w = cui_measure_text(ui, CUI_FONT_BODY, 15, idle, (int)strlen(idle)).width, w2 = cui_measure_text(ui, CUI_FONT_BODY, 15, hover, (int)strlen(hover)).width;
+        float room = (r.w - 68 - 20 > DRIVE_BAR_MAX ? DRIVE_BAR_MAX : r.w - 68 - 20) - (w > w2 ? w : w2) - 16;
         size_t n = strlen(name);
         while (n && cui_measure_text(ui, CUI_FONT_MEDIUM, 14, name, (int)strlen(name)).width > room) {
             do n--; while (n && ((unsigned char)name[n] & 0xC0) == 0x80);
