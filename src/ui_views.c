@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ui.h"
+#include "dlgtext.h"
 #include "views.h"
 #include "starred.h"
 
@@ -135,7 +136,9 @@ void views_ask_delete(void) {
     if (V.n == 1) {
         int i = -1;
         for (int k = 0; k < A.vis_n; k++) if (A.sel[k]) { i = k; break; }
-        snprintf(V.title, sizeof V.title, "Delete \xE2\x80\x9C%s\xE2\x80\x9D Permanently?", i >= 0 ? app_item_name(i) : "");
+        char nm[260];
+        dlg_short_name(i >= 0 ? app_item_name(i) : "", nm, sizeof nm);
+        snprintf(V.title, sizeof V.title, "Delete \xE2\x80\x9C%s\xE2\x80\x9D Permanently?", nm);
     } else snprintf(V.title, sizeof V.title, "Delete %d Items Permanently?", (int)V.n);
     V.delete_open = true;
 }
@@ -190,7 +193,7 @@ void views_frame(void) {
     if (views_trash_count_poll(&A.trash_n)) cui_request_wakeup(ui, 0.05f);
     if (V.delete_open) {
         bool open = true;
-        if (cui_dialog_begin(ui, V.title, &open, &(cui_dialog_opts){ .description = "If you delete an item, it will be permanently lost.", .width = 440 })) {
+        if (ui_dialog_begin(ui, V.title, &open, "If you delete an item, it will be permanently lost.", false, false)) {
             cui_dialog_footer_begin(ui);
             if (cui_button(ui, "Cancel")) open = false;
             if (cui_button(ui, "Delete", .variant = CUI_BUTTON_DANGER)) {
@@ -204,7 +207,7 @@ void views_frame(void) {
     }
     if (V.empty_open) {
         bool open = true;
-        if (cui_dialog_begin(ui, "Empty All Items from Trash?", &open, &(cui_dialog_opts){ .description = "All items in the Trash will be permanently deleted.", .width = 440 })) {
+        if (ui_dialog_begin(ui, "Empty All Items from Trash?", &open, "All items in the Trash will be permanently deleted.", false, false)) {
             cui_dialog_footer_begin(ui);
             if (cui_button(ui, "Cancel")) open = false;
             if (cui_button(ui, "Empty", .variant = CUI_BUTTON_DANGER)) { views_task_start(TK_EMPTY, NULL, 0); open = false; }

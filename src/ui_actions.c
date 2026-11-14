@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ui.h"
+#include "dlgtext.h"
 #include "ops.h"
 #include "clip.h"
 #include "trash.h"
@@ -262,6 +263,7 @@ static void ask_delete_forever(void) {
     if (G.delete_n == 1) {
         char nm[260];
         name_of(G.delete_paths[0], nm, sizeof nm);
+        dlg_short_name(nm, nm, sizeof nm);
         snprintf(G.delete_title, sizeof G.delete_title, "Delete \xE2\x80\x9C%s\xE2\x80\x9D Permanently?", nm);
     } else snprintf(G.delete_title, sizeof G.delete_title, "Delete %d Items Permanently?", (int)G.delete_n);
     G.delete_open = true;
@@ -473,10 +475,10 @@ static void conflict_dialog(void) {
     if (G.conflict->st.cannot_trash) {
         /* GNOME Files' question for an item the Trash cannot take. The item stays put until the answer is Delete. */
         name_of(G.conflict->st.conflict_source, nm, sizeof nm);
+        dlg_short_name(nm, nm, sizeof nm);
         snprintf(d, sizeof d, "\xE2\x80\x9C%s\xE2\x80\x9D cannot be moved to the Trash. If you delete it, it will be permanently lost.", nm);
         bool shown = true;
-        if (cui_dialog_begin(ui, "Cannot move file to trash, do you want to delete immediately?", &shown,
-                             &(cui_dialog_opts){ .description = d, .width = 440, .persistent = true, .no_close_button = true })) {
+        if (ui_dialog_begin(ui, "Cannot move file to trash, do you want to delete immediately?", &shown, d, true, true)) {
             if (G.conflict->n > 1) cui_checkbox(ui, "Apply this action to all files", &G.apply_all);
             cui_dialog_footer_begin(ui);
             int ans = -1;
@@ -493,12 +495,15 @@ static void conflict_dialog(void) {
         return;
     }
     name_of(G.conflict->st.conflict_target, nm, sizeof nm);
+    dlg_short_name(nm, nm, sizeof nm);
     if (!fs_parent(G.conflict->st.conflict_target, dir, sizeof dir)) dir[0] = 0;
     const char *dn = strrchr(dir, '\\');
+    char dnm[260];
+    dlg_short_name(dn && dn[1] ? dn + 1 : dir, dnm, sizeof dnm);
     snprintf(t, sizeof t, "Replace \xE2\x80\x9C%s\xE2\x80\x9D?", nm);
-    snprintf(d, sizeof d, "Another file with the same name already exists in \xE2\x80\x9C%s\xE2\x80\x9D.", dn && dn[1] ? dn + 1 : dir);
+    snprintf(d, sizeof d, "Another file with the same name already exists in \xE2\x80\x9C%s\xE2\x80\x9D.", dnm);
     bool open = true;
-    if (cui_dialog_begin(ui, t, &open, &(cui_dialog_opts){ .description = d, .width = 440, .persistent = true, .no_close_button = true })) {
+    if (ui_dialog_begin(ui, t, &open, d, true, true)) {
         cui_checkbox(ui, "Apply this action to all files", &G.apply_all);
         cui_dialog_footer_begin(ui);
         ops_answer ans = (ops_answer)-1;
@@ -518,7 +523,7 @@ static void delete_dialog(void) {
     cui_ctx *ui = A.ui;
     if (!G.delete_open) return;
     bool open = true;
-    if (cui_dialog_begin(ui, G.delete_title, &open, &(cui_dialog_opts){ .description = "If you delete an item, it will be permanently lost.", .width = 440 })) {
+    if (ui_dialog_begin(ui, G.delete_title, &open, "If you delete an item, it will be permanently lost.", false, false)) {
         cui_dialog_footer_begin(ui);
         if (cui_button(ui, "Cancel")) open = false;
         G.delete_buttons[0] = cui_last_rect(ui);

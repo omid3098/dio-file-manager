@@ -13,7 +13,7 @@ os.environ['TEMP'] = os.environ['TMP'] = str(task / 'tmp')
 os.environ['VSCMD_SKIP_SENDTELEMETRY'] = '1'
 vc = r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat'
 sources = [project / 'tests' / 'test_ops.c']
-sources += [project / 'src' / f'{name}.c' for name in ['ops', 'clip', 'trash', 'search', 'recent', 'shell']]
+sources += [project / 'src' / f'{name}.c' for name in ['ops', 'clip', 'trash', 'search', 'recent', 'shell', 'dlgtext']]
 args = ['cl', '/nologo', '/std:c17', '/W4', '/WX', '/utf-8', '/O1', '/MD',
         '/DUNICODE', '/D_UNICODE', '/DWIN32_LEAN_AND_MEAN', '/DNOMINMAX',
         '/DDFM_TEST_WORK="' + str(task).replace('\\', '\\\\') + '"',

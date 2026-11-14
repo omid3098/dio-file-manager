@@ -4,6 +4,7 @@
 #include "clip.h"
 #include "search.h"
 #include "trash.h"
+#include "dlgtext.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -334,6 +335,45 @@ static void cross_volume(void) {
     }
     puts(ran ? "PASS cross-volume move copies then removes source; second-drive sandbox removed" : "SKIP cross-volume move: no second writable fixed drive");
 }
+/* ---- dialog names: cut in the middle at 50 characters, the extension kept, no character cut apart ---- */
+static int cps(const char *s) { int n = 0; for (; *s; s++) if (((unsigned char)*s & 0xC0) != 0x80) n++; return n; }
+static int valid_utf8(const char *s) {
+    for (const unsigned char *p = (const unsigned char *)s; *p;) {
+        int n = *p < 0x80 ? 1 : (*p >> 5) == 6 ? 2 : (*p >> 4) == 14 ? 3 : (*p >> 3) == 30 ? 4 : 0;
+        if (!n) return 0;
+        for (int i = 1; i < n; i++) if ((p[i] & 0xC0) != 0x80) return 0;
+        p += n;
+    }
+    return 1;
+}
+static float mono(void *ctx, const char *s, int len) { (void)ctx; int n = 0; for (int i = 0; i < len; i++) if (((unsigned char)s[i] & 0xC0) != 0x80) n++; return 10.0f * (float)n; }
+static void cat(char *d, const char *s) { size_t n = strlen(d), m = strlen(s); memcpy(d + n, s, m + 1); }
+static void dialog_names(void) {
+    char in[1200], out[1200], rep[64];
+    dlg_short_name("short name.txt", out, sizeof out); CHECK(!strcmp(out, "short name.txt"));
+    in[0] = 0; cat(in, "long-name-"); for (int i = 0; i < 186; i++) cat(in, "x"); cat(in, ".txt");
+    dlg_short_name(in, out, sizeof out); CHECK(cps(out) == 50 && strstr(out, "\xE2\x80\xA6") && !strcmp(out + strlen(out) - 4, ".txt") && !strncmp(out, "long-name-", 10));
+    in[0] = 0; cat(in, out); dlg_short_name(in, in, sizeof in); CHECK(!strcmp(in, out));   /* in place, and a cut name stays as it is */
+    in[0] = 0; for (int i = 0; i < 40; i++) cat(in, "\xD8\xAC\xD8\xB2\xD8\xA7\xD8\xB1\xD8\xB4\x5F");   /* a Persian run without spaces */
+    cat(in, ".txt");
+    dlg_short_name(in, out, sizeof out); CHECK(valid_utf8(out) && cps(out) == 50 && !strcmp(out + strlen(out) - 4, ".txt"));
+    in[0] = 0; for (int i = 0; i < 80; i++) cat(in, "e\xCC\x81");   /* e + combining acute: 80 characters */
+    dlg_short_name(in, out, sizeof out); CHECK(valid_utf8(out) && !strncmp(out + strlen(out) - 2, "\xCC\x81", 2));
+    { const char *e = strstr(out, "\xE2\x80\xA6"); CHECK(e && e > out && !strncmp(e - 2, "\xCC\x81", 2) && e[3] == 'e' && ((unsigned char)e[4]) == 0xCC); }   /* both sides cut between letters */
+    in[0] = 0; for (int i = 0; i < 70; i++) cat(in, "\xF0\x9F\x98\x80");   /* 4-byte characters: never a lone half */
+    cat(in, ".png"); dlg_short_name(in, out, sizeof out); CHECK(valid_utf8(out) && cps(out) == 50 && !strcmp(out + strlen(out) - 4, ".png"));
+    in[0] = 0; for (int i = 0; i < 80; i++) cat(in, "\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9");   /* man + joiner + woman */
+    dlg_short_name(in, out, sizeof out); CHECK(valid_utf8(out) && cps(out) < 160 && strstr(out, "\xE2\x80\xA6"));
+    { const char *e = strstr(out, "\xE2\x80\xA6"); CHECK(e && strncmp(e + 3, "\xE2\x80\x8D", 3) && strncmp(e - 3, "\xE2\x80\x8D", 3)); }
+    dlg_short_name(in, rep, 20); CHECK(valid_utf8(rep) && strlen(rep) < 20);   /* a small buffer still gets whole characters */
+    /* words wider than the line break between characters; nothing else moves */
+    dlg_break_words("a \"abcdefghijklmnopqrstuvwxyz\" b", out, sizeof out, 100.0f, mono, NULL);
+    CHECK(!strcmp(out, "a \"abcdefghi\njklmnopqrs\ntuvwxyz\" b"));
+    dlg_break_words("fits well", out, sizeof out, 100.0f, mono, NULL); CHECK(!strcmp(out, "fits well"));
+    dlg_break_words("e\xCC\x81" "e\xCC\x81" "e\xCC\x81" "e\xCC\x81", out, sizeof out, 40.0f, mono, NULL); CHECK(!strcmp(out, "e\xCC\x81" "e\xCC\x81\n" "e\xCC\x81" "e\xCC\x81"));
+    puts("PASS dialog names");
+}
+
 int main(void) {
     wchar_t *root = wide(ROOT);
     mkdir_u(DFM_TEST_WORK);
@@ -342,9 +382,9 @@ int main(void) {
     CreateThread(NULL, 0, watch_prompts, NULL, 0, NULL);
     { char only[16]; size_t got = 0;   /* DFM_TEST_ONLY=nested|junction|partial runs one trash check alone (used to show it fails on older code) */
       if (!getenv_s(&got, only, sizeof only, "DFM_TEST_ONLY") && got) {
-          if (!strcmp(only, "nested")) nested_long(); else if (!strcmp(only, "junction")) through_junction(); else if (!strcmp(only, "partial")) partial_success(); else CHECK(0);
+          if (!strcmp(only, "names")) dialog_names(); else if (!strcmp(only, "nested")) nested_long(); else if (!strcmp(only, "junction")) through_junction(); else if (!strcmp(only, "partial")) partial_success(); else CHECK(0);
           puts("PASS the one check ran"); cleanup(); return 0;
       } }
-    basic(); conflicts(); names(); cancellation(); searching(); clipboard(); recycle(); unrecyclable(); cross_volume();
+    dialog_names(); basic(); conflicts(); names(); cancellation(); searching(); clipboard(); recycle(); unrecyclable(); cross_volume();
     cleanup(); free(root); free(state); puts("ALL CHECKS PASSED; sandboxes removed"); return 0;
 }

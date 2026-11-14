@@ -127,6 +127,7 @@ bool app_at_place(int which);              /* is the sidebar place 0..6 (Home..V
 
 /* ui_actions.c */
 void act_jobs_snapshot(FILE *f);
+bool ui_dialog_begin(cui_ctx *ui, const char *title, bool *open, const char *description, bool persistent, bool no_close_button); /* every dialog: names shortened by dlg_short_name, long words broken to fit */
 void act_shutdown(void);
 void ui_sidebar_snapshot(FILE *f);
 void ui_sidebar_shutdown(void);
