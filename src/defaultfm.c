@@ -8,13 +8,14 @@
 #include <string.h>
 #include <wchar.h>
 #include "defaultfm.h"
+#include "defaultfm_int.h"
 #include "fs.h"
 
 enum { LOC_RECENT_ = 1, LOC_TRASH_ = 3, LOC_OTHER_ = 4 };   /* the values of LOC_* in ui.h */
 
 static bool test_on;
-static wchar_t test_log[MAX_PATH + 16];
-static wchar_t classes_base[260], state_base[260], local_dir[MAX_PATH];
+static wchar_t test_log[MAX_PATH + 16], test_res_log[MAX_PATH + 16];
+static wchar_t classes_base[260], state_base[260], adv_base[260], run_base[260], local_dir[MAX_PATH];
 
 static const wchar_t *LAUNCHER_NAME = L"dio-file-manager-launcher.exe";
 static const wchar_t *WIN_E = L"{52205fd8-5dfb-447d-801a-d0b52f2e83e1}";
@@ -37,9 +38,13 @@ static void paths(void) {
     if (root[0]) {
         _snwprintf_s(classes_base, 260, _TRUNCATE, L"%s\\Classes", root);
         _snwprintf_s(state_base, 260, _TRUNCATE, L"%s\\State", root);
+        _snwprintf_s(adv_base, 260, _TRUNCATE, L"%s\\Advanced", root);
+        _snwprintf_s(run_base, 260, _TRUNCATE, L"%s\\Run", root);
     } else {
         wcscpy_s(classes_base, 260, L"Software\\Classes");
         wcscpy_s(state_base, 260, L"Software\\Dio File Manager\\DefaultFileManager");
+        wcscpy_s(adv_base, 260, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced");
+        wcscpy_s(run_base, 260, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run");
     }
     DWORD n = 0;
     if (test_on) n = GetEnvironmentVariableW(L"DFM_TEST_LOCAL", local_dir, MAX_PATH);
@@ -52,9 +57,20 @@ static void paths(void) {
 
 void defaultfm_test_mode(const wchar_t *state_base_path) {
     test_on = state_base_path && state_base_path[0];
-    if (test_on) _snwprintf_s(test_log, MAX_PATH + 16, _TRUNCATE, L"%s.opened", state_base_path);
+    if (test_on) {
+        _snwprintf_s(test_log, MAX_PATH + 16, _TRUNCATE, L"%s.opened", state_base_path);
+        _snwprintf_s(test_res_log, MAX_PATH + 16, _TRUNCATE, L"%s.resident", state_base_path);
+    }
     classes_base[0] = 0;
 }
+
+/* What resident.c needs: the (possibly redirected) registry bases and folder, the test log of the resident process,
+ * and the small helpers it shares with this file. */
+bool dfm_test_on(void) { return test_on; }
+const wchar_t *dfm_state_base(void) { paths(); return state_base; }
+const wchar_t *dfm_adv_base(void) { paths(); return adv_base; }
+const wchar_t *dfm_run_base(void) { paths(); return run_base; }
+const wchar_t *dfm_test_resident_log(void) { return test_on ? test_res_log : NULL; }
 
 static void log_line(const wchar_t *what, const wchar_t *a, const wchar_t *b) {
     FILE *f;
@@ -116,7 +132,7 @@ static bool key_empty(const wchar_t *path) {
     return !subkeys && !values;
 }
 
-static bool get_string(HKEY root, const wchar_t *path, const wchar_t *name, wchar_t *out, DWORD cap) {
+bool dfm_get_string(HKEY root, const wchar_t *path, const wchar_t *name, wchar_t *out, DWORD cap) {
     HKEY k;
     DWORD type, n = cap * sizeof *out;
     bool ok = !RegOpenKeyExW(root, path, 0, KEY_QUERY_VALUE, &k);
@@ -128,7 +144,7 @@ static bool get_string(HKEY root, const wchar_t *path, const wchar_t *name, wcha
 }
 
 /* A registry error that means "it is not there"; every other error means "could not look". */
-static bool is_missing(LONG r) { return r == ERROR_FILE_NOT_FOUND || r == ERROR_PATH_NOT_FOUND; }
+bool dfm_is_missing(LONG r) { return r == ERROR_FILE_NOT_FOUND || r == ERROR_PATH_NOT_FOUND; }
 
 /* Read a key's default string. 0: read. ERROR_FILE_NOT_FOUND: no key, no value, or not a string (too long counts
  * too: nothing of ours is that long). Any other code: the registry refused, so nothing is known. */
@@ -136,15 +152,15 @@ static LONG read_default(const wchar_t *path, wchar_t *out, DWORD cap) {
     HKEY k;
     DWORD type, n = cap * sizeof *out;
     LONG r = RegOpenKeyExW(HKEY_CURRENT_USER, path, 0, KEY_QUERY_VALUE, &k);
-    if (r) return is_missing(r) ? ERROR_FILE_NOT_FOUND : r;
+    if (r) return dfm_is_missing(r) ? ERROR_FILE_NOT_FOUND : r;
     r = RegQueryValueExW(k, L"", NULL, &type, (BYTE *)out, &n);
     RegCloseKey(k);
     if (r == ERROR_MORE_DATA || (!r && type != REG_SZ && type != REG_EXPAND_SZ)) return ERROR_FILE_NOT_FOUND;
     if (!r) out[cap - 1] = 0;
-    return is_missing(r) ? ERROR_FILE_NOT_FOUND : r;
+    return dfm_is_missing(r) ? ERROR_FILE_NOT_FOUND : r;
 }
 
-static bool set_string(HKEY k, const wchar_t *name, const wchar_t *v) {
+bool dfm_set_string(HKEY k, const wchar_t *name, const wchar_t *v) {
     return !RegSetValueExW(k, name, 0, REG_SZ, (const BYTE *)v, (DWORD)((wcslen(v) + 1) * sizeof *v));
 }
 
@@ -175,7 +191,7 @@ bool defaultfm_enabled(void) {
     if (any_ours()) return true;
     r = RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_QUERY_VALUE, &k);
     if (!r) RegCloseKey(k);
-    return !is_missing(r);
+    return !dfm_is_missing(r);
 }
 
 /* Remember how one target looked: whether it existed, the first key that did not, and its values. */
@@ -184,7 +200,7 @@ static bool save_target(HKEY saved, int i) {
     _snwprintf_s(name, 16, _TRUNCATE, L"%d", i);
     HKEY k, v;
     if (RegCreateKeyExW(saved, name, 0, NULL, 0, KEY_WRITE, NULL, &k, NULL)) return false;
-    bool ok = set_string(k, L"Path", TARGET[i].path);
+    bool ok = dfm_set_string(k, L"Path", TARGET[i].path);
     sub(full, classes_base, TARGET[i].path);
     HKEY leaf;
     DWORD existed = !RegOpenKeyExW(HKEY_CURRENT_USER, full, 0, KEY_READ, &leaf);
@@ -203,7 +219,7 @@ static bool save_target(HKEY saved, int i) {
             sub(full, classes_base, rel);
             if (!key_exists(full)) break;
         }
-        ok = ok && set_string(k, L"Top", rel);
+        ok = ok && dfm_set_string(k, L"Top", rel);
     }
     RegCloseKey(k);
     return ok;
@@ -219,7 +235,7 @@ static bool remove_ours(int i) {
     if (r) return r == ERROR_FILE_NOT_FOUND;
     if (!is_ours(c)) return true;
     r = RegDeleteTreeW(HKEY_CURRENT_USER, p);
-    return !r || is_missing(r);
+    return !r || dfm_is_missing(r);
 }
 
 /* Put one target back. A target that did not exist loses only the keys the registration made: its own key, then
@@ -232,14 +248,14 @@ static bool restore_target(HKEY saved, int i) {
     LONG r;
     _snwprintf_s(name, 16, _TRUNCATE, L"%d", i);
     r = RegOpenKeyExW(saved, name, 0, KEY_READ, &k);
-    if (is_missing(r)) return remove_ours(i);                   /* no record of this target */
+    if (dfm_is_missing(r)) return remove_ours(i);                   /* no record of this target */
     if (r) return false;
     r = RegQueryValueExW(k, L"Existed", NULL, &type, (BYTE *)&existed, &n);
     bool ok = !r && type == REG_DWORD;
     if (ok && !existed) {
         DWORD tn = sizeof top - sizeof *top;
         r = RegQueryValueExW(k, L"Top", NULL, &type, (BYTE *)top, &tn);
-        if (is_missing(r) || (!r && type != REG_SZ)) top[0] = 0;
+        if (dfm_is_missing(r) || (!r && type != REG_SZ)) top[0] = 0;
         else ok = !r;
         top[519] = 0;
     }
@@ -258,13 +274,13 @@ static bool restore_target(HKEY saved, int i) {
         }
     } else if (ok) {
         r = RegDeleteTreeW(HKEY_CURRENT_USER, full);
-        ok = !r || is_missing(r);
+        ok = !r || dfm_is_missing(r);
         for (wchar_t *cut; ok && wcslen(rel) > wcslen(top) && (cut = wcsrchr(rel, L'\\')); ) {
             *cut = 0;
             sub(full, classes_base, rel);
             if (key_empty(full)) {
                 r = RegDeleteKeyW(HKEY_CURRENT_USER, full);
-                ok = !r || is_missing(r);
+                ok = !r || dfm_is_missing(r);
             } else break;
         }
     }
@@ -290,7 +306,7 @@ static bool write_command(int i, const wchar_t *launcher, const wchar_t *extra) 
     sub(p, classes_base, TARGET[i].path);
     if (RegCreateKeyExW(HKEY_CURRENT_USER, p, 0, NULL, 0, KEY_WRITE, NULL, &k, NULL)) return false;
     quoted_command(c, launcher, extra, TARGET[i].folder);
-    bool ok = set_string(k, L"", c) && set_string(k, L"DelegateExecute", L"");
+    bool ok = dfm_set_string(k, L"", c) && dfm_set_string(k, L"DelegateExecute", L"");
     RegCloseKey(k);
     return ok;
 }
@@ -324,7 +340,7 @@ static bool register_missing(const wchar_t *launcher, const wchar_t *extra) {
     return ok;
 }
 
-static bool launcher_path(wchar_t *out, size_t cap) {
+bool dfm_launcher_path(wchar_t *out, size_t cap) {
     paths();
     if (!local_dir[0]) return false;
     _snwprintf_s(out, cap, _TRUNCATE, L"%s\\%s", local_dir, LAUNCHER_NAME);
@@ -372,7 +388,7 @@ static bool copy_launcher(const wchar_t *self, const wchar_t *launcher) {
 bool defaultfm_enable(const wchar_t *extra_args) {
     wchar_t self[MAX_PATH], launcher[MAX_PATH];
     paths();
-    if (defaultfm_is_launcher() || !GetModuleFileNameW(NULL, self, MAX_PATH) || !launcher_path(launcher, MAX_PATH)) return false;
+    if (defaultfm_is_launcher() || !GetModuleFileNameW(NULL, self, MAX_PATH) || !dfm_launcher_path(launcher, MAX_PATH)) return false;
     HKEY state;
     if (!defaultfm_enabled()) {      /* the keys are not ours: save what is there now */
         RegDeleteTreeW(HKEY_CURRENT_USER, state_base);
@@ -389,8 +405,8 @@ bool defaultfm_enable(const wchar_t *extra_args) {
     }
     if (!register_missing(launcher, extra_args ? extra_args : L"")) return false;   /* an explicit turn-on also repairs a record left without its open verb */
     if (RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_WRITE, &state)) return false;
-    bool ok = set_string(state, L"App", self) && set_string(state, L"Launcher", launcher) &&
-              set_string(state, L"Args", extra_args ? extra_args : L"");
+    bool ok = dfm_set_string(state, L"App", self) && dfm_set_string(state, L"Launcher", launcher) &&
+              dfm_set_string(state, L"Args", extra_args ? extra_args : L"");
     RegCloseKey(state);
     ok = ok && copy_launcher(self, launcher) && write_commands(launcher, extra_args);
     if (!ok) defaultfm_disable();
@@ -407,7 +423,7 @@ bool defaultfm_disable(void) {
     LONG r;
     paths();
     r = RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_READ, &state);
-    if (r) ok = is_missing(r) && remove_all_ours();
+    if (r) ok = dfm_is_missing(r) && remove_all_ours();
     else {
         DWORD type, n = sizeof launcher - sizeof *launcher;
         if (RegQueryValueExW(state, L"Launcher", NULL, &type, (BYTE *)launcher, &n) || type != REG_SZ) launcher[0] = 0;
@@ -415,7 +431,7 @@ bool defaultfm_disable(void) {
         if (!r) {
             for (int i = TARGETS - 1; i >= 0; i--) ok = restore_target(saved, i) && ok;
             RegCloseKey(saved);
-        } else ok = is_missing(r) && remove_all_ours();
+        } else ok = dfm_is_missing(r) && remove_all_ours();
         RegCloseKey(state);
     }
     if (!ok || any_ours()) return false;
@@ -428,7 +444,7 @@ bool defaultfm_disable(void) {
         RemoveDirectoryW(launcher);                  /* only when nothing else is in it */
     }
     r = RegDeleteTreeW(HKEY_CURRENT_USER, state_base);
-    if (r && !is_missing(r)) return false;           /* the record stays, so the switch still reads as waiting */
+    if (r && !dfm_is_missing(r)) return false;           /* the record stays, so the switch still reads as waiting */
     if (!wcscmp(state_base, L"Software\\Dio File Manager\\DefaultFileManager")) RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\Dio File Manager");
     return true;
 }
@@ -460,13 +476,13 @@ static void refresh_launcher_later(const wchar_t *self, const wchar_t *launcher)
 void defaultfm_sync(void) {
     wchar_t self[MAX_PATH], app[MAX_PATH], launcher[MAX_PATH];
     paths();
-    if (!defaultfm_enabled() || !GetModuleFileNameW(NULL, self, MAX_PATH) || !launcher_path(launcher, MAX_PATH)) return;
+    if (!defaultfm_enabled() || !GetModuleFileNameW(NULL, self, MAX_PATH) || !dfm_launcher_path(launcher, MAX_PATH)) return;
     /* Only the registered app (the saved App path) keeps the launcher and the keys up to date. A test build, a copy
      * elsewhere or a moved exe changes nothing; turning the switch on from that copy registers it. */
-    if (!get_string(HKEY_CURRENT_USER, state_base, L"App", app, MAX_PATH) || !same_path(app, self)) return;
+    if (!dfm_get_string(HKEY_CURRENT_USER, state_base, L"App", app, MAX_PATH) || !same_path(app, self)) return;
     refresh_launcher_later(self, launcher);
     wchar_t args[520] = L"";
-    get_string(HKEY_CURRENT_USER, state_base, L"Args", args, 520);
+    dfm_get_string(HKEY_CURRENT_USER, state_base, L"Args", args, 520);
     if (any_ours()) register_missing(launcher, args);   /* recovery state alone, without a command of ours, registers nothing */
 }
 
@@ -667,7 +683,7 @@ bool defaultfm_is_launcher(void) {
     return base && !_wcsicmp(base + 1, LAUNCHER_NAME);
 }
 
-static const wchar_t *command_tail(void) {
+const wchar_t *dfm_command_tail(void) {
     const wchar_t *c = GetCommandLineW();
     if (*c == L'"') { c = wcschr(c + 1, L'"'); if (c) c++; }
     else while (*c && *c != L' ') c++;
@@ -679,7 +695,7 @@ int defaultfm_launcher_main(void) {
     int n = 0, kept = 0;
     wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &n), **args;
     wchar_t app[MAX_PATH], cmd[32768];
-    const wchar_t *tail = command_tail();
+    const wchar_t *tail = dfm_command_tail();
     if (!argv) return 1;
     args = calloc((size_t)n + 1, sizeof *args);
     for (int i = 1; i < n; i++) {
@@ -687,7 +703,7 @@ int defaultfm_launcher_main(void) {
         args[kept++] = argv[i];
     }
     paths();
-    if (get_string(HKEY_CURRENT_USER, state_base, L"App", app, MAX_PATH) && GetFileAttributesW(app) != INVALID_FILE_ATTRIBUTES) {
+    if (dfm_get_string(HKEY_CURRENT_USER, state_base, L"App", app, MAX_PATH) && GetFileAttributesW(app) != INVALID_FILE_ATTRIBUTES) {
         _snwprintf_s(cmd, 32768, _TRUNCATE, L"\"%s\" %s", app, tail);
         STARTUPINFOW si = { sizeof si }; PROCESS_INFORMATION pi;
         if (CreateProcessW(app, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); return 0; }
