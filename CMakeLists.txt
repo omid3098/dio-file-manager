@@ -16,7 +16,8 @@ file(GLOB DFM_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
 # The .rc embeds the icon (resource id 1: CUI loads it as the window class icon).
 add_executable(dio-file-manager ${DFM_SOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/src/dio-file-manager.rc)
 target_include_directories(dio-file-manager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-# ui_ctxmenu.c uses CUI's internal popup calls (CUI is pinned to one tag).
+# ui_ctxmenu.c is the one file that uses CUI's internal calls (the popup that opens at the pointer with its own width,
+# a menu with the arrow-key highlight, a scrolling menu that follows it; CUI 76a5f1f's public menu has none of these).
 # The internal context layout must match the text-shaping build of CUI.
 set_source_files_properties(src/ui_ctxmenu.c PROPERTIES INCLUDE_DIRECTORIES ${cui_SOURCE_DIR}/src
   COMPILE_DEFINITIONS CUI_TEXT_SHAPING)

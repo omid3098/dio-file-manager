@@ -1,7 +1,8 @@
 /* The context menu at the pointer, with a width of its own. CUI's cui_context_menu_begin takes the width of the
  * element it opens on, so in the list view and in an empty folder it spanned the whole view. This is the same
  * popup, opened at the pointer with no anchor element, so it is as narrow as the menu in the grid view.
- * It uses CUI's internal popup calls (CUI is pinned to v1.4.0); it is kept in a file of its own for that. */
+ * It uses CUI's internal popup calls (CUI is pinned to one commit); it is kept in a file of its own for that, and it is the
+ * only file that includes CUI's private header: every cui__ call of the app is here. */
 #include <cui_internal.h>
 #include <platform/cui_platform.h>
 #include <stdlib.h>
@@ -10,6 +11,10 @@
 #include "ui.h"
 #include "clip.h"
 #include "dlgtext.h"
+
+/* What CUI's own helpers do, kept here so a CUI update that renames one cannot break the build. */
+static inline float clampf(float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
+static inline bool rect_has(cui_rect r, float x, float y) { return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h; }
 
 /* The clipboard hooks of CUI's text fields (rename, path, search: Ctrl+C, Ctrl+X, Ctrl+V). CUI's own hooks call
  * OpenClipboard once and give up when another program holds the clipboard, so a copy or paste was silently
@@ -105,6 +110,9 @@ void ui_item_tooltip(cui_ctx *ui, cui_id id, const char *name, cui_rect label) {
     cui__tooltip_passive(ui, id, text);
 }
 
+/* Close every open CUI popup (the one call main.c needs, so cui__ calls stay in this file). */
+void ui_popups_close_all(cui_ctx *ui) { cui__close_all_popups(ui); }
+
 /* Any menu, popover, path-bar menu or view-options popup is open: one check over every CUI popup. */
 bool ui_popup_open_any(cui_ctx *ui) {
     for (int i = 0; i < ui->popup_count; i++) if (ui->popups[i].open) return true;
@@ -176,7 +184,7 @@ bool ui_window_screenshot(cui_app *app, const char *path) {
 }
 
 cui_rect ctxmenu_row_rect(cui_ctx *ui) {
-    return cui__prev_rect(ui, ui->nodes[cui__current(ui)].id);
+    return cui_get_rect(ui, ui->nodes[cui__current(ui)].id);
 }
 
 static cui_id menu_pid;   /* the id made inside the frame's id scope; ctxmenu_is_open runs outside it */
@@ -187,7 +195,7 @@ bool ctxmenu_row_hovered(cui_ctx *ui) {
     for (int i = ui->prev_hit_count - 1; i >= 0; i--) {
         const cui_hit *h = &ui->prev_hits[i];
         if (h->id == row && h->layer == ui->hot_layer)
-            return cui__rect_contains(h->rect, ui->mx, ui->my) && ui->my >= 46.0f + 40.0f;
+            return rect_has(h->rect, ui->mx, ui->my) && ui->my >= 46.0f + 40.0f;
     }
     return false;
 }
@@ -237,7 +245,7 @@ static void paint_columns_bar(cui_ctx *ui, cui_node *n, void *data) {
     float max = st->content_w - r.w;
     if (max <= 0) return;
     float w = CUI_MAX(28.0f, r.w * r.w / st->content_w);
-    float x = r.x + 3 + cui__clampf(st->x / max, 0, 1) * (r.w - w - 6);
+    float x = r.x + 3 + clampf(st->x / max, 0, 1) * (r.w - w - 6);
     cui_draw_rect(ui, (cui_rect){x, r.y + r.h - 9, w, 6}, CUI_CORNERS(3), cui_alpha(cui_color_of(ui, CUI_COLOR_FOREGROUND), .26f));
     cui__paint_add_hit(ui, n->id ^ 0x48534352u, (cui_rect){r.x, r.y + r.h - 12, r.w, 12}, CUI_NF_INTERACTIVE);
     st->bar_t = 0; /* This bar stays visible; suppress CUI's fading duplicate. */
@@ -258,8 +266,8 @@ void ui_columns_begin(int *rows, int *first, int *last) {
     if (bar.active && ui->mdown[0] && st->content_w > st->view_w) {
         float thumb = CUI_MAX(28.0f, st->view_w * st->view_w / st->content_w);
         float track = st->view_w - thumb - 6;
-        cui_rect pr = cui__prev_rect(ui, id);
-        st->x = st->tx = cui__clampf((ui->mx - pr.x - 3 - thumb / 2) / CUI_MAX(1, track), 0, 1) * (st->content_w - st->view_w);
+        cui_rect pr = cui_get_rect(ui, id);
+        st->x = st->tx = clampf((ui->mx - pr.x - 3 - thumb / 2) / CUI_MAX(1, track), 0, 1) * (st->content_w - st->view_w);
         ui->nodes[node].scroll_x = st->x;
     }
     ui->nodes[node].paint = paint_columns_bar;
@@ -365,7 +373,7 @@ void ui_band_begin(void) {
     while (scroll >= 0 && !(ui->nodes[scroll].flags & CUI_NF_SCROLL_Y)) scroll = ui->nodes[scroll].parent;
     if (scroll < 0) return;
     cui_node *n = &ui->nodes[scroll];
-    cui_rect view = cui__prev_rect(ui, n->id), clip = view;
+    cui_rect view = cui_get_rect(ui, n->id), clip = view;
     if (view.w <= 0 || view.h <= 0) return;
     if (A.zoom == Z_DETAILS) { clip.y += 40; clip.h -= 40; }
     bool blocked = act_modal_open() || views_modal_open() || ctxmenu_is_open(ui) || ui_view_options_open() || A.sidebar_open;
@@ -373,10 +381,10 @@ void ui_band_begin(void) {
         ui_band_cancel(); return;
     }
     cui_vec2 p = { ui->mx - view.x + n->scroll_x, ui->my - view.y + n->scroll_y };
-    if (ui->mpressed[0] && cui__rect_contains(clip, ui->mx, ui->my)) {
+    if (ui->mpressed[0] && rect_has(clip, ui->mx, ui->my)) {
         bool item = false;
         for (int i = 0; i < A.vis_n; i++)
-            if (cui__rect_contains(band_item(i, view.w), p.x, p.y)) { item = true; break; }
+            if (rect_has(band_item(i, view.w), p.x, p.y)) { item = true; break; }
         /* Scrollbar and floating controls keep their own press, even over empty space. */
         bool bar = (A.zoom == Z_LIST && ui->my >= view.y + view.h - 12) ||
                    (A.zoom != Z_LIST && ui->mx >= view.x + view.w - 12);
@@ -394,8 +402,8 @@ void ui_band_begin(void) {
     if (!band.pending) return;
     if (fabsf(ui->mx - band.press.x) >= 4 || fabsf(ui->my - band.press.y) >= 4) band.dragging = true;
     if (band.dragging) {
-        p.x = cui__clampf(ui->mx, clip.x, clip.x + clip.w) - view.x + n->scroll_x;
-        p.y = cui__clampf(ui->my, clip.y, clip.y + clip.h) - view.y + n->scroll_y;
+        p.x = clampf(ui->mx, clip.x, clip.x + clip.w) - view.x + n->scroll_x;
+        p.y = clampf(ui->my, clip.y, clip.y + clip.h) - view.y + n->scroll_y;
         band.box = (cui_rect){ CUI_MIN(p.x, band.anchor.x), CUI_MIN(p.y, band.anchor.y), fabsf(p.x-band.anchor.x), fabsf(p.y-band.anchor.y) };
         for (int i = 0; i < A.vis_n; i++) {
             cui_rect r = band_item(i, view.w), b = band.box;
@@ -406,11 +414,11 @@ void ui_band_begin(void) {
             float edge = A.zoom == Z_LIST ? ui->mx : ui->my;
             float low = A.zoom == Z_LIST ? clip.x : clip.y;
             float high = low + (A.zoom == Z_LIST ? clip.w : clip.h);
-            float speed = edge < low+32 ? -cui__clampf((low+32-edge)/32, 0, 1) :
-                          edge > high-32 ? cui__clampf((edge-high+32)/32, 0, 1) : 0;
+            float speed = edge < low+32 ? -clampf((low+32-edge)/32, 0, 1) :
+                          edge > high-32 ? clampf((edge-high+32)/32, 0, 1) : 0;
             float dt = CUI_MIN(ui->dt, .05f);
-            if (A.zoom == Z_LIST) st->tx = cui__clampf(st->tx + speed*720*dt, 0, CUI_MAX(0, st->content_w-st->view_w));
-            else st->ty = cui__clampf(st->ty + speed*720*dt, 0, CUI_MAX(0, st->content_h-st->view_h));
+            if (A.zoom == Z_LIST) st->tx = clampf(st->tx + speed*720*dt, 0, CUI_MAX(0, st->content_w-st->view_w));
+            else st->ty = clampf(st->ty + speed*720*dt, 0, CUI_MAX(0, st->content_h-st->view_h));
             cui_request_wakeup(ui, 1.0f/60);
         }
         n->paint = paint_band;
@@ -439,7 +447,7 @@ bool menu_row(const char *label, bool chosen) {
     int index = rows_seen++;
     if (ui->pb_depth <= 0 || !rows_scroll) return chosen;
     cui__menu_nav *nav = cui_state(ui, ui->pb_stack[ui->pb_depth - 1].id ^ 0x4E4156u, sizeof *nav);
-    cui_rect row = cui__prev_rect(ui, cui_make_id(ui, label)), view = cui__prev_rect(ui, rows_scroll);
+    cui_rect row = cui_get_rect(ui, cui_make_id(ui, label)), view = cui_get_rect(ui, rows_scroll);
     if (index < ROWS_MAX) { all_rows[index] = row; all_rows_n = index + 1; }
     all_view = view;
     if (nav->highlight != index) return chosen;
