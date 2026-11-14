@@ -107,10 +107,18 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   A background click clears the selection; item presses and right clicks keep their
   normal actions. The same selection works at every scale, in search and special places.
 - **Details stop:** columns Name (16 px icon and name), Size, Modified, Type; sortable headers;
-  folders first. Rows 36 px.
+  folders first. Rows 36 px. The Size column shows a folder's real size (all files below it, logical bytes, junctions and
+  symbolic links not followed), measured in the background, the folders on screen first. While a folder is still being
+  measured its cell shows a muted "…" at the right edge; the number replaces it when it is in. Sorting by Size puts folders
+  first and sorts them by size among themselves (files by size among themselves); it orders by size once, when every shown
+  folder is in, and keeps the selection and the scroll where they were. A folder that changes on disk while it is shown
+  measures again after about one second without changes. Local drives only (network and removable drives keep the empty
+  cell), folders in a normal listing only (not search, Recent, Starred or Trash), grid view unchanged. On by default.
 - **Floating status pill:** bottom right of the content pane, over the files, only while something
   is selected or loading: "“report.pdf” selected (2.4 MB)", "3 items selected (5.1 MB)",
-  "Loading…". It floats, so it has the popover shadow.
+  "Loading…". It floats, so it has the popover shadow. A selected folder counts with its measured size; while any selected
+  folder is still being measured the pill ends with "…" inside the brackets ("“src” selected (…)", "2 items selected
+  (3.0 MB…)": the sum so far, then the dots).
 - **Empty folder:** a large muted folder icon and "Folder is Empty", centred.
 - **Unreadable folder:** a large muted icon, "Unable to access “Name”" and the reason.
 - **Narrow window (< 683 px, GNOME Files 47: max-width 682sp):** the sidebar leaves; a sidebar button appears at the left of the
@@ -231,6 +239,15 @@ Vazirmatn when it is installed (Dio's Persian font), else Segoe UI. Body text 14
 ## Size budget
 
 The release exe is at most 800 KB (CUI's own hello app is about 250 KB). The build fails over it.
+
+## Memory budget
+
+Folder sizes keep an in-memory cache (`src/foldersize.c`, nothing is written to disk): at most 65,536 entries and 24 MB for
+their path keys and records, about 1 MB for the hash table, and 4 walk buffers of 192 KB, one per worker. The oldest
+entries leave first, never one that is shown. Measured on the hidden desktop, 1280x800, Details, all sizes in: about
+105 MB working set with no sizes (grid view of C:\Program Files), 109 MB with C:\Program Files in Details, 150 to 177 MB for
+E:\w (146 folders, tens of thousands of nested entries cached). Four workers run at below-normal priority, so
+measuring uses up to four cores while the window stays responsive.
 
 ## Window: the header is the title bar
 

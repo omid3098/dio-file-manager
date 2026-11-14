@@ -9,9 +9,11 @@ FetchContent. All text is UTF-8 inside the app; convert to UTF-16 only at Win32 
 |---|---|
 | `CMakeLists.txt` | Build. Compiles every `src/*.c` (a glob), links CUI and `shell32 ole32 oleaut32 uuid shlwapi propsys comctl32 dwmapi setupapi cfgmgr32`, adds `tests/` when it exists, and fails a Release or MinSizeRel build whose exe is over the size budget (`docs/design.md`). |
 | `src/main.c`, `src/ui_*.c`, `src/theme.c` | The window: header rows, sidebar, grid and list views, menus, popovers, toasts. |
+| `src/ui_sizes.c` | The window's side of folder sizes: asks the engine for the shown listing's child folders once per listing, gives the Size cell its text or "…" (`sizes_cell`), copies known sizes into the entries before a size sort (`sizes_fill`), totals the selection for the status pill, and does the one re-sort when every shown folder is in (`app_resort_keep`, which keeps the selection and the first visible row). The engine's callback posts `WM_APP+7` (`WM_DFM_SIZES`) so the window wakes and redraws. |
 | `src/chrome_win.c` | The header as the title bar: subclass messages (`WM_NCCALCSIZE`, `WM_NCHITTEST`, min/max size, activation, the maximize button's non-client hover and click), the three window buttons, inactive dimming, DWM border colour, window icons, and the `"chrome"` part of the test snapshot (window and client rectangles, buttons, header controls, border colour, hover). Header code calls `chrome_nodrag_last()` after each control. |
 | `src/dio-file-manager.rc`, `src/dio-file-manager.ico`, `design/icon/` | The embedded icon, its source and the script that builds the frames. |
 | `src/fs.c`, `src/fs.h` | Reading folders, the places (known folders) and the drives. |
+| `src/foldersize.c`, `src/foldersize.h` | Folder sizes: 4 below-normal worker threads walk folders with `NtQueryDirectoryFile` (shown folders first, nested totals kept, junctions and links not followed, a walk is cancelled when its listing is left), an in-memory LRU cache (65,536 entries, 24 MB), one `ReadDirectoryChangesW` per local drive that marks cached folders stale, and a recompute of the shown stale folders after about 1 s of quiet. Calls the window only through one callback (at most every 100 ms). No CUI. |
 | `src/ops.c`, `src/ops.h` | File work on worker threads: copy, move, trash, delete, rename, new folder, conflicts. |
 | `src/clip.c`, `src/clip.h` | The Windows clipboard for files (CF_HDROP and "Preferred DropEffect"). |
 | `src/trash.c`, `src/trash.h` | The Recycle Bin: list, restore, empty, undo of the last trash. |
@@ -176,3 +178,10 @@ text file with `letter drive-type label` rows (for example `Y 2 Sandbox USB`);
 A sandbox drive list always disables physical eject, even if its log is missing.
 The copy checks use the existing `DFM_TEST_COPY_DELAY_MS` callback delay (at most 100 ms)
 for observable concurrent progress on fast disks. Recent and drive overrides require `--test-state`.
+
+## Folder sizes: test hooks
+
+The test snapshot (`--test-state`) has `sizes` (for each folder in the view: name, 0 nothing / 1 value / 2 measuring, text),
+`fsz_open` (folders of the view whose work has not finished), `sel_pending` and `pill` (the status pill's text).
+`DFM_TEST_FSZ_DELAY_MS` (test mode only) sleeps that long before each folder walk, so a check can read the measuring state.
+`tests/test_foldersize.c` (CTest target `dfm-foldersize-tests`, 19 checks) tests the engine alone; `tests/use/foldersize_smoke.py` tests the window.

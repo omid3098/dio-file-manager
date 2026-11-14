@@ -160,6 +160,25 @@ All clipboard checks acquire the Windows named mutex
 `Local\DioFileManagerClipboardTest` before saving clipboard formats and release it
 only after restoration. `clipboard_guard.clipboard_test_lock` waits up to 15 minutes;
 `clipboard_guard.preserved_clipboard` always takes it, including nested checks.
+## Folder size checks
+
+`test_foldersize.c` (CTest target `dfm-foldersize-tests`, console, 19 checks) builds a sandbox under the task folder and checks
+the engine alone: exact sizes, nested totals, a junction not followed, a changed folder going stale and then right after the
+change, a moved folder, and a walk cancelled when the view moves on. Run it hidden through the bounded runner like the other
+console tests.
+
+`use/foldersize_smoke.py` runs 5 checks on the private desktop, on a fixture it creates (`a` 3,000,000 bytes, `b` 1,000,000 plus
+a nested 500,000, `c` 10,000, `d` empty, and a file), with `DFM_TEST_FSZ_DELAY_MS=1200` where the measuring state is read:
+(1) every folder is "measuring" (state kind 2, no text) while `fsz_open` is above 0, then the exact texts `3.0 MB`, `1.5 MB`,
+`10.0 kB`, `0 bytes` (the picture `final/measuring.png` and `final/sizes.png`); (2) a file is never among the sized folders and
+a nested folder counts in its parent; (3) a click on the Size header sorts folders first and by size, and the one re-sort when
+the sizes are in changes the order exactly once and keeps the selected folder selected with the cursor on it, then the other
+direction; (4) the status pill reads `“a” selected (…)` and `2 items selected (…)` while measuring and `2 items selected (4.5 MB)`
+and `“a” selected (3.0 MB)` after; (5) a folder that grows on disk shows its new size within 12 s. Each of the five fails on the
+build before the folder sizes (the state has no `sizes`): it was run against main's older MinSizeRel exe and failed 5 of 5.
+`DFM_EXE` and `DFM_USE_WORK` apply as for the other suites; `USE_ONLY=<prefix>` runs one check. The window checks do not
+cover scroll position after the re-sort (the fixture fits on one screen).
+
 ## View slider acceptance
 
 `view_smoke.py` covers all six modes on the continuous slider (a thumb within 0.1 of a stop gives that stop's
