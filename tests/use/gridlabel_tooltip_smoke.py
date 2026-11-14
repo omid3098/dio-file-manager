@@ -22,6 +22,7 @@ UNBROKEN = 'a_very_long_name_with_no_spaces_at_all_just_underscores_between_ever
 LONG = (FA, EN, UNBROKEN)
 HEADER_H = 46   # the header bar: controls sit above this line
 TIP_PAD = 9
+WIDE = 'W' * 96 + '.txt'   # five tooltip lines; a short window leaves room under its label for exactly those lines
 
 
 def lines_of(s, idx):
@@ -59,7 +60,7 @@ def hover_tip(a, name, theme):
     return s['tip'], s
 
 
-def check_tip(tip, name, s, vw):
+def check_tip(tip, name, s, vw, vh=800):
     bx, by, bw, bh = tip['box']
     assert tip['text'].replace('\n', '') == name or tip['text'].replace('\n', ' ') == name, f'Tooltip text {tip["text"]!r} is not {name!r}'
     assert tip['text_w'] <= bw - 2 * TIP_PAD + .5, f'{name!r}: text {tip["text_w"]:.1f} px wide in a box {bw:.1f} wide (room {bw - 2 * TIP_PAD:.1f}): the end is clipped'
@@ -67,7 +68,7 @@ def check_tip(tip, name, s, vw):
     assert tx >= bx - .5 and tx + tw_ <= bx + bw + .5 and ty >= by - .5 and ty + th_ <= by + bh + .5, f'Text box {tip["text_rect"]} sticks out of the tooltip {tip["box"]}'
     assert by >= HEADER_H, f'{name!r}: tooltip at y={by:.1f} covers the header (controls end at {HEADER_H})'
     assert bx >= 0 and bx + bw <= vw + .5, f'Tooltip box sticks out of the window: {tip["box"]}'
-    assert by + bh <= 800, f'Tooltip below the window: {tip["box"]}'
+    assert by + bh <= vh, f'Tooltip below the window: {tip["box"]}'
 
 
 def shot(a, name):
@@ -84,12 +85,18 @@ def inside():
     for n in LONG + ('short.txt', 'notes.md'):
         (folder / n).write_text('x', encoding='utf-8')
 
-    def check(name, fn, theme='light', size='1280x800'):
+    wide = WORK / 'wide'
+    shutil.rmtree(wide, ignore_errors=True)
+    wide.mkdir(parents=True)
+    for n in (WIDE, 'short.txt'):
+        (wide / n).write_text('x', encoding='utf-8')
+
+    def check(name, fn, theme='light', size='1280x800', where=folder):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
         a = None
         try:
-            a = base.App(name, folder, 'grid', theme, extra=('--size', size))
+            a = base.App(name, where, 'grid', theme, extra=('--size', size))
             fn(a, theme, int(size.split('x')[0]))
             results.append(dict(check=name, result='passed'))
         except Exception as e:
@@ -120,12 +127,24 @@ def inside():
             a.until('tooltip stayed', lambda: not a.snap()['tooltip'], 5)
             time.sleep(.5)
 
+    def short_window(a, theme, vw):
+        """The tooltip of a 96-W name is five lines; at 1280x280 it fits under the label, so it sits there, not over the header."""
+        vh = 280
+        s = a.snap()
+        assert '…' in s['labels'][s['names'].index(WIDE)][-1], 'The 96-W name is not cut: nothing to hover'
+        tip, s = hover_tip(a, WIDE, theme)
+        check_tip(tip, WIDE, s, vw, vh)
+        assert tip['lines'] == 5, f'Expected five tooltip lines, drawn {tip["lines"]}: {tip["text"]!r}'
+        assert tip['box'][1] + tip['box'][3] <= vh - 8 + .5, f'Tooltip box {tip["box"]} leaves less than the 8 px edge margin'
+        shot(a, f'c-tooltip-{theme}-{vw}x{vh}')
+
     check('1-labels-light', labels, 'light')
     check('2-labels-dark', labels, 'dark')
     check('3-labels-dark-360', labels, 'dark', '360x800')
     check('4-tooltip-light', tooltips, 'light')
     check('5-tooltip-dark', tooltips, 'dark')
     check('6-tooltip-dark-360', tooltips, 'dark', '360x800')
+    check('7-tooltip-dark-1280x280', short_window, 'dark', '1280x280', wide)
     return 1 if any(r['result'] != 'passed' for r in results) else 0
 
 

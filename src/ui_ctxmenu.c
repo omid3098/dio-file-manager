@@ -84,21 +84,18 @@ static float tip_text_w(void *c, const char *s, int len) {
 
 void ui_item_tooltip(cui_ctx *ui, cui_id id, const char *name, cui_rect label) {
     if (!name) { if (ui->tooltip_id == id) ui->tooltip_id = 0; return; }   /* the pointer is not on this item */
-    enum { CUI_TIP_TEXT = 256, WRAP_W = 240, GAP = 6 };   /* CUI keeps 255 bytes; its box is 280 px less 2 x 9 of padding */
+    enum { CUI_TIP_TEXT = 256, WRAP_W = 240, GAP = 6, TIP_TOP = 46 };   /* CUI keeps 255 bytes; its box is 280 px less 2 x 9 of padding */
     char shown[CUI_TIP_TEXT], text[CUI_TIP_TEXT];
     tip_measure m = { ui, cui__fs(ui, ui->theme.text_sm) };
     dlg_path_fit(name, shown, 200);   /* room for the line breaks; a longer name keeps its start and its end */
     dlg_break_words(shown, text, sizeof text, WRAP_W, tip_text_w, &m);
-    int lines = 1;   /* what CUI will draw, a line too many rather than too few */
-    for (const char *p = text, *e; ; p = e + 1) {
-        e = strchr(p, '\n');
-        lines += 1 + (int)(tip_text_w(&m, p, e ? (int)(e - p) : (int)strlen(p)) / (WRAP_W + 12));
-        if (!e) break;
-    }
+    int lines = 1;   /* the lines drawn are the lines broken above: each is at most WRAP_W, inside the 262 px CUI gives a line */
+    for (const char *p = text; (p = strchr(p, '\n')) != NULL; p++) lines++;
     float h = (float)lines * m.size * 1.35f + 10.0f, pad = 4.0f, vh = cui_viewport_size(ui).y;
     float bottom = label.y + label.h + pad;
     cui_rect a = { label.x - pad, label.y, label.w + 2 * pad, 0 };   /* above the name */
-    if (bottom + h + 8.0f <= vh) { a.y = 0; a.h = bottom - GAP; }   /* below it */
+    /* below the name when it fits; else above it when that stays under the header; else below, and the window edge clips */
+    if (bottom + h + 8.0f <= vh || label.y - GAP - h < TIP_TOP) { a.y = 0; a.h = bottom - GAP; }
     cui__state_entry(ui, id)->rect = a;
     cui__tooltip_passive(ui, id, text);
 }
