@@ -284,18 +284,40 @@ static void quoted_command(wchar_t *out, const wchar_t *launcher, const wchar_t 
                  extra ? extra : L"", folder ? L" \"%1\"" : L"");
 }
 
+static bool write_command(int i, const wchar_t *launcher, const wchar_t *extra) {
+    wchar_t p[520], c[1200];
+    HKEY k;
+    sub(p, classes_base, TARGET[i].path);
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, p, 0, NULL, 0, KEY_WRITE, NULL, &k, NULL)) return false;
+    quoted_command(c, launcher, extra, TARGET[i].folder);
+    bool ok = set_string(k, L"", c) && set_string(k, L"DelegateExecute", L"");
+    RegCloseKey(k);
+    return ok;
+}
+
 static bool write_commands(const wchar_t *launcher, const wchar_t *extra) {
-    for (int i = 0; i < TARGETS; i++) {
-        wchar_t p[520], c[1200];
-        HKEY k;
-        sub(p, classes_base, TARGET[i].path);
-        if (RegCreateKeyExW(HKEY_CURRENT_USER, p, 0, NULL, 0, KEY_WRITE, NULL, &k, NULL)) return false;
-        quoted_command(c, launcher, extra, TARGET[i].folder);
-        bool ok = set_string(k, L"", c) && set_string(k, L"DelegateExecute", L"");
-        RegCloseKey(k);
-        if (!ok) return false;
-    }
+    for (int i = 0; i < TARGETS; i++) if (!write_command(i, launcher, extra)) return false;
     return true;
+}
+
+/* A registration made by an older version has no record for the targets added since. Each such target that is not
+ * ours is saved as it is now and then registered, so turning off puts it back like the others. */
+static void register_missing(const wchar_t *launcher, const wchar_t *extra) {
+    wchar_t p[520], c[1200];
+    HKEY saved;
+    sub(p, state_base, L"Saved");
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, p, 0, NULL, 0, KEY_READ | KEY_WRITE, NULL, &saved, NULL)) return;
+    for (int i = 0; i < TARGETS; i++) {
+        wchar_t name[16];
+        HKEY k;
+        _snwprintf_s(name, 16, _TRUNCATE, L"%d", i);
+        if (!RegOpenKeyExW(saved, name, 0, KEY_READ, &k)) { RegCloseKey(k); continue; }
+        sub(p, classes_base, TARGET[i].path);
+        if (!read_default(p, c, 1200) && is_ours(c)) continue;
+        if (save_target(saved, i)) write_command(i, launcher, extra);
+        else RegDeleteTreeW(saved, name);
+    }
+    RegCloseKey(saved);
 }
 
 static bool launcher_path(wchar_t *out, size_t cap) {
@@ -335,6 +357,7 @@ bool defaultfm_enable(const wchar_t *extra_args) {
         if (RegCreateKeyExW(HKEY_CURRENT_USER, state_base, 0, NULL, 0, KEY_WRITE, NULL, &state, NULL)) return false;
         RegCloseKey(state);
     }
+    if (defaultfm_enabled() && key_exists(state_base)) register_missing(launcher, extra_args ? extra_args : L"");
     if (RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_WRITE, &state)) return false;
     bool ok = set_string(state, L"App", self) && set_string(state, L"Launcher", launcher) &&
               set_string(state, L"Args", extra_args ? extra_args : L"");
@@ -387,6 +410,9 @@ void defaultfm_sync(void) {
         if (!RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_WRITE, &k)) { set_string(k, L"App", self); RegCloseKey(k); }
     }
     if (!same_size(self, launcher)) copy_launcher(self, launcher);
+    wchar_t args[520] = L"";
+    get_string(HKEY_CURRENT_USER, state_base, L"Args", args, 520);
+    if (key_exists(state_base)) register_missing(launcher, args);
 }
 
 /* ---- the requests ---- */

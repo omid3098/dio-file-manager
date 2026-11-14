@@ -406,6 +406,32 @@ def inside():
         reset_case()
         assert exe_run(['--default-fm', 'off', '--test-state', str(BASE)], exe=second) == 0 and dump() == before
 
+    def upgrade_from_three_targets():
+        """A registration made before the open verb was added: opening the new version, or turning the switch on again,
+        saves the open verb as it was and registers it, and turning off puts everything back."""
+        seed_rich()
+        before = dump()
+
+        def make_old():
+            assert exe_run(['--default-fm', 'on', '--test-state', str(BASE)]) == 0
+            for key in (CLASSES + '\\CLSID\\' + WIN_E + '\\shell\\open', STATE + '\\Saved\\3'):
+                subprocess.run(['reg', 'delete', 'HKCU\\' + key, '/f'], capture_output=True, creationflags=NO_WINDOW)
+            assert command_of(WIN_E_OPEN) is None, 'The test could not make the old registration'
+
+        def is_ours(rel):
+            return 'launcher' in (command_of(rel) or '')
+
+        make_old()
+        p = subprocess.Popen([str(APP_EXE), '--path', str(sandbox), '--test-state', str(BASE)], env=env(), cwd=ROOT, creationflags=NO_WINDOW)
+        try:
+            wait_for('The open verb was not added when the app started', lambda: is_ours(WIN_E_OPEN))
+        finally:
+            p.kill(); p.wait()
+        assert exe_run(['--default-fm', 'off', '--test-state', str(BASE)]) == 0 and dump() == before, 'Off after the start did not restore'
+        make_old()
+        assert exe_run(['--default-fm', 'on', '--test-state', str(BASE)]) == 0 and is_ours(WIN_E_OPEN), 'Turning on did not add the open verb'
+        assert exe_run(['--default-fm', 'off', '--test-state', str(BASE)]) == 0 and dump() == before, 'Off after turning on again did not restore'
+
     def switch_in_menu():
         import input_smoke as base
         base.EXE = APP_EXE
@@ -572,6 +598,7 @@ def inside():
         check('10-long-unicode-names', long_names)
         check('11-unreadable-saved-value-keeps-recovery', unreadable_record_is_a_failure)
         check('12-failed-win-e-restore-retries-and-keeps-record', failed_win_e_restore_then_retry)
+        check('13-upgrade-from-three-targets', upgrade_from_three_targets)
     finally:
         exe_run(['--default-fm', 'off', '--test-state', str(BASE)])
         wipe()
