@@ -142,7 +142,26 @@ until restoration finishes (including nested checks and exception paths).
 - The launcher is a copy of the exe named `dio-file-manager-launcher.exe` in `%LOCALAPPDATA%\dio-file-manager`.
   `main()` checks its own file name first: with the app present it starts it with the same arguments and exits
   (no window); with the app gone it restores the keys, hands the request to Explorer and deletes itself.
-  A normal start refreshes the launcher copy by size and follows an exe that moved.
+  A normal start refreshes the launcher copy by content (a thread beside the window) and follows an exe that moved.
+- Win+E (`src/resident.c`, shared registry helpers in `defaultfm_int.h`): `main()` first asks `resident_main`, which
+  takes over only for `--resident` (the Run entry's command). The resident process has one hidden top-level window
+  (a message-only window gets no `TaskbarCreated` broadcast), registers Win+E with `RegisterHotKey`, and on
+  `WM_HOTKEY` starts the saved App with the arguments after `--resident`. One instance per user (named mutex
+  `Local\DioFmResident`). `resident_keys_set` saves `DisabledHotkeys` once (`State\Saved\DisabledHotkeys`:
+  `Existed`, `Type`, `Value`; an existing record is never replaced), appends E and writes the Run value;
+  `resident_keys_restore` puts the saved value back exactly and removes the Run value. `defaultfm_enable` stops a
+  running process before it replaces a different launcher (a bridge left over from a turn-off is ended first, and
+  the pending cleanup entry is dropped), then sets the keys and starts the process;
+  `defaultfm_disable` restores the keys last, only when every shell command is back, then calls `resident_release`: a
+  process that holds Win+E stays on as a bridge (it sends `MSG_RELEASE` to the hidden window) that opens Explorer on
+  Win+E and ends when the Explorer process behind `Shell_TrayWnd` ends (a wait on its handle in the message loop;
+  `TaskbarCreated` only names an Explorer to watch when there was none), and the launcher is then deleted by `RunOnce` -> `--cleanup-launcher` at the next sign-in
+  (`defaultfm_cleanup_main`, run from `main()` before any UI); a process that never held it is stopped and the
+  launcher deleted at once. The launcher refresh thread stops, copies over, sets the keys and starts. In a check,
+  `--test-state` redirects `Advanced`, `Run` and `RunOnce` next to `Classes` and `State`, the process logs to
+  `BASE.resident` (`pid`, `hotkey-ok`, `hotkey-busy <error>`, `taskbar-created`, `hotkey-open`, `hotkey-gone`,
+  `bridge`, `bridge-open`, `bridge-exit`) and takes
+  Win+Ctrl+Alt+Shift+F23 instead of Win+E.
 - Requests: `defaultfm_request` turns the arguments into a folder (with an optional name to select), a place
   (Recent, Trash, This PC), Home or a fallback. The shell sends `C:\` as `"C:\"`, which arrives as `C:"`; trailing quotes are removed.
 - Loop guard: the same Explorer request twice within 2 s is refused (`fallback.txt` in the launcher folder, exit 4).

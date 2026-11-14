@@ -36,5 +36,8 @@ bool defaultfm_fallback(wchar_t **args, int n);
 /* True when this exe was started under the launcher's name; runs the launcher and returns its exit code. */
 bool defaultfm_is_launcher(void);
 int defaultfm_launcher_main(void);
+bool defaultfm_cleanup_main(int *rc);     /* main(): true when this start is the sign-in cleanup (--cleanup-launcher); it has run */
+void defaultfm_bridge_ended(void);        /* the Win+E process ended after a turn-off */
+void defaultfm_delete_self_later(void);   /* the launcher copy that is running removes itself a few seconds after it ends */
 
 #endif

@@ -8,15 +8,19 @@
 #include <string.h>
 #include <wchar.h>
 #include "defaultfm.h"
+#include "defaultfm_int.h"
+#include "resident.h"
 #include "fs.h"
 
 enum { LOC_RECENT_ = 1, LOC_TRASH_ = 3, LOC_OTHER_ = 4 };   /* the values of LOC_* in ui.h */
 
 static bool test_on;
-static wchar_t test_log[MAX_PATH + 16];
-static wchar_t classes_base[260], state_base[260], local_dir[MAX_PATH];
+static wchar_t test_log[MAX_PATH + 16], test_res_log[MAX_PATH + 16];
+static wchar_t classes_base[260], state_base[260], adv_base[260], run_base[260], runonce_base[260], local_dir[MAX_PATH];
+static wchar_t test_arg[MAX_PATH];   /* the --test-state text: a check's sign-in cleanup command carries it */
 
 static const wchar_t *LAUNCHER_NAME = L"dio-file-manager-launcher.exe";
+static const wchar_t *CLEANUP_VALUE = L"Dio File Manager launcher cleanup";   /* RunOnce: deletes the launcher at the next sign-in */
 static const wchar_t *WIN_E = L"{52205fd8-5dfb-447d-801a-d0b52f2e83e1}";
 
 /* The keys the registration writes, under HKCU\Software\Classes. */
@@ -37,9 +41,15 @@ static void paths(void) {
     if (root[0]) {
         _snwprintf_s(classes_base, 260, _TRUNCATE, L"%s\\Classes", root);
         _snwprintf_s(state_base, 260, _TRUNCATE, L"%s\\State", root);
+        _snwprintf_s(adv_base, 260, _TRUNCATE, L"%s\\Advanced", root);
+        _snwprintf_s(run_base, 260, _TRUNCATE, L"%s\\Run", root);
+        _snwprintf_s(runonce_base, 260, _TRUNCATE, L"%s\\RunOnce", root);
     } else {
         wcscpy_s(classes_base, 260, L"Software\\Classes");
         wcscpy_s(state_base, 260, L"Software\\Dio File Manager\\DefaultFileManager");
+        wcscpy_s(adv_base, 260, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced");
+        wcscpy_s(run_base, 260, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+        wcscpy_s(runonce_base, 260, L"Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce");
     }
     DWORD n = 0;
     if (test_on) n = GetEnvironmentVariableW(L"DFM_TEST_LOCAL", local_dir, MAX_PATH);
@@ -52,15 +62,46 @@ static void paths(void) {
 
 void defaultfm_test_mode(const wchar_t *state_base_path) {
     test_on = state_base_path && state_base_path[0];
-    if (test_on) _snwprintf_s(test_log, MAX_PATH + 16, _TRUNCATE, L"%s.opened", state_base_path);
+    wcsncpy_s(test_arg, MAX_PATH, test_on ? state_base_path : L"", _TRUNCATE);
+    if (test_on) {
+        _snwprintf_s(test_log, MAX_PATH + 16, _TRUNCATE, L"%s.opened", state_base_path);
+        _snwprintf_s(test_res_log, MAX_PATH + 16, _TRUNCATE, L"%s.resident", state_base_path);
+    }
     classes_base[0] = 0;
 }
 
+/* What resident.c needs: the (possibly redirected) registry bases and folder, the test log of the resident process,
+ * and the small helpers it shares with this file. */
+bool dfm_test_on(void) { return test_on; }
+const wchar_t *dfm_state_base(void) { paths(); return state_base; }
+const wchar_t *dfm_adv_base(void) { paths(); return adv_base; }
+const wchar_t *dfm_run_base(void) { paths(); return run_base; }
+const wchar_t *dfm_test_resident_log(void) { return test_on ? test_res_log : NULL; }
+
+/* One line appended to a check's log. fopen_s opens a file for its writer alone, so a check that was reading the log at
+ * that moment made the open fail and the line vanish (1 in 30 runs of the Win+E checks). The file is opened shared in
+ * every way, and an open that still fails is tried again for a moment. Only checks write logs. */
+void dfm_log_text(const wchar_t *file, const char *line) {
+    HANDLE f = INVALID_HANDLE_VALUE;
+    DWORD n;
+    for (int tries = 0; tries < 100 && f == INVALID_HANDLE_VALUE; tries++) {
+        f = CreateFileW(file, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (f == INVALID_HANDLE_VALUE) Sleep(2);
+    }
+    if (f == INVALID_HANDLE_VALUE) return;
+    WriteFile(f, line, (DWORD)strlen(line), &n, NULL);
+    CloseHandle(f);
+}
+
 static void log_line(const wchar_t *what, const wchar_t *a, const wchar_t *b) {
-    FILE *f;
-    if (!test_on || !test_log[0] || _wfopen_s(&f, test_log, L"ab") || !f) return;
-    fprintf(f, "%ls\t%ls\t%ls\n", what, a ? a : L"", b ? b : L"");   /* the %ls output is the wide text in the ANSI page */
-    fclose(f);
+    wchar_t wide[2048];
+    char line[4096];
+    if (!test_on || !test_log[0]) return;
+    _snwprintf_s(wide, 2048, _TRUNCATE, L"%s\t%s\t%s\n", what, a ? a : L"", b ? b : L"");
+    /* The log is in the ANSI page; a letter the page lacks (CJK, in the long-name check) becomes '?'. snprintf's %ls gives up
+     * at such a letter and returns an empty line, which made that arrival vanish. */
+    if (!WideCharToMultiByte(CP_ACP, 0, wide, -1, line, sizeof line, NULL, NULL)) return;
+    dfm_log_text(test_log, line);
 }
 
 /* ---- registry helpers ---- */
@@ -116,7 +157,7 @@ static bool key_empty(const wchar_t *path) {
     return !subkeys && !values;
 }
 
-static bool get_string(HKEY root, const wchar_t *path, const wchar_t *name, wchar_t *out, DWORD cap) {
+bool dfm_get_string(HKEY root, const wchar_t *path, const wchar_t *name, wchar_t *out, DWORD cap) {
     HKEY k;
     DWORD type, n = cap * sizeof *out;
     bool ok = !RegOpenKeyExW(root, path, 0, KEY_QUERY_VALUE, &k);
@@ -128,7 +169,7 @@ static bool get_string(HKEY root, const wchar_t *path, const wchar_t *name, wcha
 }
 
 /* A registry error that means "it is not there"; every other error means "could not look". */
-static bool is_missing(LONG r) { return r == ERROR_FILE_NOT_FOUND || r == ERROR_PATH_NOT_FOUND; }
+bool dfm_is_missing(LONG r) { return r == ERROR_FILE_NOT_FOUND || r == ERROR_PATH_NOT_FOUND; }
 
 /* Read a key's default string. 0: read. ERROR_FILE_NOT_FOUND: no key, no value, or not a string (too long counts
  * too: nothing of ours is that long). Any other code: the registry refused, so nothing is known. */
@@ -136,15 +177,15 @@ static LONG read_default(const wchar_t *path, wchar_t *out, DWORD cap) {
     HKEY k;
     DWORD type, n = cap * sizeof *out;
     LONG r = RegOpenKeyExW(HKEY_CURRENT_USER, path, 0, KEY_QUERY_VALUE, &k);
-    if (r) return is_missing(r) ? ERROR_FILE_NOT_FOUND : r;
+    if (r) return dfm_is_missing(r) ? ERROR_FILE_NOT_FOUND : r;
     r = RegQueryValueExW(k, L"", NULL, &type, (BYTE *)out, &n);
     RegCloseKey(k);
     if (r == ERROR_MORE_DATA || (!r && type != REG_SZ && type != REG_EXPAND_SZ)) return ERROR_FILE_NOT_FOUND;
     if (!r) out[cap - 1] = 0;
-    return is_missing(r) ? ERROR_FILE_NOT_FOUND : r;
+    return dfm_is_missing(r) ? ERROR_FILE_NOT_FOUND : r;
 }
 
-static bool set_string(HKEY k, const wchar_t *name, const wchar_t *v) {
+bool dfm_set_string(HKEY k, const wchar_t *name, const wchar_t *v) {
     return !RegSetValueExW(k, name, 0, REG_SZ, (const BYTE *)v, (DWORD)((wcslen(v) + 1) * sizeof *v));
 }
 
@@ -175,7 +216,7 @@ bool defaultfm_enabled(void) {
     if (any_ours()) return true;
     r = RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_QUERY_VALUE, &k);
     if (!r) RegCloseKey(k);
-    return !is_missing(r);
+    return !dfm_is_missing(r);
 }
 
 /* Remember how one target looked: whether it existed, the first key that did not, and its values. */
@@ -184,7 +225,7 @@ static bool save_target(HKEY saved, int i) {
     _snwprintf_s(name, 16, _TRUNCATE, L"%d", i);
     HKEY k, v;
     if (RegCreateKeyExW(saved, name, 0, NULL, 0, KEY_WRITE, NULL, &k, NULL)) return false;
-    bool ok = set_string(k, L"Path", TARGET[i].path);
+    bool ok = dfm_set_string(k, L"Path", TARGET[i].path);
     sub(full, classes_base, TARGET[i].path);
     HKEY leaf;
     DWORD existed = !RegOpenKeyExW(HKEY_CURRENT_USER, full, 0, KEY_READ, &leaf);
@@ -203,7 +244,7 @@ static bool save_target(HKEY saved, int i) {
             sub(full, classes_base, rel);
             if (!key_exists(full)) break;
         }
-        ok = ok && set_string(k, L"Top", rel);
+        ok = ok && dfm_set_string(k, L"Top", rel);
     }
     RegCloseKey(k);
     return ok;
@@ -219,7 +260,7 @@ static bool remove_ours(int i) {
     if (r) return r == ERROR_FILE_NOT_FOUND;
     if (!is_ours(c)) return true;
     r = RegDeleteTreeW(HKEY_CURRENT_USER, p);
-    return !r || is_missing(r);
+    return !r || dfm_is_missing(r);
 }
 
 /* Put one target back. A target that did not exist loses only the keys the registration made: its own key, then
@@ -232,14 +273,14 @@ static bool restore_target(HKEY saved, int i) {
     LONG r;
     _snwprintf_s(name, 16, _TRUNCATE, L"%d", i);
     r = RegOpenKeyExW(saved, name, 0, KEY_READ, &k);
-    if (is_missing(r)) return remove_ours(i);                   /* no record of this target */
+    if (dfm_is_missing(r)) return remove_ours(i);                   /* no record of this target */
     if (r) return false;
     r = RegQueryValueExW(k, L"Existed", NULL, &type, (BYTE *)&existed, &n);
     bool ok = !r && type == REG_DWORD;
     if (ok && !existed) {
         DWORD tn = sizeof top - sizeof *top;
         r = RegQueryValueExW(k, L"Top", NULL, &type, (BYTE *)top, &tn);
-        if (is_missing(r) || (!r && type != REG_SZ)) top[0] = 0;
+        if (dfm_is_missing(r) || (!r && type != REG_SZ)) top[0] = 0;
         else ok = !r;
         top[519] = 0;
     }
@@ -258,13 +299,13 @@ static bool restore_target(HKEY saved, int i) {
         }
     } else if (ok) {
         r = RegDeleteTreeW(HKEY_CURRENT_USER, full);
-        ok = !r || is_missing(r);
+        ok = !r || dfm_is_missing(r);
         for (wchar_t *cut; ok && wcslen(rel) > wcslen(top) && (cut = wcsrchr(rel, L'\\')); ) {
             *cut = 0;
             sub(full, classes_base, rel);
             if (key_empty(full)) {
                 r = RegDeleteKeyW(HKEY_CURRENT_USER, full);
-                ok = !r || is_missing(r);
+                ok = !r || dfm_is_missing(r);
             } else break;
         }
     }
@@ -290,7 +331,7 @@ static bool write_command(int i, const wchar_t *launcher, const wchar_t *extra) 
     sub(p, classes_base, TARGET[i].path);
     if (RegCreateKeyExW(HKEY_CURRENT_USER, p, 0, NULL, 0, KEY_WRITE, NULL, &k, NULL)) return false;
     quoted_command(c, launcher, extra, TARGET[i].folder);
-    bool ok = set_string(k, L"", c) && set_string(k, L"DelegateExecute", L"");
+    bool ok = dfm_set_string(k, L"", c) && dfm_set_string(k, L"DelegateExecute", L"");
     RegCloseKey(k);
     return ok;
 }
@@ -324,7 +365,7 @@ static bool register_missing(const wchar_t *launcher, const wchar_t *extra) {
     return ok;
 }
 
-static bool launcher_path(wchar_t *out, size_t cap) {
+bool dfm_launcher_path(wchar_t *out, size_t cap) {
     paths();
     if (!local_dir[0]) return false;
     _snwprintf_s(out, cap, _TRUNCATE, L"%s\\%s", local_dir, LAUNCHER_NAME);
@@ -369,10 +410,12 @@ static bool copy_launcher(const wchar_t *self, const wchar_t *launcher) {
     return same_size(self, launcher);    /* a launcher in use is the same program */
 }
 
+static void clear_cleanup_entry(void);
+
 bool defaultfm_enable(const wchar_t *extra_args) {
     wchar_t self[MAX_PATH], launcher[MAX_PATH];
     paths();
-    if (defaultfm_is_launcher() || !GetModuleFileNameW(NULL, self, MAX_PATH) || !launcher_path(launcher, MAX_PATH)) return false;
+    if (defaultfm_is_launcher() || !GetModuleFileNameW(NULL, self, MAX_PATH) || !dfm_launcher_path(launcher, MAX_PATH)) return false;
     HKEY state;
     if (!defaultfm_enabled()) {      /* the keys are not ours: save what is there now */
         RegDeleteTreeW(HKEY_CURRENT_USER, state_base);
@@ -389,12 +432,84 @@ bool defaultfm_enable(const wchar_t *extra_args) {
     }
     if (!register_missing(launcher, extra_args ? extra_args : L"")) return false;   /* an explicit turn-on also repairs a record left without its open verb */
     if (RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_WRITE, &state)) return false;
-    bool ok = set_string(state, L"App", self) && set_string(state, L"Launcher", launcher) &&
-              set_string(state, L"Args", extra_args ? extra_args : L"");
+    bool ok = dfm_set_string(state, L"App", self) && dfm_set_string(state, L"Launcher", launcher) &&
+              dfm_set_string(state, L"Args", extra_args ? extra_args : L"");
     RegCloseKey(state);
+    clear_cleanup_entry();      /* the launcher is in use again */
+    resident_end_bridge();      /* a process left over from a turn-off is replaced by a fresh one below */
+    if (ok && !same_content(self, launcher)) resident_stop();   /* a running launcher cannot be replaced */
     ok = ok && copy_launcher(self, launcher) && write_commands(launcher, extra_args);
+    ok = ok && resident_keys_set(launcher, extra_args ? extra_args : L"");
     if (!ok) defaultfm_disable();
+    else resident_start(launcher, extra_args ? extra_args : L"");
     return ok;
+}
+
+/* The launcher copy is deleted when nothing runs from it. A running process keeps it alive: that deletion waits for
+ * the next sign-in (a RunOnce entry that starts this app with --cleanup-launcher, which has no window). */
+static bool remove_launcher(wchar_t *launcher) {
+    const wchar_t *base = wcsrchr(launcher, L'\\');
+    if (!base || _wcsicmp(base + 1, LAUNCHER_NAME) || defaultfm_is_launcher() || !DeleteFileW(launcher)) return false;
+    wchar_t part[MAX_PATH + 8];
+    _snwprintf_s(part, MAX_PATH + 8, _TRUNCATE, L"%s.new", launcher);
+    DeleteFileW(part);
+    launcher[base - launcher] = 0;
+    RemoveDirectoryW(launcher);                  /* only when nothing else is in it */
+    return true;
+}
+
+static bool write_cleanup_entry(const wchar_t *app) {
+    wchar_t cmd[1200];
+    HKEY k;
+    bool ok;
+    if (test_on && test_arg[0]) _snwprintf_s(cmd, 1200, _TRUNCATE, L"\"%s\" --cleanup-launcher --test-state \"%s\"", app, test_arg);
+    else _snwprintf_s(cmd, 1200, _TRUNCATE, L"\"%s\" --cleanup-launcher", app);
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, runonce_base, 0, NULL, 0, KEY_SET_VALUE, NULL, &k, NULL)) return false;
+    ok = dfm_set_string(k, CLEANUP_VALUE, cmd);
+    RegCloseKey(k);
+    return ok;
+}
+
+static void clear_cleanup_entry(void) {
+    HKEY k;
+    paths();
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, runonce_base, 0, KEY_SET_VALUE, &k)) return;
+    RegDeleteValueW(k, CLEANUP_VALUE);
+    RegCloseKey(k);
+}
+
+static bool cleanup_pending(void) {
+    wchar_t c[8];
+    DWORD n = sizeof c;
+    HKEY k;
+    LONG r;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, runonce_base, 0, KEY_QUERY_VALUE, &k)) return false;
+    r = RegQueryValueExW(k, CLEANUP_VALUE, NULL, NULL, (BYTE *)c, &n);
+    RegCloseKey(k);
+    return r == 0 || r == ERROR_MORE_DATA;
+}
+
+/* The Win+E process ended after a turn-off (Explorer restarted): when no sign-in cleanup is waiting for the launcher
+ * (the app was gone, so there was nothing to run it with), the launcher removes itself. */
+void defaultfm_bridge_ended(void) {
+    paths();
+    if (!defaultfm_enabled() && !cleanup_pending()) defaultfm_delete_self_later();
+}
+
+/* Sign-in cleanup, started by RunOnce: delete the launcher when the switch is still off and nothing runs from it. */
+bool defaultfm_cleanup_main(int *rc) {
+    int argc = 0;
+    wchar_t **argv, launcher[MAX_PATH];
+    if (!wcsstr(GetCommandLineW(), L"--cleanup-launcher")) return false;
+    argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) return false;
+    if (argc < 2 || wcscmp(argv[1], L"--cleanup-launcher")) { LocalFree(argv); return false; }
+    for (int i = 2; i + 1 < argc; i++) if (!wcscmp(argv[i], L"--test-state")) defaultfm_test_mode(argv[i + 1]);
+    LocalFree(argv);
+    *rc = 0;
+    paths();
+    if (!defaultfm_enabled() && !resident_running() && dfm_launcher_path(launcher, MAX_PATH)) remove_launcher(launcher);
+    return true;
 }
 
 /* Nothing is thrown away until every target is back: a failed restore keeps the record and the launcher the
@@ -402,33 +517,34 @@ bool defaultfm_enable(const wchar_t *extra_args) {
  * failed restore; the record is only trusted or replaced by a restore that finished. */
 bool defaultfm_disable(void) {
     HKEY state, saved;
-    wchar_t launcher[MAX_PATH] = L"";
+    wchar_t launcher[MAX_PATH] = L"", app[MAX_PATH] = L"";
     bool ok = true;
     LONG r;
     paths();
     r = RegOpenKeyExW(HKEY_CURRENT_USER, state_base, 0, KEY_READ, &state);
-    if (r) ok = is_missing(r) && remove_all_ours();
+    if (r) ok = dfm_is_missing(r) && remove_all_ours();
     else {
         DWORD type, n = sizeof launcher - sizeof *launcher;
         if (RegQueryValueExW(state, L"Launcher", NULL, &type, (BYTE *)launcher, &n) || type != REG_SZ) launcher[0] = 0;
+        dfm_get_string(HKEY_CURRENT_USER, state_base, L"App", app, MAX_PATH);
         r = RegOpenKeyExW(state, L"Saved", 0, KEY_READ, &saved);
         if (!r) {
             for (int i = TARGETS - 1; i >= 0; i--) ok = restore_target(saved, i) && ok;
             RegCloseKey(saved);
-        } else ok = is_missing(r) && remove_all_ours();
+        } else ok = dfm_is_missing(r) && remove_all_ours();
         RegCloseKey(state);
     }
+    ok = ok && resident_keys_restore();       /* the hotkey value and the Run entry go back last: a turn-off that fails keeps them, so the process and the next sign-in still hold Win+E for the commands that stay */
     if (!ok || any_ours()) return false;
-    const wchar_t *base = wcsrchr(launcher, L'\\');      /* the copy goes too; a running one stays */
-    if (base && !_wcsicmp(base + 1, LAUNCHER_NAME) && !defaultfm_is_launcher() && DeleteFileW(launcher)) {
-        wchar_t part[MAX_PATH + 8];
-        _snwprintf_s(part, MAX_PATH + 8, _TRUNCATE, L"%s.new", launcher);
-        DeleteFileW(part);
-        launcher[base - launcher] = 0;
-        RemoveDirectoryW(launcher);                  /* only when nothing else is in it */
-    }
+    /* Explorer reads DisabledHotkeys only when it starts, so when it started with E in it, Win+E has no owner now.
+     * The Win+E process that holds the hotkey stays on as a bridge (it opens Explorer on Win+E) until Explorer
+     * restarts; a process that does not hold it ends. The launcher goes at once, or at the next sign-in. */
+    if (!resident_release()) {
+        resident_stop();                                 /* a running exe cannot be deleted */
+        remove_launcher(launcher);                       /* the copy goes too; a running one stays */
+    } else if (app[0] && GetFileAttributesW(app) != INVALID_FILE_ATTRIBUTES) write_cleanup_entry(app);
     r = RegDeleteTreeW(HKEY_CURRENT_USER, state_base);
-    if (r && !is_missing(r)) return false;           /* the record stays, so the switch still reads as waiting */
+    if (r && !dfm_is_missing(r)) return false;           /* the record stays, so the switch still reads as waiting */
     if (!wcscmp(state_base, L"Software\\Dio File Manager\\DefaultFileManager")) RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\Dio File Manager");
     return true;
 }
@@ -437,37 +553,43 @@ bool defaultfm_disable(void) {
  * beside the window. The new copy is written under another name and renamed over the launcher, so closing the app
  * in the middle never leaves a half launcher. */
 static DWORD WINAPI refresh_launcher(void *arg) {
-    wchar_t *two = arg, *self = two, *launcher = two + MAX_PATH, part[MAX_PATH + 8];
+    wchar_t *three = arg, *self = three, *launcher = three + MAX_PATH, *args = three + 2 * MAX_PATH, part[MAX_PATH + 8];
     if (!same_content(self, launcher)) {
+        bool was = resident_running();
+        if (was) resident_stop();            /* the resident process runs from the launcher: it must let go before the new copy lands */
         _snwprintf_s(part, MAX_PATH + 8, _TRUNCATE, L"%s.new", launcher);
         CreateDirectoryW(local_dir, NULL);
         if (!CopyFileW(self, part, FALSE) || !MoveFileExW(part, launcher, MOVEFILE_REPLACE_EXISTING)) DeleteFileW(part);
     }
-    free(two);
+    /* Win+E keys and process: an install made before they existed gets them here; a pending turn-off adds none */
+    if (any_ours() && resident_keys_set(launcher, args)) resident_start(launcher, args);
+    free(three);
     return 0;
 }
 
-static void refresh_launcher_later(const wchar_t *self, const wchar_t *launcher) {
-    wchar_t *two = malloc(2 * MAX_PATH * sizeof *two);
+static void refresh_launcher_later(const wchar_t *self, const wchar_t *launcher, const wchar_t *args) {
+    wchar_t *three = malloc(3 * MAX_PATH * sizeof *three);
     HANDLE t;
-    if (!two) return;
-    wcscpy_s(two, MAX_PATH, self);
-    wcscpy_s(two + MAX_PATH, MAX_PATH, launcher);
-    t = CreateThread(NULL, 0, refresh_launcher, two, 0, NULL);
-    if (t) CloseHandle(t); else free(two);
+    if (!three) return;
+    wcscpy_s(three, MAX_PATH, self);
+    wcscpy_s(three + MAX_PATH, MAX_PATH, launcher);
+    wcsncpy_s(three + 2 * MAX_PATH, MAX_PATH, args, _TRUNCATE);
+    t = CreateThread(NULL, 0, refresh_launcher, three, 0, NULL);
+    if (t) CloseHandle(t); else free(three);
 }
 
 void defaultfm_sync(void) {
     wchar_t self[MAX_PATH], app[MAX_PATH], launcher[MAX_PATH];
     paths();
-    if (!defaultfm_enabled() || !GetModuleFileNameW(NULL, self, MAX_PATH) || !launcher_path(launcher, MAX_PATH)) return;
+    if (!defaultfm_enabled() || !GetModuleFileNameW(NULL, self, MAX_PATH) || !dfm_launcher_path(launcher, MAX_PATH)) return;
     /* Only the registered app (the saved App path) keeps the launcher and the keys up to date. A test build, a copy
      * elsewhere or a moved exe changes nothing; turning the switch on from that copy registers it. */
-    if (!get_string(HKEY_CURRENT_USER, state_base, L"App", app, MAX_PATH) || !same_path(app, self)) return;
-    refresh_launcher_later(self, launcher);
+    if (!dfm_get_string(HKEY_CURRENT_USER, state_base, L"App", app, MAX_PATH) || !same_path(app, self)) return;
     wchar_t args[520] = L"";
-    get_string(HKEY_CURRENT_USER, state_base, L"Args", args, 520);
-    if (any_ours()) register_missing(launcher, args);   /* recovery state alone, without a command of ours, registers nothing */
+    dfm_get_string(HKEY_CURRENT_USER, state_base, L"Args", args, 520);
+    if (!any_ours()) return;   /* recovery state alone (a turn-off whose restore failed): the running Win+E process keeps its launcher, nothing is registered */
+    refresh_launcher_later(self, launcher, args);
+    register_missing(launcher, args);
 }
 
 /* ---- the requests ---- */
@@ -636,26 +758,42 @@ static bool guard_allows(const wchar_t *cmd) {
     return true;
 }
 
-bool defaultfm_fallback(wchar_t **args, int n) {
-    wchar_t cmd[4096], windir[MAX_PATH], stand_in[1024];
-    if (!GetWindowsDirectoryW(windir, MAX_PATH)) return false;
-    _snwprintf_s(cmd, 4096, _TRUNCATE, L"\"%s\\explorer.exe\"", windir);
-    for (int i = 0; i < n; i++) add_arg(cmd, 4096, args[i]);
-    if (!guard_allows(cmd + wcslen(windir) + 15)) { log_line(L"refused", cmd, NULL); return false; }
+/* Start Explorer with this command text; a check starts its stand-in with the same arguments instead. skip is the
+ * length of the Windows folder: the arguments follow "<windir>\explorer.exe" and its two quotes (15 characters). */
+static bool start_explorer(wchar_t *cmd, size_t skip) {
+    wchar_t stand_in[1024];
+    STARTUPINFOW si = { sizeof si };
+    PROCESS_INFORMATION pi;
     log_line(L"explorer", cmd, NULL);
     if (test_on) {   /* a check never starts the real Explorer */
-        if (!GetEnvironmentVariableW(L"DFM_TEST_EXPLORER", stand_in, 1024)) return true;
         wchar_t run[4096];
-        _snwprintf_s(run, 4096, _TRUNCATE, L"%s%s", stand_in, cmd + wcslen(windir) + 15);
-        STARTUPINFOW si = { sizeof si }; PROCESS_INFORMATION pi;
+        if (!GetEnvironmentVariableW(L"DFM_TEST_EXPLORER", stand_in, 1024)) return true;
+        _snwprintf_s(run, 4096, _TRUNCATE, L"%s%s", stand_in, cmd + skip + 15);
         if (!CreateProcessW(NULL, run, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) return false;
         CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
         return true;
     }
-    STARTUPINFOW si = { sizeof si }; PROCESS_INFORMATION pi;
     if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) return false;
     CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
     return true;
+}
+
+bool defaultfm_fallback(wchar_t **args, int n) {
+    wchar_t cmd[4096], windir[MAX_PATH];
+    if (!GetWindowsDirectoryW(windir, MAX_PATH)) return false;
+    _snwprintf_s(cmd, 4096, _TRUNCATE, L"\"%s\\explorer.exe\"", windir);
+    for (int i = 0; i < n; i++) add_arg(cmd, 4096, args[i]);
+    if (!guard_allows(cmd + wcslen(windir) + 15)) { log_line(L"refused", cmd, NULL); return false; }
+    return start_explorer(cmd, wcslen(windir));
+}
+
+/* Explorer's own window in Home, for the Win+E process once the switch is off. No loop guard: Explorer never calls
+ * back into this program, and a second press means a second window. */
+bool dfm_explorer_open(void) {
+    wchar_t cmd[MAX_PATH + 24], windir[MAX_PATH];
+    if (!GetWindowsDirectoryW(windir, MAX_PATH)) return false;
+    _snwprintf_s(cmd, MAX_PATH + 24, _TRUNCATE, L"\"%s\\explorer.exe\"", windir);
+    return start_explorer(cmd, wcslen(windir));
 }
 
 /* ---- the launcher ---- */
@@ -667,7 +805,7 @@ bool defaultfm_is_launcher(void) {
     return base && !_wcsicmp(base + 1, LAUNCHER_NAME);
 }
 
-static const wchar_t *command_tail(void) {
+const wchar_t *dfm_command_tail(void) {
     const wchar_t *c = GetCommandLineW();
     if (*c == L'"') { c = wcschr(c + 1, L'"'); if (c) c++; }
     else while (*c && *c != L' ') c++;
@@ -675,11 +813,22 @@ static const wchar_t *command_tail(void) {
     return c ? c : L"";
 }
 
+/* A running exe cannot delete itself: a hidden cmd waits a few seconds and does it. A check never deletes anything this way. */
+void defaultfm_delete_self_later(void) {
+    wchar_t self[MAX_PATH];
+    if (!GetModuleFileNameW(NULL, self, MAX_PATH) || test_on) return;
+    wchar_t c[MAX_PATH + 80], sys[MAX_PATH];
+    GetSystemDirectoryW(sys, MAX_PATH);
+    _snwprintf_s(c, MAX_PATH + 80, _TRUNCATE, L"\"%s\\cmd.exe\" /d /c ping -n 4 127.0.0.1 >nul & del /f /q \"%s\"", sys, self);
+    STARTUPINFOW si = { sizeof si }; PROCESS_INFORMATION pi;
+    if (CreateProcessW(NULL, c, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); }
+}
+
 int defaultfm_launcher_main(void) {
     int n = 0, kept = 0;
     wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &n), **args;
     wchar_t app[MAX_PATH], cmd[32768];
-    const wchar_t *tail = command_tail();
+    const wchar_t *tail = dfm_command_tail();
     if (!argv) return 1;
     args = calloc((size_t)n + 1, sizeof *args);
     for (int i = 1; i < n; i++) {
@@ -687,7 +836,7 @@ int defaultfm_launcher_main(void) {
         args[kept++] = argv[i];
     }
     paths();
-    if (get_string(HKEY_CURRENT_USER, state_base, L"App", app, MAX_PATH) && GetFileAttributesW(app) != INVALID_FILE_ATTRIBUTES) {
+    if (dfm_get_string(HKEY_CURRENT_USER, state_base, L"App", app, MAX_PATH) && GetFileAttributesW(app) != INVALID_FILE_ATTRIBUTES) {
         _snwprintf_s(cmd, 32768, _TRUNCATE, L"\"%s\" %s", app, tail);
         STARTUPINFOW si = { sizeof si }; PROCESS_INFORMATION pi;
         if (CreateProcessW(app, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); return 0; }
@@ -696,14 +845,7 @@ int defaultfm_launcher_main(void) {
     defaultfm_disable();
     log_line(L"restored", NULL, NULL);
     bool ok = defaultfm_fallback(args, kept);
-    wchar_t self[MAX_PATH];
-    if (GetModuleFileNameW(NULL, self, MAX_PATH) && !test_on) {
-        wchar_t c[MAX_PATH + 80], sys[MAX_PATH];
-        GetSystemDirectoryW(sys, MAX_PATH);
-        _snwprintf_s(c, MAX_PATH + 80, _TRUNCATE, L"\"%s\\cmd.exe\" /d /c ping -n 4 127.0.0.1 >nul & del /f /q \"%s\"", sys, self);
-        STARTUPINFOW si = { sizeof si }; PROCESS_INFORMATION pi;
-        if (CreateProcessW(NULL, c, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); }
-    }
+    defaultfm_delete_self_later();
     free(args); LocalFree(argv);
     return ok ? 0 : 4;
 }
