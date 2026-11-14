@@ -39,6 +39,7 @@ void fsearch_refresh(void) {
     fs_list_release(saved);
     saved = fs_list_start(A.path, A.sort_key, A.sort_desc);
     saved_seen = false;
+    sizes_forget();   /* the folder's listing is made again: its children are measured again when search closes */
     int kept = 0;
     for (int i = 0; i < A.list->count; i++) {
         wchar_t w[FS_PATH_MAX];
