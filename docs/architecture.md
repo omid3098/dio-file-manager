@@ -37,14 +37,30 @@ Alt+Enter opens only Properties; plain Enter opens an item only without modifier
 The running-job header control is one clickable progress ring; its popover names
 the copy and offers Cancel. Real-input action checks and private-desktop shell
 substitutions are documented in `tests/README.md`.
-`ui_zoom.c` owns the six-stop scale, shortcuts and atomic replacement of
-`%APPDATA%\dio-file-manager\view.txt`. Its record holds the current and last icon stops.
+`ui_zoom.c` owns the continuous view value `A.zv` (0 to 5; `A.zoom` is the stop it rounds to and selects the mode and
+layout style), the 150 ms ease-out glide of the shortcuts, the 120 ms fade-in of a mode switch, the animations setting
+(`SPI_GETCLIENTAREAANIMATION`) and the atomic replacement of
+`%APPDATA%\dio-file-manager\view.txt`. Its record holds the current and last icon values.
 Startup restores it unless `--view grid|list` overrides it. `ui_grid.c` draws the four
 icon stops and the column-major List stop; `ui_list.c` keeps Details and its
 place-specific columns, including Location for search. `ui_ctxmenu.c` also isolates
 CUI's scroll-input consumption and virtual horizontal columns. List maps the ordinary
 wheel sideways; Ctrl+wheel is consumed before the file view scrolls. The popover uses
-CUI's slider with a step of one. Thumbnails request the displayed device-pixel edge.
+CUI's slider without a step. `ui_grid.c` also runs the reflow glide: before the cells are built `glide_plan` compares
+the layout with last frame's, anchors the scroll to the top item and stores per-item offsets, sizes and opacities
+(horizontal in document pixels, vertical in rows); while it runs the cells are drawn by an overlay (`ui_overlay_set`
+in `ui_ctxmenu.c`) at their offset places and the canvases only take input. An item that stays in its row glides with
+its width and height; an item that changes row is drawn twice for the 150 ms, as a ghost at its old place with opacity
+`a * (1 - p / 0.5)^2` (gone at half of the glide) and at its new place with `a0 + (1 - a0) * ease` (cubic ease-out over all of it), so the two add up to at least about 82%.
+Names never overprint: `mask_labels` holds back the name of a copy that is less opaque where it comes within 12 px of the name of a more opaque copy (all of it at 4 px or less), so a glider's name stays whole and a fading copy yields; the icons and the fades are untouched.
+A ghost carried into a second change is rebased on the scroll the anchor moved to, and on the frame of a change the glide draws with the anchored scroll (`force_sy`), because the list clamps the jump to last frame's content height. Input
+during the glide tests the drawn places and takes the most opaque item under the pointer. Animation frames are asked for with `cui_request_redraw`, so they run at the display rate,
+and nothing is requested once the glide has ended. Thumbnails request the displayed device-pixel edge; while `A.thumb_settled` is false the nearest existing
+thumbnail is scaled and no new size is requested.
+In `--test-state` mode the app also writes `<base>.frames`, one line per drawn frame (time, frame number, value, icon px,
+columns, gliding, probe item, probe x and y in document pixels, build ms; the probe is the last built item that is on
+screen) and, while a glide draws, one `D` line per overlay frame with every drawn item's place, size and opacity, and the box and opacity of its name. The JSON gains `zv`, `icon_px`, `content_w`, `cell_h` and `probe`. `--zoom N` starts at a value;
+`DFM_TEST_STRIP=<dir>` saves up to 14 pictures of a glide or size change; `DFM_TEST_GLIDE_MS` slows the glides.
 
 `tests/use/view_smoke.py` imports the Win32 driver from `input_smoke.py`, runs on the
 private desktop and redirects APPDATA into its sandbox for restart checks. It covers

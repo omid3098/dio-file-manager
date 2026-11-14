@@ -376,6 +376,7 @@ static void global_keys(void) {
 /* ---- the frame ---- */
 
 static void list_body(void) {
+    cui_ctx *ui = A.ui;
     int st = A.list ? fs_list_state(A.list) : FS_FAILED;
     if (st == FS_FAILED) {
         if (A.loc != LOC_FOLDER) { ui_state_view(CUI_ICON_LOCK, "Unable to load this view", "Try again in a moment."); return; }
@@ -400,8 +401,12 @@ static void list_body(void) {
                       A.search[0] ? "Try a different search." : "Only hidden items are here. Press Ctrl+H to show them.");
         return;
     }
-    if (A.zoom == Z_LIST) ui_column_view();
-    else if (A.view == VIEW_GRID) ui_grid_view(); else ui_list_view();
+    float fade = app_view_fade();   /* a mode switch fades the new view in over 120 ms */
+    cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_FILL) {
+        if (fade < 1) ui_node_opacity(fade);
+        if (A.zoom == Z_LIST) ui_column_view();
+        else if (A.view == VIEW_GRID) ui_grid_view(); else ui_list_view();
+    }
 }
 
 static void content_body(void) {
@@ -425,6 +430,7 @@ static void frame(void) {
     poll_next();
     fsearch_frame();
     if (A.list && fs_list_state(A.list) == FS_LOADING) cui_request_wakeup(ui, 0.02f);
+    ui_zoom_tick();
     global_keys();
     cui_vec2 vp = cui_viewport_size(ui);
     bool narrow = vp.x < NARROW_BELOW;
@@ -471,6 +477,7 @@ typedef struct options {
     int req_n;
     char default_fm[8];            /* --default-fm on|off|status */
     int loc;                       /* 0 folder, else LOC_* for --loc */
+    float zoomv;                   /* --zoom 0..5, the continuous view size; -1 keeps the saved one */
     int view, theme, w, h;
     bool inactive;                 /* pictures: draw the window as if another window had the focus */
     int act;                       /* 0 none, 1 item menu, 2 background menu, 3 rename popover, 4 new-folder popover, 5 and 6 the same two menus in the list view */
@@ -479,7 +486,7 @@ typedef struct options {
 static void arg_u8(const wchar_t *w, char *out, size_t cap) { fs_w_to_u8(w, out, (int)cap); }
 
 static void parse_args(options *o) {
-    o->view = -1; o->theme = 0; o->w = 1080; o->h = 720;
+    o->view = -1; o->zoomv = -1; o->theme = 0; o->w = 1080; o->h = 720;
     int argc = 0;
     wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (!argv) return;
@@ -495,6 +502,7 @@ static void parse_args(options *o) {
         else if (!wcscmp(a, L"--act") && more) { ++i; o->act = !wcscmp(argv[i], L"menu") ? 1 : !wcscmp(argv[i], L"bgmenu") ? 2 : !wcscmp(argv[i], L"rename") ? 3 : !wcscmp(argv[i], L"newdir") ? 4 : !wcscmp(argv[i], L"listmenu") ? 5 : !wcscmp(argv[i], L"listbg") ? 6 : 0; }
         else if (!wcscmp(a, L"--view") && more) { ++i; o->view = !wcscmp(argv[i], L"list") ? VIEW_LIST : !wcscmp(argv[i], L"grid") ? VIEW_GRID : -1; }
         else if (!wcscmp(a, L"--inactive")) o->inactive = true;
+        else if (!wcscmp(a, L"--zoom") && more) o->zoomv = (float)_wtof(argv[++i]);
         else if (!wcscmp(a, L"--theme") && more) { ++i; o->theme = !wcscmp(argv[i], L"dark") ? 2 : !wcscmp(argv[i], L"light") ? 1 : 0; }
         else if (!wcscmp(a, L"--size") && more) { ++i; int w, h; if (swscanf_s(argv[i], L"%dx%d", &w, &h) == 2) { o->w = w; o->h = h; } }
         else if (!wcscmp(a, L"--default-fm") && more) arg_u8(argv[++i], o->default_fm, sizeof o->default_fm);
@@ -560,7 +568,7 @@ static void test_snapshot(const char *base) {
     }
     fprintf(f, "],\"names\":[");
     for (int i = 0; i < A.vis_n && i < 300; i++) { if (i) fputc(',', f); json_text(f, app_item_name(i)); }
-    fprintf(f, "],\"band\":%d,\"zoom\":%d,\"icon\":%d,\"column_rows\":%d,\"slider\":[%.2f,%.2f,%.2f,%.2f],\"query\":", ui_band_dragging(), A.zoom, A.last_icon, A.column_rows, A.zoom_rect.x, A.zoom_rect.y, A.zoom_rect.w, A.zoom_rect.h); json_text(f, A.search);
+    fprintf(f, "],\"content_w\":%.2f,\"cell_h\":%.2f,\"probe\":%d,\"band\":%d,\"zv\":%.4f,\"icon_px\":%.2f,\"zoom\":%d,\"icon\":%d,\"column_rows\":%d,\"slider\":[%.2f,%.2f,%.2f,%.2f],\"query\":", A.content_w, A.cell_h, A.probe_idx, ui_band_dragging(), A.zv, app_icon_size(), A.zoom, A.last_icon, A.column_rows, A.zoom_rect.x, A.zoom_rect.y, A.zoom_rect.w, A.zoom_rect.h); json_text(f, A.search);
     fprintf(f, ",\"documents\":"); json_text(f, A.places[2]);
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));
     json_text(f, A.drive_n ? A.drives[0].root : "");
@@ -578,7 +586,31 @@ static void test_snapshot(const char *base) {
 static void window_frame(cui_ctx *ui, void *user) {
     (void)ui;
     static int frames;
+    A.frame_no++;
+    LARGE_INTEGER t0, t1, hz;
+    QueryPerformanceCounter(&t0);
+    float zv_before = A.zv;
     frame();
+    QueryPerformanceCounter(&t1);
+    QueryPerformanceFrequency(&hz);
+    if (A.frame_log) {   /* test mode: one line per drawn frame, so checks can see motion and idleness */
+        fprintf((FILE *)A.frame_log, "%.4f %u %.4f %.2f %d %d %d %.2f %.2f %.3f\n", cui_time(A.ui), A.frame_no, A.zv, app_icon_size(), A.cols, app_zoom_busy() || ui_grid_gliding(),
+                A.probe_idx, A.probe_x, A.probe_y, (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)hz.QuadPart);
+        fflush((FILE *)A.frame_log);
+        static int strip_n;
+        char dir[FS_PATH_MAX];   /* test mode: pictures of the frames of a glide or a size drag, for a frame strip */
+        static int skipped;   /* DFM_TEST_STRIP_EVERY=n: keep every nth moving frame, so 14 pictures span a slowed motion */
+        char every[16];
+        int step = GetEnvironmentVariableA("DFM_TEST_STRIP_EVERY", every, sizeof every) ? atoi(every) : 1;
+        if (strip_n < 14 && GetEnvironmentVariableA("DFM_TEST_STRIP", dir, sizeof dir) && (ui_grid_gliding() || A.zv != zv_before)) {
+            char file[FS_PATH_MAX + 32];
+            snprintf(file, sizeof file, "%s\\arm", dir);   /* pictures start once the test creates this file */
+            if (GetFileAttributesA(file) != INVALID_FILE_ATTRIBUTES && skipped++ % (step < 1 ? 1 : step) == 0) {
+                snprintf(file, sizeof file, "%s\\strip-%02d.png", dir, strip_n++);
+                ui_window_screenshot(g_app, file);
+            }
+        }
+    }
     if (test_mode && ++frames > 3) test_snapshot(user);
 }
 
@@ -671,6 +703,12 @@ int main(void) {
     defaultfm_sync();
     app_navigate(start);
     if (o.loc) { char e[3] = { '@', (char)('0' + o.loc), 0 }; app_navigate(e); }
+    if (test_mode) {
+        static char flog[FS_PATH_MAX + 16];
+        snprintf(flog, sizeof flog, "%s.frames", o.test_state);
+        A.frame_log = fopen(flog, "w");
+    }
+    if (o.zoomv >= 0) app_set_zoomv(o.zoomv, false);
     ui_window_callback(g_app, window_frame, o.test_state);
     if (!shot) { ShowWindow(hwnd, SW_SHOWDEFAULT); UpdateWindow(hwnd); }
 

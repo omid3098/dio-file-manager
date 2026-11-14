@@ -203,3 +203,85 @@ The idle-frame assertion fails before the script's branch <= main scroll-frame
 assertion. Raw counts already show seven extra branch scroll frames.
 No pending user question. No test/worker remains after the bounded runs returned.
 The previous validation file used cp1252 punctuation; it was converted to UTF-8.
+
+## Continuous slider and animated reflow (motion-v1)
+
+Base `main` `72c5a34`. MinSizeRel exe 460,288 bytes (budget 819,200). Pictures and strips are in the task folder
+`.agent-work/motion-v1/final/` (`pos-<dark|light>-<2.2|3.5|4.6>.png`; `strip-glide-<dark|light>.png` 10 frames of a
+slowed resize glide, `strip-cross25-<dark|light>.png` 8 frames of a slow drag across 2.5, `strip-drag-<dark|light>.png`
+12 frames of a slider drag, all of the whole window). Every number below was measured on the hidden desktop while three other workers
+kept the machine at 20 to 100% CPU; each line says which load it ran under.
+
+### Use suites (branch, final build)
+
+| Suite | Result | Note |
+|---|---|---|
+| motion_smoke | 11 / 11 passed (fade-timing build) | eleven cases, including the draw-log checks below; the click check passed 5 / 5 repeat runs; it failed 3 / 3 with the earlier logic |
+| select_smoke | 24 / 24 passed (fade-timing build) | earlier note: one run at 37% load; two earlier runs at 83 to 96% load had one to two `No state dump` / `Window stopped answering` stalls, which were not repeatable (4-starred alternating with main, four rounds each, all passed) |
+| input_smoke | 20 / 20 passed | one run at 19% load; a run at 79% load lost 9-context to a 5 s stall |
+| search_smoke | 8 / 8 passed | |
+| actions_smoke | 7 / 7 passed | |
+| jobs_smoke | 4-remove-recent and 5-eject pass; 1 to 3 fail with the known race ("Progress popover did not show both jobs", or the same race seen earlier or later: "One job finished before both were observed", "Cancel did not remove just one job") | the same check fails the same way on unmodified `main`; with the other branch's fix (test copy delay cap 500 ms, check uses 300 ms) applied to a scratch copy of this branch it passes 5 / 5 |
+| view_smoke | 14 / 14 passed (fade-timing build) | the next section records the 50 ms limit failing under load on earlier builds |
+
+### The reflow glide as a crossfade
+
+When columns change, an item that stays in its row glides to its new place and its width and height glide with it. An
+item whose row changes fades out at the place where it was while it fades in at the place where it goes: the old copy leaves quickly (squared, gone at half of the 150 ms) and the new copy fades in over all of it (cubic ease-out), so duplicates show only in the first third and the two opacities add up to at least about 82%. The first crossfade ran both over the whole glide and looked busy in the middle frames. The
+earlier design faded wrapping items out first (0 to 30%), moved the gliders, and faded arrivals in last (from 72%);
+in a wide wrap most items change row, so the grid was nearly empty from 30% to 72% of the glide, a blink. Checks
+(`motion_smoke`, read from the draw log): items at full opacity never overlap (at most 2 px; the worst seen was 0.2 px); no two visible names (above 5% opacity) come within 3 px of each other (`label_overprint`; without the name mask it failed with names printed 17 px over each other);
+translucent ghosts and arrivals may overlap them; `never_empty` needs the drawn opacities of every frame to add up to
+at least 75% of the items that should show (floor lowered from 90%): the earlier design failed it (56% at the emptiest frame), the crossfade
+passes. A click lands on the most opaque item under the pointer, so a translucent arrival never takes a click from a
+glider and a ghost is never a target. Strips (retaken: duplicates in 2 of 7 dark and 2 of 8 light glide frames, 0 of 8 in both cross-2.5 strips, 1 of 11 in both drag strips; a glider crossing a half-faded arrival no longer prints its name over the arrival's: the less opaque copy holds its name back, and no two names touched in any frame of the four glide and drag strips): the whole window is full in every frame of
+`strip-glide-<dark|light>.png`; mid-glide the old and new places show through each other for a few frames and no cell
+is blank. Retargeting mid-flight (second resize at 60 ms), scrolled reflow and a changing row height keep these
+properties; the checks cover each.
+
+### 50 ms message limit (view_smoke performance)
+
+On the hidden desktop the default renderer is OpenGL emulated on the CPU and one frame takes about 45 ms, so the limit
+has about 3 ms of room even on a quiet machine, and `main` fails it the same way. Alternating `main` and branch,
+`USE_ONLY=6-performance`, loads 31 to 57%: main failed 3 and 4 of 6 modes (up to 213 ms), branch failed 6 and 4 of 6
+(up to 130 ms). A single run at 26% load measured 47.4 to 48.7 ms in four modes. The slider drag message latency over
+1,000 files with the same driver, alternating main and branch at 90 to 100% load (3 rounds each): main max 48.1 / 47.7 /
+47.8 ms, branch 47.5 / 47.3 / 47.9 ms (run once at high priority, before the coordinator's no-priority rule).
+
+### Latency and frame time with 1,000 files (`tests/use/motion_measure.py`)
+
+Message latency is the time `SendMessage` takes to be answered while the motion runs; build time is the app's own
+time to build one frame. Three runs per renderer at 22 to 33% load:
+
+| Renderer | Slider drag: latency max / mean | Resize glides: latency max | Build ms max (drag, glides) | Glide length and frames |
+|---|---|---|---|---|
+| default (CPU-emulated OpenGL here) | 47.5 / 31 ms | 44.6 ms | 0.34, 0.30 | 129 to 149 ms, 4 to 5 frames |
+| software | 13.3 / 1.7 ms | 13.0 ms | 0.26, 0.79 | 142 to 148 ms, 17 to 18 frames |
+
+Every message is within 50 ms and every frame builds in under 1 ms (budget 16 ms). The glide has only 4 to 5 frames
+under the emulated renderer because each frame costs about 30 ms there; on the software renderer, which a PC without
+a GPU uses, it has 17 to 18.
+
+### CPU (`cpu_run.py`: `cpu_budget.py` meter, 20,000 files, 7 columns, alternating main and branch)
+
+| Pair | Scroll main (30 s) | Scroll branch (30 s) | Idle main (60 s) | Idle branch (60 s) |
+|---|---:|---:|---:|---:|
+| 1 | 2.546 | 5.460 | 0.000 | 0.026 |
+| 2 | 5.621 | 3.539 | 0.026 | 0.026 |
+| 3 | 4.267 | 5.672 | 0.078 | 0.104 |
+| 4 | 5.464 | 3.486 | 0.026 | 0.026 |
+| 5 | 3.643 | 3.434 | 0.052 | 0.052 |
+
+Scroll means: main **4.308%**, branch **4.318%**, difference **0.010 points** (budget +0.5). Branch idle maximum
+**0.104%** (budget 0.5% in all five windows). 601 or 602 wheel events per window; every window advanced the view.
+Glide frames are requested with `cui_request_redraw` and stop when the glide ends, so idle stays idle.
+
+### Findings fixed on the way
+
+- The glides first asked for frames with a 1 ms wakeup, which the window loop rounds up to 3 timer ticks: 22 frames per
+  second. They now ask for a redraw, which runs at the display rate (software renderer: 115 per second).
+- The test probe picked the last built item even when it was below the window, so it never moved; it now picks the last
+  item that is on screen.
+- A slider drag saved the view file on every frame; under load the rename failed and the app showed "Could not save the
+  view". The writer now waits until the value has been still for 300 ms (and saves at once on exit) and retries a busy file.
+

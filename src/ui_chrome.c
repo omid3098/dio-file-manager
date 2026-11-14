@@ -293,8 +293,8 @@ static void view_options_menu(cui_placement where) {
     if (!popover_menu_begin(ui, "view-options", where, 300, 12, 4)) return;
     ui_view_options_surface();
     cui_column(ui, .id = "view-scroll", .width = CUI_FILL, .gap = 4, .max_height = cui_viewport_size(ui).y - 80, .scroll_y = true) {
-    float stop = (float)A.zoom;
-    if (cui_slider(ui, "View size", &stop, 0, Z_COUNT - 1, .step = 1, .width = CUI_FILL)) app_set_zoom((int)(stop + 0.5f));
+    float value = A.zv;   /* continuous: the ticks only mark the six stops */
+    if (cui_slider(ui, "View size", &value, 0, Z_COUNT - 1, .width = CUI_FILL)) app_set_zoomv(value, false);
     A.zoom_rect = cui_last_rect(ui);
     cui_canvas(ui, "zoom-ticks", CUI_FILL, CUI_PX(4), paint_zoom_ticks, NULL, 0);
     cui_text(ui, names[A.zoom], .width = CUI_FILL, .align = CUI_TEXT_CENTER, .size = 13, .color = CUI_COLOR_TEXT_SECONDARY);

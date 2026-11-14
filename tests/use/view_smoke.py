@@ -1,4 +1,4 @@
-"""Six-stop views driven by real Win32 input on the shared private-desktop driver."""
+"""Six view modes on a continuous size slider, driven by real Win32 input on the shared private-desktop driver."""
 import json
 import os
 from pathlib import Path
@@ -33,8 +33,8 @@ def set_stop(a, stop):
     x, y, w, h = s['slider']
     assert w > 100 and h > 0, f'No slider track: {s["slider"]}'
     # Drag from the current thumb to the requested stop, including the end stops.
-    x0 = x + 10 + (w - 20) * s['zoom'] / 5
-    x1 = x + 10 + (w - 20) * stop / 5
+    x0 = x + 9 + (w - 18) * s['zv'] / 5
+    x1 = x + 9 + (w - 18) * stop / 5
     a.msg(0x200, 0, a.point(x0, y + h / 2))
     time.sleep(.04)
     a.msg(0x201, 1, a.point(x0, y + h / 2))
@@ -45,7 +45,7 @@ def set_stop(a, stop):
     a.msg(0x202, 0, a.point(x1, y+h/2))
     time.sleep(.2)
     s = a.snap()
-    assert s['zoom'] == stop, f'Drag to {stop}: {s["zoom"]}'
+    assert s['zoom'] == stop and abs(s['zv'] - stop) < .1, f'Drag to {stop}: {s["zoom"]} at {s["zv"]}'
     a.key(27)
     time.sleep(.2)
     return a.snap()
@@ -60,6 +60,17 @@ def cell_xy(a, index):
     if s['zoom'] == 0:
         return x + 80, y + (index-s['first'])*36 + 18
     return x + 16 + (index % s['cols']+.5)*(w-32)/s['cols'], y + (index//s['cols']-s['first'])*h + min(h/2, 40)
+
+
+def expected_icon_and_row(zv):
+    """Icon edge and row height for a slider value, worked out from the product's promise, not read from the app:
+    icons are 32, 64, 96 and 144 px at Small to Extra Large, linear between; Small rows are the icon plus 16 px;
+    tiles (Medium and up) are icon + 12 + 8 + two text lines of 17 + 10."""
+    px = (32, 64, 96, 144)
+    v = min(max(zv, 2), 5)
+    i = min(int(v) - 2, 2)
+    icon = px[i] + (px[i+1] - px[i]) * (v - (i + 2))
+    return icon, icon + (16 if zv < 2.5 else 12 + 8 + 2 * 17 + 10)
 
 
 def picture(a, name):
@@ -115,12 +126,13 @@ def inside():
         for stop, name in enumerate(NAMES):
             s = set_stop(a, stop)
             assert s['view'] == (1 if stop == 0 else 0)
+            # The slider is continuous: a thumb near a stop gives that stop's row height within a few pixels.
             if stop == 1:
                 assert s['column_rows'] >= 10 and s['row'][3] == 32
-            elif stop == 2:
-                assert s['row'][3] == 48
-            elif stop >= 3:
-                assert s['row'][3] == (128, 160, 208)[stop-3]
+            elif stop >= 2:
+                icon, row = expected_icon_and_row(s['zv'])
+                assert abs(s['icon_px'] - icon) < .05, f'Icon {s["icon_px"]} px at {s["zv"]}, expected {icon:.2f} in {name}'
+                assert abs(s['row'][3] - row) < .1, f'Row height {s["row"][3]} at {s["zv"]}, expected {row:.2f} in {name}'
             picture(a, 'light-'+name)
             x,y = cell_xy(a, 0)
             a.click(x,y)
@@ -181,24 +193,24 @@ def inside():
         set_stop(a, 0)
         for stop in range(1,6):
             a.key(187, (17,16))
-            assert a.snap()['zoom'] == stop, f'Ctrl Plus to {stop}'
+            a.until(f'Ctrl Plus to {stop}', lambda: abs(a.snap()['zv'] - stop) < .001)
         for stop in range(4,-1,-1):
             a.key(189, (17,))
-            assert a.snap()['zoom'] == stop, f'Ctrl Minus to {stop}'
-        a.key(189, (17,)); assert a.snap()['zoom'] == 0
+            a.until(f'Ctrl Minus to {stop}', lambda: abs(a.snap()['zv'] - stop) < .001)
+        a.key(189, (17,)); a.until('Ctrl Minus at Details', lambda: abs(a.snap()['zv']) < .001)
         for stop in range(1,6):
             wheel(a, 120, True); time.sleep(.18)
-            assert a.snap()['zoom'] == stop, f'Ctrl wheel up to {stop}'
-        wheel(a, 120, True); time.sleep(.18); assert a.snap()['zoom'] == 5
+            a.until(f'Ctrl wheel up to {stop}', lambda: abs(a.snap()['zv'] - stop) < .001)
+        wheel(a, 120, True); time.sleep(.18); a.until('stop 5', lambda: abs(a.snap()['zv'] - 5) < .001)
         for stop in range(4,-1,-1):
             wheel(a, -120, True); time.sleep(.18)
-            assert a.snap()['zoom'] == stop, f'Ctrl wheel down to {stop}'
-        a.key(48,(17,)); assert a.snap()['zoom'] == 3, 'Ctrl 0'
-        a.key(107,(17,)); assert a.snap()['zoom'] == 4, 'Keypad plus'
-        a.key(109,(17,)); assert a.snap()['zoom'] == 3, 'Keypad minus'
+            a.until(f'Ctrl wheel down to {stop}', lambda: abs(a.snap()['zv'] - stop) < .001)
+        a.key(48,(17,)); a.until('Ctrl 0', lambda: abs(a.snap()['zv'] - 3) < .001)
+        a.key(107,(17,)); a.until('Keypad plus', lambda: abs(a.snap()['zv'] - 4) < .001)
+        a.key(109,(17,)); a.until('Keypad minus', lambda: abs(a.snap()['zv'] - 3) < .001)
         set_stop(a, 4)
-        a.click(*a.header_icon(1)); assert a.snap()['zoom'] == 0, 'Header Details'
-        a.click(*a.header_icon(2)); assert a.snap()['zoom'] == 4, 'Header last icon'
+        a.click(*a.header_icon(1)); a.until('Header Details', lambda: abs(a.snap()['zv'] - 0) < .001)
+        a.click(*a.header_icon(2)); a.until('Header last icon', lambda: abs(a.snap()['zv'] - 4) < .12)  # returns to the value the thumb was left on
         a.key(50,(17,)); a.key(49,(17,))
         assert a.snap()['zoom'] == 4, 'Keyboard last icon'
 
@@ -207,7 +219,7 @@ def inside():
             set_stop(a, stop)
             a.view = 'saved'
             a.restart()
-            assert a.snap()['zoom'] == stop, f'Restart lost {NAMES[stop]}'
+            z = a.snap(); assert z['zoom'] == stop and abs(z['zv'] - stop) < .12, f'Restart lost {NAMES[stop]}: {z["zv"]}'
         a.key(50,(17,)); a.restart(); a.key(49,(17,))
         assert a.snap()['zoom'] == 5, 'Last icon lost on restart'
 

@@ -39,9 +39,13 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   a home icon on the first segment when inside Home, a menu on each chevron; Ctrl+L or a click on
   the empty part turns it into a text field); on the right a search toggle, a view switch
   (grid or list) and a view-options menu (sort by name, size, modified or type; reversed order;
-  show hidden files). Its first control is a six-stop view slider: Details at the left, then List,
-  Small icons, Medium icons, Large icons and Extra large icons at the right. The current stop is
-  named under the slider. Six ticks mark its discrete positions; the thumb snaps to each stop.
+  show hidden files). Its first control is a continuous view-size slider, value 0 to 5: Details at the left, then List,
+  Small icons, Medium icons, Large icons and Extra large icons at the right. The thumb stays wherever it is
+  released; it never snaps. The mode name under the slider is the nearest stop, and six ticks only mark the stops.
+  The mode (Details, List, icons) switches at the midpoints 0.5, 1.5, 2.5, 3.5 and 4.5, and the new view
+  fades in over 120 ms (the old view is not cross-faded). In the icon range the icon edge, the cell and the label
+  size follow the value smoothly: 32, 64, 96 and 144 px at the values 2 to 5, a straight line between them;
+  16 px in List.
   The view-options surface is opaque, including while opening over file icons.
 - **Sidebar rows:** Recent, Starred, Home, Desktop, Documents, Downloads, Music, Pictures, Videos,
   Trash; a hairline; each drive by its label and letter ("Local Disk (C:)"), with an eject button
@@ -56,17 +60,32 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   outline icons. Files are a page with a folded corner, with a small type label ("PDF", "JPG")
   or a Lucide type icon; image files show a thumbnail (aspect kept, rounded corners, soft shadow) once it
   is read, only for the cells in view, with the page icon until then. The icon stops use 32, 64,
-  96 and 144 px icons; Medium (64 px) is the default. Small puts the name beside the icon.
+  96 and 144 px icons (values in between interpolate); Medium (64 px, value 3) is the default. Small puts the name beside the icon.
   Thumbnail requests match the displayed edge, including the display scale.
+- **Reflow glide:** when the window width or the view size changes the number of columns, every visible
+  item moves to its new place in 150 ms (cubic ease-out): quick enough to feel light. An item that stays in its
+  row glides, and its width and height glide with it. An item that changes row crossfades: its old copy fades out where it
+  was and is gone by the middle of the 150 ms (squared fade), while its new copy fades in where it goes over all of it,
+  so duplicates show only in the first third and the grid never dims below 75% of its items' summed opacity. Only items at full
+  opacity are kept apart; a fading item may overlap others while it is translucent. Names never print over each other: a fading copy holds its name back where it comes near the name of a more opaque one. A click lands on the most opaque
+  item under the pointer, never on a fading ghost.
+  A second change during a glide starts from the positions and opacities drawn at that moment. Only the visible items
+  (at most 1,024) move, and the scroll position keeps the item at the top of the view at the top. Cells keep their
+  real rectangles for clicks and keys; only the drawing is offset. With animations off the columns change at once.
+  While the size is still changing, thumbnails of the nearest size are scaled; the sharper size is read 200 ms
+  after the value stops.
 - **List stop:** 16 px icons and names in 240 px columns, filled top to bottom then left to right.
   The wheel scrolls sideways. Only visible columns are built. A persistent 6 px horizontal
   scrollbar at the bottom uses the vertical scrollbar's colour and rounded ends, and can be dragged.
   Columns have 16 px top and bottom space. The header's list button is active in List and Details;
   the grid button is active at the four icon stops.
-- **View shortcuts:** Ctrl+wheel and Ctrl+plus/minus move one stop; Ctrl+0 returns to Medium.
+- **View shortcuts:** Ctrl+wheel and Ctrl+plus/minus move one whole value up or down and glide there in 150 ms
+  (cubic ease-out; a new press retargets from the current value); Ctrl+0 glides back to Medium.
+  With Windows' "Animation effects" off (or `DFM_TEST_ANIMATIONS=off` in test mode) they jump.
   Wheel events retain their modifier state even when Ctrl is released before the next frame.
   The grid button (Ctrl+1) returns to the last icon stop; the list button (Ctrl+2) opens Details.
-  The current and last icon stops survive restarts in `%APPDATA%\dio-file-manager\view.txt`.
+  The exact value and the last icon value survive restarts in `%APPDATA%\dio-file-manager\view.txt`
+  (`view-v2 <value> <last icon value>`; the older `view-v1` file with whole stops is still read).
   One background writer saves the latest stop and finishes pending writes on exit, so
   dragging the slider never waits for a settings-file flush.
   Search, Recent, Starred and Trash share this scale.

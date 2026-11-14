@@ -235,8 +235,7 @@ void ui_band_cancel(void) {
 static cui_rect band_item(int i, float width) {
     if (A.zoom == Z_DETAILS) return (cui_rect){0, 40 + i * 36.0f, width, 36};
     if (A.zoom == Z_LIST) return (cui_rect){(i / A.column_rows) * 240.0f, 16 + (i % A.column_rows) * 32.0f, 240, 32};
-    float w = (width - 32) / A.cols;
-    return (cui_rect){16 + (i % A.cols) * w, (i / A.cols) * A.cell_h, w, A.cell_h};
+    return ui_grid_item_rect(i, width);   /* where the item is drawn now, also while it glides */
 }
 
 static void paint_band(cui_ctx *ui, cui_node *n, void *data) {
@@ -250,6 +249,42 @@ static void paint_band(cui_ctx *ui, cui_node *n, void *data) {
     cui_push_clip(ui, clip);
     cui_draw_rect_border(ui, box, CUI_CORNERS(0), cui_alpha(accent, .18f), accent, 1.0f / ui->scale);
     cui_pop_clip(ui);
+}
+
+void ui_scroll_get(const char *id, float *y, float *ty, float *view_h) {
+    cui_scroll_state *st = cui_state(A.ui, cui_make_id(A.ui, id), sizeof *st);
+    *y = st->y; *ty = st->ty; *view_h = st->view_h;
+}
+
+void ui_scroll_jump(const char *id, float y) {
+    cui_scroll_state *st = cui_state(A.ui, cui_make_id(A.ui, id), sizeof *st);
+    st->y = st->ty = y < 0 ? 0 : y;
+}
+
+bool ui_wheel_scrolling(void) { return A.ui->scroll_dy != 0 || A.ui->scroll_dx != 0; }
+void ui_node_opacity(float o) { A.ui->nodes[cui__current(A.ui)].opacity = o; }
+void ui_push_alpha(float a) { cui__push_xform(A.ui, 1, 0, 0, a, 0, 0); }
+void ui_pop_alpha(void) { cui__pop_xform(A.ui); }
+
+static void (*overlay_fn)(cui_ctx *, cui_rect, cui_vec2);
+
+static void paint_overlay(cui_ctx *ui, cui_node *n, void *data) {
+    if (overlay_fn) {
+        cui_push_clip(ui, n->rect);
+        overlay_fn(ui, n->rect, (cui_vec2){ n->scroll_x, n->scroll_y });
+        cui_pop_clip(ui);
+    }
+    paint_band(ui, n, data);
+}
+
+void ui_overlay_set(void (*fn)(cui_ctx *, cui_rect, cui_vec2)) {
+    cui_ctx *ui = A.ui;
+    int scroll = cui__current(ui);
+    while (scroll >= 0 && !(ui->nodes[scroll].flags & CUI_NF_SCROLL_Y)) scroll = ui->nodes[scroll].parent;
+    if (scroll < 0) return;
+    overlay_fn = fn;
+    ui->nodes[scroll].paint = paint_overlay;
+    ui->nodes[scroll].flags |= CUI_NF_PAINT_AFTER;
 }
 
 void ui_band_begin(void) {

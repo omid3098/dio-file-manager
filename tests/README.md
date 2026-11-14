@@ -155,9 +155,10 @@ only after restoration. `clipboard_guard.clipboard_test_lock` waits up to 15 min
 `clipboard_guard.preserved_clipboard` always takes it, including nested checks.
 ## View slider acceptance
 
-`view_smoke.py` covers all six stops, folder opening, saved size, keyboard/wheel
-shortcuts, List scrolling, special places and search, plus a strict 50 ms message
-limit for each stop over 20,000 files. The selected Details row remains clickable beneath the geometry-only rename
+`view_smoke.py` covers all six modes on the continuous slider (a thumb within 0.1 of a stop gives that stop's
+mode and, within a few pixels, its row height), folder opening, saved size (the value within 0.12), keyboard and
+wheel shortcuts (each waits for the 150 ms glide to reach the whole value), List scrolling, special places and
+search, plus a strict 50 ms message limit for each mode over 20,000 files. The selected Details row remains clickable beneath the geometry-only rename
 anchor. The input driver keeps `--test-state` enabled,
 so accidental file opens only write the `.opened` log unless a stand-in is selected.
 
@@ -223,3 +224,39 @@ the driver's posted hover is the only pointer. Other suites find the right-hand 
 coordinates; they exist only in windows wide enough to keep those buttons (from about 750 px). `view_smoke.py`'s 50 ms latency cases fail when other work keeps the CPU at 100%;
 read the load, rerun, and compare with main.
 
+## Continuous slider and animated reflow
+
+`motion_smoke.py` drives the real slider and window with Win32 input on the private desktop and reads the app's
+`<base>.frames` log (one line per drawn frame, see `docs/architecture.md`). While a glide runs the app also writes one
+`D` line per drawn frame: frame number, view height, scroll, view width, content width, then every drawn item as
+`m<idx>:x:y:alpha:w:h` (an item at its drawn place) or `g<idx>:...` (a ghost, an item fading out at its old place).
+Eleven cases: a slow drag changes the icon size in at least twelve different steps of under 12 px with no snap and the
+value survives a restart; the modes switch at the midpoints; Ctrl+wheel, Ctrl+plus and Ctrl+0 glide monotonically in
+50 to 300 ms; a width change that removes columns glides the last on-screen item through at least three places in 60
+to 300 ms and ends on the exact grid place, draws nothing once idle, and builds every frame in 16 ms; a second
+resize 60 ms later retargets from the drawn place; with animations off (`DFM_TEST_ANIMATIONS=off`) the columns change
+at once and the glide overlay never draws; columns change during a slider drag and the drag ends on the grid; the
+sidebar leaving and returning at the narrow breakpoint glides; a click and a right click, each in its own slowed glide
+(`DFM_TEST_GLIDE_MS=2500`) on an item drawn 0.5 to 1.5 cells from its final place, read from the newest draw frame right before the click, land on the item drawn under the pointer, not on the item whose final place it is (the earlier version sampled a state dump that had aged and failed 3 of 3 runs); five
+resizes while scrolled down move items in and out of the view. Every glide is read from the `D` lines:
+
+- no two items at full opacity (99.9% or more: gliders and settled items) overlap by more than 2 px; a fading ghost
+  and a fading arrival may overlap others while they are translucent (the crossfade);
+- the grid never empties (`never_empty`, in the wide wrap of cases 4 and 5): in every drawn frame the opacities of
+  everything drawn add up to at least 75% of the number of items whose final place is in view (floor lowered from 90% when the old copy
+  began to leave in the first half of the glide; the thinnest moment is about 82%). It failed on the earlier
+  design, which faded items out first and in last (56% at the emptiest frame), and passes now;
+- `crossfade_timing` (case 4): a ghost is gone by 52% of the glide and an item's two copies both show (15% or more) only in the first 36%;
+- `no_jumps` (cases 4, 5, 11): no item drawn in the view moves more than its glide distance between two frames, and a carried ghost does not move at all; case 11 (scrolled, resize to 900 then to 760 after 60 ms) failed on 234f70f (ghost jumped 78 px);
+- at the end every item whose place is in view is drawn there and no ghost is left.
+
+Each case starts with no saved view. The suite sets `CUI_RENDERER=software`: on the hidden desktop the default OpenGL
+path is emulated on the CPU and delivers a frame every 33 to 45 ms (about 115 per second in software), so frame
+counts would measure the emulation. After the glide the case waits out the test's own state request (it asks the
+window for frames for about 0.4 s) and then expects no frame in 1.2 s.
+
+`motion_measure.py [--strips]` measures message latency and frame build time during a slider drag and during resize
+glides over 1,000 files, and with `--strips` saves frame pictures of the whole window (`DFM_TEST_STRIP`, every nth
+frame with `DFM_TEST_STRIP_EVERY`) and joins them into strips: a 1.5 s slowed resize glide (`DFM_TEST_GLIDE_MS`), a
+slow drag across 2.5 (compact rows turning into tiles) and a slider drag, each in dark and light. Numbers are in
+`docs/view-slider-validation.md`.

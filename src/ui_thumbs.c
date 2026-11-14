@@ -56,6 +56,17 @@ static void add_ent(const char *path, uint64_t mtime, int px, cui_texture tex, i
 
 /* True when the file has a picture; fills out. Otherwise the caller draws the page icon. */
 bool ui_thumb_lookup(const char *path, uint64_t mtime, int px, ui_thumb *out) {
+    if (!A.thumb_settled) {   /* the size is moving: scale the closest picture we already have; ask for no new size */
+        int best = -1;
+        for (int i = 0; i < nt; i++) {
+            if (T[i].mtime != mtime || !T[i].tex || strcmp(T[i].path, path)) continue;
+            if (best < 0 || abs(T[i].px - px) < abs(T[best].px - px)) best = i;
+        }
+        if (best < 0) return false;
+        T[best].used = tick;
+        out->tex = T[best].tex; out->w = T[best].w; out->h = T[best].h;
+        return true;
+    }
     for (int i = 0; i < nt; i++) {
         if (T[i].mtime != mtime || T[i].px != px || strcmp(T[i].path, path)) continue;
         T[i].used = tick;

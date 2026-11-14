@@ -33,7 +33,14 @@ typedef struct app_t {
     uint64_t sel_bytes;
 
     /* view settings */
-    int view, zoom, last_icon;       /* zoom is the six-stop scale; view keeps the header shortcuts */
+    int view, zoom, last_icon;       /* zoom: the stop the continuous value rounds to (mode and layout style); view keeps the header shortcuts */
+    float zv, last_icon_v;           /* the continuous view size, 0 (Details) to 5 (Extra large); last_icon_v is 2..5 */
+    double size_t, fade_t;           /* when the icon size last changed; when the view mode last switched */
+    bool thumb_settled;              /* the size has stayed still, so sharper thumbnails may be requested */
+    unsigned frame_no;
+    void *frame_log;                 /* test mode only: one line per frame */
+    int probe_idx;                   /* test mode: the last built item and where it is drawn (document px) */
+    float probe_x, probe_y;
     int sort_key;
     bool sort_desc, show_hidden;
     bool search_open, searching, search_focus; /* focus again when reopening the cached field */
@@ -86,10 +93,26 @@ void app_clear_selection(void);
 void app_count_selection(void);
 void app_reload_quiet(void);   /* relist the folder, keeping selection and scroll; used while a copy writes into it */
 void app_set_view(int view);
-void app_set_zoom(int stop);
+void app_set_zoom(int stop);                /* jump to a stop (no glide) */
+void app_set_zoomv(float v, bool glide);   /* the continuous value; glide eases there in 150 ms */
+float app_icon_size(void);                 /* the icon edge in px for the current value */
+bool app_animations(void);                 /* Windows' client-area animation setting */
+float app_view_fade(void);                 /* opacity of the file view while a mode switch fades in */
+bool app_zoom_busy(void);
+double app_glide_seconds(void);            /* 0.15; a test can slow it down to take a frame strip */
+cui_rect ui_grid_item_rect(int i, float width);   /* the item's drawn rectangle in document px, for hit tests */
+bool ui_grid_gliding(void);                  /* a glide is running */
+void ui_scroll_get(const char *id, float *y, float *ty, float *view_h);   /* a scroll area's state from the last frame */
+void ui_scroll_jump(const char *id, float y);        /* set offset and target at once, no tween */
+bool ui_wheel_scrolling(void);                        /* wheel input is scrolling this frame */
+void ui_push_alpha(float a);                          /* draw everything until ui_pop_alpha at this opacity */
+void ui_pop_alpha(void);
+void ui_node_opacity(float o);                        /* the open container's opacity */
+void ui_overlay_set(void (*fn)(cui_ctx *ui, cui_rect view, cui_vec2 scroll));   /* paint over the file view's scroll area, this frame */
 void app_load_view(void);
 void app_flush_view(void);
 void ui_zoom_keys(void);
+void ui_zoom_tick(void);                   /* once per frame, before the layout */
 float app_zoom_wheel(void);
 bool ui_view_options_open(void);
 void ui_popup_tooltips(cui_ctx *ui);
