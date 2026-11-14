@@ -186,6 +186,8 @@ def inside():
         check('13-denied-dark-360', denied_page, 'dark', 'grid', '360x800', where=denied)
     if denied.exists():
         check('19-try-again', try_again, 'light', 'grid', where=denied, env={'DFM_TEST_LIST_DELAY_MS': '1500'})
+    if denied.exists():
+        check('20-denied-short-window', denied_page, 'dark', 'grid', '360x280', where=denied)
     check('14-5200-files', listing_big, 'light', 'grid', where=big)
     check('15-5200-files-details', listing_big, 'dark', 'list', where=big)
     check('16-search-no-results', no_results, 'light', 'grid')

@@ -478,6 +478,25 @@ static void global_keys(void) {
 
 /* ---- the frame ---- */
 
+/* A folder name for the title: a word wider than the pane (a long name with no spaces) is cut in the middle; the rest wraps as text does. */
+static void fit_title_name(const char *name, char out[UI_NAME_BYTES]) {
+    size_t n = 0;
+    out[0] = 0;
+    while (*name) {
+        const char *sp = strchr(name, ' ');
+        size_t len = sp ? (size_t)(sp - name) : strlen(name);
+        char word[UI_NAME_BYTES], fit[UI_NAME_BYTES];
+        if (len >= sizeof word) len = sizeof word - 1;
+        memcpy(word, name, len); word[len] = 0;
+        ui_fit_name(word, A.content_w - 64, 22, fit);
+        size_t fl = strlen(fit);
+        if (n + fl + 2 > UI_NAME_BYTES) break;
+        if (n) out[n++] = ' ';
+        memcpy(out + n, fit, fl + 1); n += fl;
+        name = sp ? sp + 1 : "";
+    }
+}
+
 static void list_body(void) {
     cui_ctx *ui = A.ui;
     int st = A.list ? fs_list_state(A.list) : FS_FAILED;
@@ -485,7 +504,7 @@ static void list_body(void) {
         if (A.loc != LOC_FOLDER) { ui_state_view(CUI_ICON_LOCK, "Unable to load this view", "Try again in a moment.", NULL); return; }
         const char *base = strrchr(A.path, '\\');
         char t[UI_NAME_BYTES + 40], nm[UI_NAME_BYTES];
-        ui_fit_name((base && base[1]) ? base + 1 : A.path, A.content_w - 64, 22, nm);   /* a long name with no spaces would run out of the pane */
+        fit_title_name((base && base[1]) ? base + 1 : A.path, nm);   /* a long name with no spaces would run out of the pane */
         snprintf(t, sizeof t, "Unable to access \xE2\x80\x9C%s\xE2\x80\x9D", nm);
         if (ui_state_view(CUI_ICON_LOCK, t, A.list ? fs_error_text(A.list->error) : "", "Try Again")) app_reload();   /* what F5 does */
         return;
