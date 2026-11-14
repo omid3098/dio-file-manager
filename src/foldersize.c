@@ -658,7 +658,12 @@ static bool req_do(req *r) {
                 memcpy(lp, L"\\?\\", 4 * sizeof *lp); memcpy(lp + 4, p, pl * sizeof *lp); lp[4 + pl] = 0;
                 if (GetFileAttributesW(lp) == INVALID_FILE_ATTRIBUTES) return true;
             }
-            fallback_rewalk(p, pl);   /* it exists but is not held: the nearest folder above it is walked again */
+            /* It exists but is not held (a new subfolder written into at once): its parent reads again and walks it as
+               a new root. Only when the parent is not held or not complete is the nearest folder above walked again. */
+            size_t xl; parent_of(p, pl, &xl);
+            entry *x = find(p, xl, hash_of(p, xl));
+            if (x && !x->incomplete) { if (!(x->qbits & Q_REQ)) { x->qbits |= Q_REQ; relist(x); req_push(RQ_REFRESH, p, xl, 0); } }
+            else fallback_rewalk(p, pl);
             return true;
         }
         if (e->state == ST_STALE) { e->qbits &= (uint8_t)~Q_REQ; queue_rewalk(e); relist(e); return true; }
@@ -673,7 +678,7 @@ static bool req_do(req *r) {
         size_t xl; parent_of(p, pl, &xl);
         entry *x = find(p, xl, hash_of(p, xl));
         if (x) { if (!(x->qbits & Q_REQ)) { x->qbits |= Q_REQ; relist(x); req_push(RQ_REFRESH, p, xl, 0); } }
-        else fallback_rewalk(p, xl);
+        else req_push(RQ_REFRESH, p, xl, 0);   /* the parent is not held either (a new folder): its own parent reads again */
         return true;
     }
     case RQ_GONE: {   /* something at p is gone: a cached folder is subtracted; a file only changes its parent's own size */
@@ -879,4 +884,10 @@ bool fsz_stale(const char *path) {
 void fsz_test_delay(unsigned ms) { G.delay_ms = ms; }
 void fsz_test_cap(unsigned max_entries) { G.cap_entries = max_entries ? max_entries : FSZ_CACHE_MAX; }
 unsigned fsz_test_reads(void) { return (unsigned)InterlockedCompareExchange(&G.reads, 0, 0); }
+unsigned fsz_test_entries(unsigned long long *bytes) {   /* checks only: entries held and the bytes their keys and records take */
+    EnterCriticalSection(&G.cs);
+    unsigned n = (unsigned)G.count; if (bytes) *bytes = (unsigned long long)G.bytes;
+    LeaveCriticalSection(&G.cs);
+    return n;
+}
 unsigned fsz_test_peak(void) { return (unsigned)InterlockedExchange(&G.peak, G.active); }   /* and starts counting again */

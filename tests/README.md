@@ -162,10 +162,15 @@ only after restoration. `clipboard_guard.clipboard_test_lock` waits up to 15 min
 `clipboard_guard.preserved_clipboard` always takes it, including nested checks.
 ## Folder size checks
 
-`test_foldersize.c` (CTest target `dfm-foldersize-tests`, console, 19 checks) builds a sandbox under the task folder and checks
-the engine alone: exact sizes, nested totals, a junction not followed, a changed folder going stale and then right after the
-change, a moved folder, and a walk cancelled when the view moves on. Run it hidden through the bounded runner like the other
-console tests.
+`test_foldersize.c` (CTest target `dfm-foldersize-tests`, console, 41 checks) builds a sandbox under the task folder and checks
+the engine alone: exact sizes, nested totals, a junction not followed, a changed folder updating in place, a moved folder,
+and a walk cancelled when the view moves on. Since the directory-task rewrite it also checks: one shown folder is walked
+by several threads at once (peak >= 3), a change in a deep file reads at most 3 directories and moves up through the
+folders between, a new and a removed subfolder read at most 6 directories (a write into a brand-new subfolder refreshes the
+parent, no re-walk), ten shown folders survive a cache cap of 4, missing data is walked again no sooner than about 1 s and
+cached again, and 10,000 lookups take under 25 ms. Four of these fail on 6ac6ed2 (peak 1, 16 reads, shown folders evicted,
+3 reads). Run it hidden through the bounded runner like the other console tests; run the exe ten times for the timing
+checks.
 
 `use/foldersize_smoke.py` runs 5 checks on the private desktop, on a fixture it creates (`a` 3,000,000 bytes, `b` 1,000,000 plus
 a nested 500,000, `c` 10,000, `d` empty, and a file), with `DFM_TEST_FSZ_DELAY_MS=1200` where the measuring state is read:

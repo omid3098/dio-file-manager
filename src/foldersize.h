@@ -28,4 +28,5 @@ void fsz_test_delay(unsigned ms_per_folder);   /* checks only: slow each folder 
 void fsz_test_cap(unsigned max_entries);       /* checks only: a smaller cache (0: the normal cap) */
 unsigned fsz_test_reads(void);                 /* checks only: directory reads so far */
 unsigned fsz_test_peak(void);                  /* checks only: the most directory reads that ran at the same time since the last call */
+unsigned fsz_test_entries(unsigned long long *bytes); /* checks only: entries held, and the bytes of their keys and records */
 #endif

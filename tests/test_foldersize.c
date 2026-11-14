@@ -153,8 +153,9 @@ int main(void) {
     fsz_view(root); fsz_want(dp);
     CHECK(wait_open0(10000), "deep finishes");
     CHECK(size_of("deep", NULL) == 170, "deep = 170 (got %llu)", U(size_of("deep", NULL)));
-    Sleep(300);
+    /* the events of the set-up writes above are read after the walk (one read per folder): wait until they are done */
     unsigned r0 = fsz_test_reads();
+    for (int w = 0, quiet = 0; quiet < 8 && w < 100; w++) { Sleep(100); unsigned n = fsz_test_reads(); if (n == r0) quiet++; else { quiet = 0; r0 = n; } }
     write_file("deep\\a\\b\\c\\f", 40, true);
     CHECK(wait_size("deep", 210, 6000), "deep = 210 after the deep file grew (got %llu)", U(size_of("deep", NULL)));
     CHECK(size_of("deep\\a", NULL) == 150 && size_of("deep\\a\\b", NULL) == 140 && size_of("deep\\a\\b\\c", NULL) == 140,

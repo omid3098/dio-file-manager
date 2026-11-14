@@ -112,7 +112,10 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   measured its cell shows a muted "…" at the right edge; the number replaces it when it is in. Sorting by Size puts folders
   first and sorts them by size among themselves (files by size among themselves); it orders by size once, when every shown
   folder is in, and keeps the selection and the scroll where they were. A folder that changes on disk while it is shown
-  measures again after about one second without changes. Local drives only (network and removable drives keep the empty
+  is updated in place: the engine reads only the changed directory again, moves the difference up to the cached folders
+  above it, and walks a new subfolder on its own; nothing is measured again from the top. A full walk again happens only
+  for data that is missing (it left the cache, or the change list overflowed), and not sooner than the longer of 1 s and
+  3 times the last walk. Local drives only (network and removable drives keep the empty
   cell), folders in a normal listing only (not search, Recent, Starred or Trash), grid view unchanged. On by default.
 - **Floating status pill:** bottom right of the content pane, over the files, only while something
   is selected or loading: "“report.pdf” selected (2.4 MB)", "3 items selected (5.1 MB)",
@@ -243,11 +246,18 @@ The release exe is at most 800 KB (CUI's own hello app is about 250 KB). The bui
 ## Memory budget
 
 Folder sizes keep an in-memory cache (`src/foldersize.c`, nothing is written to disk): at most 65,536 entries and 24 MB for
-their path keys and records, about 1 MB for the hash table, and 4 walk buffers of 192 KB, one per worker. The oldest
-entries leave first, never one that is shown. Measured on the hidden desktop, 1280x800, Details, all sizes in: about
-105 MB working set with no sizes (grid view of C:\Program Files), 109 MB with C:\Program Files in Details, 150 to 177 MB for
-E:\w (146 folders, tens of thousands of nested entries cached). Four workers run at below-normal priority, so
-measuring uses up to four cores while the window stays responsive.
+their path keys and records, about 1 MB for the hash table, and 4 walk buffers of 128 KB, one per worker. Each folder's
+entry holds its own files' size and its total (about 80 bytes plus its path). The oldest entries leave first, never one
+that is shown or one with a change waiting, so a shown folder may keep the cache above its cap until it is left. Measured
+on the hidden desktop, 1280x800, Details, all sizes in: about 105 MB working set with no sizes, 107 MB with
+E:\w\dio-file-manager (2,423 folders, 0.6 MB of cache), 164 MB for E:\w (539,000 folders: the cache sits at its cap of
+65,536 entries and 24.5 MB, the rest of the working set is the walk and the window). Every directory is its own task for
+4 below-normal workers, so one big shown folder uses all four; E:\w is all in after 14 s on the engine alone (warm), 57 s in
+the window while other programs change that drive.
+A tree with more folders than the cache holds cannot keep its totals up to date by reading single directories: a change
+in a folder that left the cache makes the nearest cached folder above it walk again (at most one walk per 3 times its own
+last one). Measured with a writer of 20 small writes a second: 0.7 to 1.1 % of one core for a tree that fits (E:\w\dio-file-manager),
+but 12 to 28 % of one core for all of E:\w, which other programs also change all the time.
 
 ## Window: the header is the title bar
 
