@@ -214,8 +214,8 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
     too, and the Run entry is gone, so nothing starts it again.
     The app tells the process through a window message (`resident_release`); a process that never got the hotkey
     (Explorer still owns Win+E) just ends. The same bridge starts when the process finds the app gone: the keys go
-    back, this press opens Explorer's window, and it ends with the Explorer that ran then; when the keys cannot be put
-    back it stays as it is, with E and the Run entry kept, and tries again at the next press. Turning the switch on again
+    back, this press opens Explorer's window, and it ends with the Explorer that ran then; when a shell command cannot be
+    put back it stays as it is, with E and the Run entry kept, and tries again at the next press. Turning the switch on again
     replaces a bridge by a fresh process (`resident_end_bridge`).
   - **The launcher after a turn-off.** With no process the launcher is deleted at once. A bridge runs from it, so
     the delete waits: a `RunOnce` entry (`Dio File Manager launcher cleanup`) starts the registered app as
