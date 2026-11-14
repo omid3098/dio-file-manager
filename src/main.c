@@ -29,11 +29,39 @@ static float zoom_wheel;
 
 float app_zoom_wheel(void) { float dy = zoom_wheel; zoom_wheel = 0; return dy; }
 
+/* Back and forward from the mouse's side buttons and the keyboard's browser keys. The message handler only counts
+ * the presses; the next frame goes through the history, as Alt+Left does, never inside the message. */
+enum { NAV_Q = 8 };
+static signed char nav_q[NAV_Q];   /* -1 back, +1 forward, in the order pressed */
+static int nav_n;
+
+static void nav_press(int dir) {
+    if (nav_n < NAV_Q) nav_q[nav_n++] = (signed char)dir;
+    if (A.ui) cui_request_redraw(A.ui);
+}
+
 static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     LRESULT chrome_result;
     if (m == WM_NCMOUSELEAVE && test_mode) return 0;   /* same reason: the maximize button's hover comes from the driver */
     if (chrome_message(h, m, w, l, (intptr_t *)&chrome_result)) return chrome_result;
     if (m == WM_MOUSELEAVE && test_mode) return 0;
+    /* A press can arrive two ways: WM_XBUTTONUP, which DefWindowProc would turn into WM_APPCOMMAND, or WM_APPCOMMAND
+     * itself (browser keys, drivers). Answering TRUE to each means one press moves once, never twice. */
+    if (m == WM_XBUTTONUP || m == WM_NCXBUTTONUP) {
+        int b = GET_XBUTTON_WPARAM(w);
+        if (b == XBUTTON1 || b == XBUTTON2) { nav_press(b == XBUTTON1 ? -1 : 1); return TRUE; }
+    }
+    if (m == WM_XBUTTONDOWN || m == WM_XBUTTONDBLCLK || m == WM_NCXBUTTONDOWN || m == WM_NCXBUTTONDBLCLK) {
+        int b = GET_XBUTTON_WPARAM(w);
+        if (b == XBUTTON1 || b == XBUTTON2) return TRUE;   /* the file view must not take a side button as a click */
+    }
+    if (m == WM_APPCOMMAND) {
+        int c = GET_APPCOMMAND_LPARAM(l);
+        if (c == APPCOMMAND_BROWSER_BACKWARD || c == APPCOMMAND_BROWSER_FORWARD) {
+            nav_press(c == APPCOMMAND_BROWSER_BACKWARD ? -1 : 1);
+            return TRUE;
+        }
+    }
     if (m == WM_SETTINGCHANGE && A.ui && A.theme_pref == 0) {
         app_set_theme(0);
         cui_request_redraw(A.ui);
@@ -218,15 +246,14 @@ static void load_entry(const char *entry) {
 }
 
 static void push_history(const char *entry) {
-    if (A.hist_n > 0 && strcmp(A.hist[A.hist_pos], entry) == 0) return;
-    A.hist_n = A.hist_pos + 1;
+    if (A.hist_n > 0 && _stricmp(A.hist[A.hist_pos], entry) == 0) return;   /* the same folder again, however it was typed: no new step, forward stays */
+    if (A.hist_n > 0) A.hist_n = A.hist_pos + 1;   /* a new step drops Forward; the first one has nothing before it */
     if (A.hist_n == HIST_MAX) {
         memmove(A.hist[0], A.hist[1], (size_t)(HIST_MAX - 1) * sizeof A.hist[0]);
         A.hist_n--;
     }
     snprintf(A.hist[A.hist_n], sizeof A.hist[0], "%s", entry);
-    A.hist_pos = A.hist_n;
-    A.hist_n++;
+    A.hist_pos = A.hist_n++;
 }
 
 void app_navigate(const char *target) {
@@ -340,9 +367,21 @@ static void typed_letters(void) {
     typed_n = 0;
 }
 
+/* A side-button press waits for a frame in which nothing else owns the window: a dialog, a menu or a popover
+ * has the pointer first, as a click would, and the press is dropped. */
+static void mouse_nav(void) {
+    bool idle = !act_modal_open() && !ctxmenu_is_open(A.ui) && !ui_view_options_open();
+    for (int i = 0; i < nav_n; i++) {
+        if (!idle) break;
+        if (nav_q[i] < 0) app_back(); else app_forward();
+    }
+    nav_n = 0;
+}
+
 static void global_keys(void) {
     path_key = false;
     cui_ctx *ui = A.ui;
+    mouse_nav();
     int mods = cui_key_mods(ui);
     /* CUI forgets the field that holds the keyboard when a frame begins and learns it again as the fields are
      * drawn, so before the fields only the last frame knows. Asking CUI here always said no: Enter in the path

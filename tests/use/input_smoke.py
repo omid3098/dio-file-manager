@@ -276,6 +276,53 @@ def inside():
         before = a.snap()['path']; a.key(8)
         assert a.snap()['path'] == before, 'Backspace unexpectedly navigates'
 
+    def mouse_navigation(a):
+        # The side buttons as Windows reports them: WM_XBUTTONDOWN/UP (XBUTTON1 back, XBUTTON2 forward) and
+        # WM_APPCOMMAND (keyboard browser keys, drivers). One press must move exactly one step.
+        fixture = WORK/'fixture'
+        def at(expected, what=''):
+            time.sleep(.4)  # long enough for a second, wrong step to show
+            got = a.wait_ready()['path']
+            assert got == str(expected), f'{what}: at {got}, expected {expected}'
+        def press(button, x, y):
+            p = a.point(x, y)
+            a.msg(0x20B, button << 16, p)   # WM_XBUTTONDOWN
+            a.msg(0x20C, button << 16, p)   # WM_XBUTTONUP
+        def command(cmd):
+            a.msg(0x319, int(a.hwnd), (cmd << 16) | 0x8000)   # WM_APPCOMMAND from the mouse
+        back = lambda x=700, y=300: press(1, x, y)
+        forward = lambda x=700, y=300: press(2, x, y)
+        at(fixture, 'step')
+        back(); at(fixture, 'Back at the first folder of a new window does nothing')
+        a.key(37, (18,)); at(fixture, 'Alt+Left at the first folder of a new window does nothing')
+        x, y = a.cell_xy(0)
+        a.click(x, y); a.click(x, y)
+        assert a.wait_ready()['path'] == str(fixture/'A'), 'Double click did not open folder'
+        a.path(fixture/'B')
+        back(); at(fixture/'A', 'Back button over the content: one step to A')
+        forward(); at(fixture/'B', 'Forward button over the content')
+        back(90, 120); at(fixture/'A', 'Back button over the sidebar')
+        forward(600, 23); at(fixture/'B', 'Forward button over the header')
+        back(300, 700); at(fixture/'A', 'Back button over the bottom')
+        command(1); at(fixture, 'WM_APPCOMMAND browser backward')
+        command(2); at(fixture/'A', 'WM_APPCOMMAND browser forward')
+        a.msg(0x319, int(a.hwnd), 1 << 16); at(fixture, 'Browser back key')
+        a.msg(0x319, int(a.hwnd), 2 << 16); at(fixture/'A', 'Browser forward key')
+        # Explorer's history: every way to change folder is a step, a new step after Back drops Forward.
+        a.click(90, 46+4*34+16)                                       # sidebar place
+        s = a.wait_ready(); docs = s['documents']; assert s['path'] == docs, 'Sidebar'
+        back(); at(fixture/'A', 'Back after a sidebar click')
+        a.path(fixture/'C'); at(fixture/'C', 'Typed path')
+        a.key(38, (18,)); at(fixture, 'Alt+Up')
+        back(); at(fixture/'C', 'Back after Alt+Up')
+        a.path(str(fixture/'C').swapcase())   # the same folder typed in other letters is no new step
+        back(); at(fixture/'A', 'Back after the same folder again')
+        a.path(fixture/'D')
+        forward(); at(fixture/'D', 'A new folder after Back drops Forward')
+        back(); at(fixture/'A', 'step')
+        back(); at(fixture, 'step')
+        back(); at(fixture, 'Back at the first folder stays')
+
     def selection(a):
         a.cell(0); assert a.snap()['selected'] == 1, 'Click'
         a.cell(1,(17,)); assert a.snap()['selected'] == 2, 'Ctrl click add'
@@ -510,6 +557,7 @@ def inside():
     check('2-list-wheel', WORK/'big', wheel, 'list')
     check('3-navigation', WORK/'fixture', navigation)
     check('4-selection', WORK/'fixture', selection)
+    check('14-mouse-navigation', WORK/'fixture', mouse_navigation)
     check('5-shortcuts', WORK/'fixture', shortcuts)
     check('6-sidebar', WORK/'fixture', sidebar)
     check('7-narrow', WORK/'fixture', narrow)

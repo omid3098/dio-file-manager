@@ -33,6 +33,8 @@ so both growing and shrinking use the current pixel dimensions.
 Search results keep their own listing. Trash completion drops missing results and refreshes
 the saved folder; reload and Undo rerun the query without closing it.
 
+Mouse back and forward (`WM_XBUTTONUP`, `WM_APPCOMMAND`) are caught in `main.c`'s window hook, counted, and
+run through the same history as Alt+Left and Alt+Right in the next frame (`mouse_nav`).
 Alt+Enter opens only Properties; plain Enter opens an item only without modifiers.
 The running-job header control is one clickable progress ring; its popover names
 the copy and offers Cancel. Real-input action checks and private-desktop shell
