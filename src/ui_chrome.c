@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "ui.h"
+#include "dlgtext.h"
 
 static const char *const PLACE_LABEL[7] = { "Home", "Desktop", "Documents", "Downloads", "Music", "Pictures", "Videos" };
 static const char *const PLACE_ICON[7] = { CUI_ICON_HOUSE, CUI_ICON_MONITOR, CUI_ICON_FILE_TEXT, CUI_ICON_DOWNLOAD,
@@ -432,12 +433,13 @@ void ui_status_pill(void) {
         for (int i = 0; i < A.vis_n; i++) if (A.sel[i]) { idx = i; break; }
         if (idx >= 0) {
             const fs_entry *e = app_item(idx);
-            if (e->flags & FS_DIR) snprintf(buf, sizeof buf, "\xE2\x80\x9C%s\xE2\x80\x9D selected", app_item_name(idx));
-            else {
+            char tail[64] = " selected";   /* the name gives way at whole characters, never these words */
+            if (!(e->flags & FS_DIR)) {
                 char sz[48];
                 fs_format_size(sz, sizeof sz, e->size);
-                snprintf(buf, sizeof buf, "\xE2\x80\x9C%s\xE2\x80\x9D selected (%s)", app_item_name(idx), sz);
+                snprintf(tail, sizeof tail, " selected (%s)", sz);
             }
+            dlg_quoted_leaf(app_item_name(idx), tail, buf, sizeof buf);
         }
     } else if (A.sel_n > 1) {
         char sz[48];

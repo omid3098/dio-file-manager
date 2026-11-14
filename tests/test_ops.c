@@ -399,6 +399,12 @@ static void dialog_names(void) {
         dlg_quoted_leaf(nm, " moved to Trash", toast, sizeof toast);
         CHECK(valid_utf8(toast) && !strcmp(toast + strlen(toast) - 15, " moved to Trash") && !strncmp(toast, "\xE2\x80\x9C" "a", 4) && strstr(toast, ".txt"));
     }
+    {   /* the status-bar pill ("name" selected (size)) for the same 140-character name: whole characters, its words kept */
+        char nm[600], pill[400];
+        nm[0] = 'a'; nm[1] = 0; for (int i = 0; i < 140; i++) cat(nm, "ä¸­"); cat(nm, ".txt");
+        dlg_quoted_leaf(nm, " selected (12 KB)", pill, sizeof pill);
+        CHECK(valid_utf8(pill) && !strcmp(pill + strlen(pill) - 17, " selected (12 KB)") && strstr(pill, ".txt"));
+    }
     puts("PASS dialog names");
 }
 
