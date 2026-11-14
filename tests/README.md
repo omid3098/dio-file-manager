@@ -55,9 +55,14 @@ Permanent deletion removes a reparse point itself, without following it.
 Use a UI STA (COM initialized with `COINIT_APARTMENTTHREADED`) for shell actions.
 Run blocking Recycle Bin and Recent functions on a worker. Recycle Bin operations
 initialize their own COM apartment. A trash job never deletes for good by itself: an item the bin cannot take
-(path of 260+ characters, larger than the bin, bin switched off, non-fixed drive) is asked about
+(the item or any child path of 260+ characters, judged on the real path behind a junction or symlink and without
+entering links; larger than the bin, bin switched off, non-fixed drive) is asked about
 (`waiting_conflict` with `cannot_trash`; answer `OPS_DELETE_NOW` or `OPS_SKIP`, or cancel) and
-stays where it is until the answer is Delete; `trash_move` itself refuses such an item. Check HRESULTs and Win32 errors; the window
+stays where it is until the answer is Delete; `trash_move` itself refuses such an item. The shell is the last guard:
+trash runs without `FOF_NOCONFIRMATION` and with `FOF_WANTNUKEWARNING`, so a case the check misses makes the shell
+ask (it never deletes silently; the check closes any such prompt on its private desktop and fails). `state.trashed`
+counts the items that really reached the bin, also when a later item failed or the job was cancelled, and the window
+offers Undo for them. Check HRESULTs and Win32 errors; the window
 owns confirmations for permanent delete and Empty Trash.
 
 Paths use UTF-8. Win32 calls receive UTF-16. Extended `\\?\` paths are accepted;

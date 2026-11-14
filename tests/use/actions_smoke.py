@@ -1,4 +1,4 @@
-"""Nine action checks through Win32 input, on correct/hidden.py's desktop.
+"""Ten action checks through Win32 input, on correct/hidden.py's desktop.
 
 Brokered Open With and Terminal use an explicit stand-in: never activate an
 existing shell/terminal on the user's desktop. Properties uses the real sheet.
@@ -358,6 +358,31 @@ def inside():
             s = a.wait_ready()
             assert s['path'].lower() == str(source).lower(), ('Pasted text did not reach the path field', s['path'])
 
+    def partial_trash(a):
+        # Two files are trashed together; the second is locked against deletion. The first still reaches the Recycle Bin,
+        # and the Undo toast must still be offered for it, next to the error.
+        first, locked = SAND/'action target.txt', SAND/'z locked file.txt'
+        locked.write_text('locked', encoding='utf-8')
+        K.CreateFileW.argtypes = [W.LPCWSTR, W.DWORD, W.DWORD, C.c_void_p, W.DWORD, W.DWORD, W.HANDLE]
+        K.CreateFileW.restype = W.HANDLE
+        handle = K.CreateFileW(str(locked), 0x80000000, 1, None, 3, 0, None)   # read, share read only: delete is refused
+        assert handle != C.c_void_p(-1).value, 'could not lock the file'
+        try:
+            a.key(ord('A'), (17,)); time.sleep(.3)
+            a.key(46)
+            a.until('The first file did not reach the Trash', lambda: not first.exists())
+            finished(a)
+            time.sleep(.5)
+            assert locked.exists(), 'The locked file vanished'
+            a.snap('partial-trash-toast')
+        finally:
+            K.CloseHandle(handle)
+        rect = W.RECT(); U.GetClientRect(a.hwnd, C.byref(rect))
+        scale = U.GetDpiForWindow(a.hwnd)/96
+        a.click(rect.right/scale-110, rect.bottom/scale-45)
+        a.until('Undo was not offered after the partial failure', first.exists, 10)
+        assert first.read_text(encoding='utf-8') == 'x'
+
     def permanent(a):
         target = SAND/'action target.txt'
         a.cell(0); a.key(46, (16,))
@@ -423,6 +448,7 @@ def inside():
     check('7-progress-cancel', progress)
     check('8-cut-keeps-newer-clipboard', newer_clipboard)
     check('9-text-field-paste', text_paste)
+    check('10-partial-trash-undo', partial_trash)
     (WORK/'actions-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 

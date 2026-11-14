@@ -69,7 +69,7 @@ HRESULT trash_list(trash_items *list) {
 static HRESULT operation(IFileOperation **op) {
     HRESULT hr = CoCreateInstance(&CLSID_FileOperation, NULL, CLSCTX_INPROC_SERVER, &IID_IFileOperation, (void **)op);
     if (SUCCEEDED(hr)) hr = IFileOperation_SetOperationFlags(*op,
-        FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOFX_EARLYFAILURE | FOFX_RECYCLEONDELETE | FOF_ALLOWUNDO);
+        FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING | FOFX_EARLYFAILURE | FOFX_RECYCLEONDELETE | FOF_ALLOWUNDO);
     return hr;
 }
 static HRESULT perform(IFileOperation *op) {
@@ -120,47 +120,84 @@ static IFileOperationProgressSinkVtbl sink_vtable = {
     qi, addref, release, noop, finish, pre_rename, post_rename, pre_transfer, post_transfer,
     pre_transfer, post_transfer, pre_delete, post_delete, pre_new, post_new, progress, noop, noop, noop
 };
-/* Whether the shell will really recycle an item. Without FOF_WANTNUKEWARNING (which would draw the shell's own
-   dialog) IFileOperation deletes what the bin cannot take for good, and says nothing. So ask first, and treat
-   every "no" as a question for the user, never as a reason to delete. */
-static int tree_over(const wchar_t *path, uint64_t limit, uint64_t *sum) {
+/* Whether the shell will really recycle an item, judged on what is on disk, not on the name the user clicked:
+   the folder a junction or symlink points into decides the item's real path and drive; a link itself is recycled
+   as a link and never entered. The shell deletes for good what the bin cannot take, so these checks only give
+   the GNOME question before any work starts. The shell stays the last guard: the operation runs without
+   FOF_NOCONFIRMATION and with FOF_WANTNUKEWARNING, so a case missed here makes the shell ask, never delete. */
+static wchar_t *extended_path(const wchar_t *w) {
+    size_t n = wcslen(w) + 8; wchar_t *p = malloc(n * sizeof(*p));
+    if (!p) return NULL;
+    if (!wcsncmp(w, L"\\\\?\\", 4)) wcscpy_s(p, n, w);
+    else if (w[0] && w[1] == L':') { wcscpy_s(p, n, L"\\\\?\\"); wcscat_s(p, n, w); }
+    else { free(p); return NULL; }
+    return p;
+}
+/* \\?\X:\real\parent\leaf: the parent folder resolved through every junction and symlink, the leaf kept as named. */
+static wchar_t *real_path(const wchar_t *w) {
+    wchar_t *x = extended_path(w), *parent, *out = NULL, *final = NULL; const wchar_t *leaf; HANDLE h; DWORD n;
+    if (!x) return NULL;
+    leaf = dfm_leaf(x);
+    parent = _wcsdup(x);
+    if (!parent) { free(x); return NULL; }
+    parent[leaf - x] = 0;
+    if (wcslen(parent) > 7 && parent[wcslen(parent) - 1] == L'\\') parent[wcslen(parent) - 1] = 0;   /* keep \\?\X:\ */
+    h = CreateFileW(parent, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (h != INVALID_HANDLE_VALUE) {
+        n = GetFinalPathNameByHandleW(h, NULL, 0, VOLUME_NAME_DOS);
+        final = n ? malloc((n + 1) * sizeof(*final)) : NULL;
+        if (final && GetFinalPathNameByHandleW(h, final, n + 1, VOLUME_NAME_DOS) >= n + 1) { free(final); final = NULL; }
+        CloseHandle(h);
+    }
+    if (final) {
+        size_t m = wcslen(final) + wcslen(leaf) + 2; out = malloc(m * sizeof(*out));
+        if (out) { wcscpy_s(out, m, final); if (final[wcslen(final) - 1] != L'\\') wcscat_s(out, m, L"\\"); wcscat_s(out, m, leaf); }
+    }
+    free(final); free(parent); free(x); return out;
+}
+/* Every node of the tree has a path under MAX_PATH and the whole tree fits the bin. Links are not entered. */
+static HRESULT tree_check(const wchar_t *path, uint64_t limit, uint64_t *sum) {
     WIN32_FILE_ATTRIBUTE_DATA a;
-    if (!GetFileAttributesExW(path, GetFileExInfoStandard, &a)) return 0;
+    if (wcslen(path) - 4 >= MAX_PATH) return HRESULT_FROM_WIN32(ERROR_FILENAME_EXCED_RANGE);
+    if (!GetFileAttributesExW(path, GetFileExInfoStandard, &a)) return S_OK;
     if (!(a.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || (a.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
-        *sum += ((uint64_t)a.nFileSizeHigh << 32) | a.nFileSizeLow; return *sum > limit;
+        *sum += ((uint64_t)a.nFileSizeHigh << 32) | a.nFileSizeLow;
+        return limit && *sum > limit ? HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE) : S_OK;
     } else {
-        wchar_t *pattern = dfm_join(path, L"*"); WIN32_FIND_DATAW d; HANDLE h; int over = 0;
-        if (!pattern) return 0;
+        wchar_t *pattern = dfm_join(path, L"*"); WIN32_FIND_DATAW d; HANDLE h; HRESULT hr = S_OK;
+        if (!pattern) return S_OK;
         h = FindFirstFileW(pattern, &d); free(pattern);
-        if (h == INVALID_HANDLE_VALUE) return 0;
+        if (h == INVALID_HANDLE_VALUE) return S_OK;
         do {
             if (wcscmp(d.cFileName, L".") && wcscmp(d.cFileName, L"..")) {
                 wchar_t *c = dfm_join(path, d.cFileName);
-                if (c) { over = tree_over(c, limit, sum); free(c); }
+                if (c) { hr = tree_check(c, limit, sum); free(c); }
             }
-        } while (!over && FindNextFileW(h, &d));
-        FindClose(h); return over;
+        } while (SUCCEEDED(hr) && FindNextFileW(h, &d));
+        FindClose(h); return hr;
     }
 }
 HRESULT dfm_trash_blocker(const wchar_t *w) {
-    wchar_t root[MAX_PATH], vol[64], key[200]; DWORD nuke = 0, mb = 0, n = sizeof(DWORD); uint64_t limit = 0, sum = 0;
-    ULARGE_INTEGER total;
-    /* Explorer's own rule: a path of MAX_PATH characters or more is deleted, not recycled. */
-    if (wcslen(wcsncmp(w, L"\\\\?\\", 4) ? w : w + 4) >= MAX_PATH) return HRESULT_FROM_WIN32(ERROR_FILENAME_EXCED_RANGE);
+    wchar_t root[MAX_PATH], vol[64], key[200], *real; DWORD nuke = 0, mb = 0, n = sizeof(DWORD); uint64_t limit = 0, sum = 0;
+    ULARGE_INTEGER total; HRESULT hr;
+    real = real_path(w);
+    if (!real) return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+    if (GetFileAttributesW(real) == INVALID_FILE_ATTRIBUTES) { free(real); return S_OK; }   /* nothing there: the shell reports it, nothing can be lost */
     /* Do not silently fall back to permanent deletion on network/removable drives. */
-    if (!GetVolumePathNameW(w, root, MAX_PATH) || GetDriveTypeW(root) != DRIVE_FIXED) return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
-    if (!GetVolumeNameForVolumeMountPointW(root, vol, 64) || wcsncmp(vol, L"\\\\?\\Volume", 10)) return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+    if (!wcsncmp(real, L"\\\\?\\UNC\\", 8) || !GetVolumePathNameW(real, root, MAX_PATH) || GetDriveTypeW(root) != DRIVE_FIXED) { free(real); return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED); }
+    if (!GetVolumeNameForVolumeMountPointW(root, vol, 64) || wcsncmp(vol, L"\\\\?\\Volume", 10)) { free(real); return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED); }
     _snwprintf_s(key, 200, _TRUNCATE, L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\BitBucket\\Volume\\%.*s", (int)wcslen(vol + 10) - 1, vol + 10);
-    if (RegGetValueW(HKEY_CURRENT_USER, key, L"NukeOnDelete", RRF_RT_REG_DWORD, NULL, &nuke, &n) == ERROR_SUCCESS && nuke) return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+    if (RegGetValueW(HKEY_CURRENT_USER, key, L"NukeOnDelete", RRF_RT_REG_DWORD, NULL, &nuke, &n) == ERROR_SUCCESS && nuke) { free(real); return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED); }
     n = sizeof(DWORD);
     if (RegGetValueW(HKEY_CURRENT_USER, key, L"MaxCapacity", RRF_RT_REG_DWORD, NULL, &mb, &n) == ERROR_SUCCESS) limit = (uint64_t)mb << 20;
     else if (GetDiskFreeSpaceExW(root, NULL, &total, NULL)) limit = total.QuadPart / 20 / 10 * 9;   /* the shell's default is about 5% of the drive */
-    if (limit && tree_over(w, limit, &sum)) return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
-    return S_OK;
+    hr = tree_check(real, limit, &sum);   /* an item or any child of 260+ characters is deleted by the shell, not recycled */
+    free(real); return hr;
 }
-HRESULT dfm_trash_move_cancel(const char *const *paths, size_t count, volatile LONG *cancel) {
+HRESULT dfm_trash_move_cancel(const char *const *paths, size_t count, volatile LONG *cancel, unsigned *recycled) {
     HRESULT init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED), hr = S_OK;
     size_t i;
+    if (recycled) *recycled = 0;
     if (!paths || !count) { if (SUCCEEDED(init)) CoUninitialize(); return E_INVALIDARG; }
     if (FAILED(init) && init != RPC_E_CHANGED_MODE) return init;
     AcquireSRWLockExclusive(&undo_lock); trash_list_free(&undo_items);
@@ -188,9 +225,10 @@ HRESULT dfm_trash_move_cancel(const char *const *paths, size_t count, volatile L
         if (FAILED(hr)) break;
     }
 done:
+    if (recycled) *recycled = (unsigned)undo_items.count;   /* what really reached the bin, also when a later item failed */
     ReleaseSRWLockExclusive(&undo_lock); if (SUCCEEDED(init)) CoUninitialize(); return hr;
 }
-HRESULT trash_move(const char *const *paths, size_t count) { return dfm_trash_move_cancel(paths, count, NULL); }
+HRESULT trash_move(const char *const *paths, size_t count) { return dfm_trash_move_cancel(paths, count, NULL, NULL); }
 /* The shell keeps each recycled item as a `$R<id>` payload plus a `$I<id>` metadata
    file beside it. Moving the payload out leaves `$I` behind as a hidden orphan, so
    drop it once the restore has succeeded (Explorer does the same). */

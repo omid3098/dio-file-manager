@@ -209,8 +209,9 @@ static int in_bin(const char *leaf) {
     for (i = 0; i < list.count; ++i) if (!strcmp(list.items[i].name, leaf)) found = 1;
     trash_list_free(&list); return found;
 }
-/* Runs a trash job; answers the first cannot-trash question with `answer` (or cancels on -1) and returns the final state. */
-static void trash_job(const char *const *paths, size_t count, int answer) {
+/* Runs a trash job; answers the first cannot-trash question with `answer` (or cancels on -1), leaves the final state in
+   `state` and returns how many questions were asked. */
+static int trash_job_any(const char *const *paths, size_t count, int answer) {
     ULONGLONG start = GetTickCount64(); ops_job *j = ops_start(OPS_TRASH, paths, count, NULL, NULL); int asked = 0;
     CHECK(j);
     for (;;) {
@@ -222,7 +223,77 @@ static void trash_job(const char *const *paths, size_t count, int answer) {
         if (state->finished) break;
         CHECK(GetTickCount64() - start < 30000); Sleep(1);
     }
-    CHECK(asked >= 1); ops_free(j);
+    ops_free(j); return asked;
+}
+static void trash_job(const char *const *paths, size_t count, int answer) { CHECK(trash_job_any(paths, count, answer) >= 1); }
+/* A native shell prompt ("Delete Folder", "Delete File") on this private desktop would wait for nobody: close it
+   with No and count it, so a missed case fails the check instead of hanging it. */
+static volatile LONG shell_prompts, watch_stop;
+static DWORD WINAPI watch_prompts(LPVOID unused) {
+    (void)unused;
+    while (!watch_stop) {
+        HWND w = NULL;
+        while ((w = FindWindowExW(NULL, w, L"#32770", NULL)) != NULL) {
+            DWORD pid; GetWindowThreadProcessId(w, &pid);
+            if (pid == GetCurrentProcessId() && IsWindowVisible(w)) { InterlockedIncrement(&shell_prompts); PostMessageW(w, WM_CLOSE, 0, 0); }
+        }
+        Sleep(20);
+    }
+    return 0;
+}
+/* A junction `link` pointing at the directory `target` (both plain absolute paths). */
+static void make_junction(const char *link, const char *target) {
+    wchar_t *l = wide(link), *t = wide(target); size_t tl = wcslen(t), sub = (4 + tl) * sizeof(wchar_t), prt = tl * sizeof(wchar_t);
+    size_t size = 16 + sub + 2 + prt + 2; unsigned char *b = calloc(1, size); HANDLE h; DWORD got; wchar_t *pb;
+    CHECK(b); CHECK(CreateDirectoryW(l, NULL));
+    h = CreateFileW(l, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL); CHECK(h != INVALID_HANDLE_VALUE);
+    *(ULONG *)b = IO_REPARSE_TAG_MOUNT_POINT; *(USHORT *)(b + 4) = (USHORT)(size - 8);
+    *(USHORT *)(b + 10) = (USHORT)sub; *(USHORT *)(b + 12) = (USHORT)(sub + 2); *(USHORT *)(b + 14) = (USHORT)prt;
+    pb = (wchar_t *)(b + 16); wcscpy_s(pb, 4 + tl + 1, L"\\??\\"); wcscat_s(pb, 4 + tl + 1, t);
+    wcscpy_s(pb + 4 + tl + 1, tl + 1, t);
+    CHECK(DeviceIoControl(h, FSCTL_SET_REPARSE_POINT, b, (DWORD)size, NULL, 0, &got, NULL)); CloseHandle(h); free(b); free(l); free(t);
+}
+/* A short folder whose child path is 292 characters: the shell would delete the whole folder for good. */
+static void nested_long(void) {
+    char *deep = long_file(292, "child.txt", "child"), *ok; const char *one[1] = { ROOT "\\long" }; HRESULT hr;
+    hr = trash_move(one, 1); CHECK(FAILED(hr)); CHECK(long_exists(deep)); CHECK(!in_bin("long"));
+    CHECK(trash_job_any(one, 1, OPS_SKIP) == 1); CHECK(long_exists(deep)); CHECK(state->trashed == 0 && state->deleted == 0 && !state->errors);
+    CHECK(trash_job_any(one, 1, -1) == 1); CHECK(long_exists(deep)); CHECK(state->cancelled && state->deleted == 0);
+    CHECK(shell_prompts == 0);
+    CHECK(trash_job_any(one, 1, OPS_DELETE_NOW) == 1); CHECK(!long_exists(deep)); CHECK(!exists(one[0])); CHECK(state->deleted == 1 && !state->errors);
+    free(deep);
+    /* A child path of 259 characters still goes to the bin whole, and Undo brings the whole folder back. */
+    ok = long_file(259, "child.txt", "ok"); CHECK(trash_job_any(one, 1, OPS_SKIP) == 0); CHECK(state->trashed == 1 && !state->errors);
+    CHECK(!exists(one[0])); CHECK(in_bin("long")); CHECK(SUCCEEDED(trash_undo())); CHECK(long_exists(ok)); CHECK(!in_bin("long"));
+    { wchar_t *x = extended(ROOT "\\long"); remove_tree(x); free(x); }
+    CHECK(shell_prompts == 0); free(ok);
+}
+/* A short path through a junction to a folder whose real path is 260+ characters, and the junction itself. */
+static void through_junction(void) {
+    char *real = long_file(280, "j.txt", "through the junction"), *slash = strrchr(real, '\\'); char dirpath[1100]; const char *one[1] = { ROOT "\\alias\\j.txt" }; HRESULT hr;
+    CHECK(slash); memcpy(dirpath, real, (size_t)(slash - real)); dirpath[slash - real] = 0;
+    make_junction(ROOT "\\alias", dirpath); CHECK(exists(one[0]));
+    hr = trash_move(one, 1); CHECK(FAILED(hr)); CHECK(long_exists(real)); CHECK(!in_bin("j.txt"));
+    CHECK(trash_job_any(one, 1, OPS_SKIP) == 1); CHECK(long_exists(real)); CHECK(state->trashed == 0 && state->deleted == 0 && !state->errors);
+    CHECK(trash_job_any(one, 1, -1) == 1); CHECK(long_exists(real)); CHECK(state->cancelled && state->deleted == 0);
+    CHECK(shell_prompts == 0);
+    /* Trashing the junction itself moves only the link; the folder it points to and its file stay. */
+    one[0] = ROOT "\\alias"; CHECK(trash_job_any(one, 1, OPS_SKIP) == 0); CHECK(state->trashed == 1 && !state->errors);
+    CHECK(!exists(ROOT "\\alias")); CHECK(long_exists(real)); CHECK(in_bin("alias")); CHECK(SUCCEEDED(trash_undo())); CHECK(exists(ROOT "\\alias\\j.txt")); CHECK(long_exists(real));
+    { wchar_t *l = wide(ROOT "\\alias"); CHECK(RemoveDirectoryW(l)); free(l); }
+    { wchar_t *x = extended(ROOT "\\long"); remove_tree(x); free(x); }
+    CHECK(shell_prompts == 0); free(real);
+}
+/* The first file reaches the bin, the second is locked against deletion: the job reports the one that went, so Undo is offered for it. */
+static void partial_success(void) {
+    const char *two[2] = { ROOT "\\partial-first.txt", ROOT "\\partial-locked.txt" }; wchar_t *w; HANDLE lock;
+    file(two[0], "first"); file(two[1], "locked"); w = wide(two[1]);
+    lock = CreateFileW(w, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL); free(w); CHECK(lock != INVALID_HANDLE_VALUE);
+    CHECK(trash_job_any(two, 2, OPS_SKIP) == 0);
+    CloseHandle(lock);
+    CHECK(state->errors >= 1); CHECK(state->trashed == 1); CHECK(!exists(two[0])); CHECK(exists(two[1])); CHECK(in_bin("partial-first.txt"));
+    CHECK(SUCCEEDED(trash_undo())); content(two[0], "first"); CHECK(!in_bin("partial-first.txt"));
+    CHECK(shell_prompts == 0);
 }
 static void unrecyclable(void) {
     char *bad = long_file(285, "dfm-nuke-probe-a.txt", "keep me");
@@ -246,6 +317,7 @@ static void unrecyclable(void) {
     CHECK(!in_bin("dfm-nuke-probe-a.txt"));
     { wchar_t *x = extended(ROOT "\\long"); remove_tree(x); free(x); }
     free(bad); free(edge); free(bad2);
+    nested_long(); through_junction(); partial_success();
     puts("PASS a trash request never deletes an item the Recycle Bin cannot take: it asks, and Skip/Cancel keep it");
 }
 static void cross_volume(void) {
@@ -267,6 +339,12 @@ int main(void) {
     mkdir_u(DFM_TEST_WORK);
     mkdir_u(DFM_TEST_WORK "\\ops");
     CHECK(!exists(ROOT)); CHECK(CreateDirectoryW(root, NULL)); sandbox_created = 1; atexit(cleanup); state = calloc(1, sizeof(*state)); CHECK(state);
+    CreateThread(NULL, 0, watch_prompts, NULL, 0, NULL);
+    { char only[16]; size_t got = 0;   /* DFM_TEST_ONLY=nested|junction|partial runs one trash check alone (used to show it fails on older code) */
+      if (!getenv_s(&got, only, sizeof only, "DFM_TEST_ONLY") && got) {
+          if (!strcmp(only, "nested")) nested_long(); else if (!strcmp(only, "junction")) through_junction(); else if (!strcmp(only, "partial")) partial_success(); else CHECK(0);
+          puts("PASS the one check ran"); cleanup(); return 0;
+      } }
     basic(); conflicts(); names(); cancellation(); searching(); clipboard(); recycle(); unrecyclable(); cross_volume();
     cleanup(); free(root); free(state); puts("ALL CHECKS PASSED; sandboxes removed"); return 0;
 }

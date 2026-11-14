@@ -189,10 +189,10 @@ static void job_done(file_job *j) {
         toast_error(t, code, epath);
     }
     if (kind == OPS_MOVE && !errors && !cancelled) clear_cut_clipboard(j->clipboard_sequence);
-    if (kind == OPS_TRASH && !errors && !cancelled && trashed) {   /* only what reached the bin can be undone */
+    if (kind == OPS_TRASH && trashed) {   /* only what reached the bin can be undone, also after a later failure or Cancel */
         char t[400];
         if (j->n == 1) snprintf(t, sizeof t, "\xE2\x80\x9C%s\xE2\x80\x9D moved to Trash", j->first);
-        else snprintf(t, sizeof t, "%u items moved to Trash", trashed);
+        else snprintf(t, sizeof t, trashed == 1 ? "%u item moved to Trash" : "%u items moved to Trash", trashed);
         G.undo_toast = cui_toast(A.ui, t, .action = "Undo", .show_timer = true, .duration = 8);
     }
     if ((strcmp(j->dir, A.path) == 0 || ((kind == OPS_COPY || kind == OPS_MOVE) && A.loc == LOC_FOLDER && shows_receiving(j))) && A.loc != LOC_OTHER) {

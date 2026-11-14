@@ -6,7 +6,7 @@
 #include <string.h>
 #include <wchar.h>
 #include <wctype.h>
-HRESULT dfm_trash_move_cancel(const char *const *paths, size_t count, volatile LONG *cancel);
+HRESULT dfm_trash_move_cancel(const char *const *paths, size_t count, volatile LONG *cancel, unsigned *recycled);
 HRESULT dfm_trash_blocker(const wchar_t *w);
 
 wchar_t *dfm_wide(const char *s) {
@@ -86,7 +86,8 @@ struct ops_job {
 static int cancelled(ops_job *j) { return InterlockedCompareExchange(&j->cancel, 0, 0) != 0; }
 static void text_path(char *out, size_t size, const wchar_t *w) {
     char *u = dfm_utf8(w);
-    if (u) { strncpy_s(out, size, u, _TRUNCATE); free(u); } else out[0] = 0;
+    /* Show X:\... without the extended prefix. */
+    if (u) { strncpy_s(out, size, !strncmp(u, "\\\\?\\", 4) && u[4] && u[5] == ':' ? u + 4 : u, _TRUNCATE); free(u); } else out[0] = 0;
 }
 static void fail(ops_job *j, const wchar_t *path, DWORD error) {
     EnterCriticalSection(&j->lock); ++j->state.errors; j->state.error_code = error;
@@ -188,10 +189,11 @@ static int remove_node(ops_job *j, const wchar_t *path, int progress) {
     else if (progress) completed(j, 1, (a.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? 0 : ((uint64_t)a.nFileSizeHigh << 32) | a.nFileSizeLow);
     return ok;
 }
-/* Permanent delete of a top-level item. A plain path of MAX_PATH characters or more is reachable only with the extended prefix. */
+/* Permanent delete of a top-level item. Always with the extended prefix: the item may be short while a child path of
+   MAX_PATH characters or more is reachable only that way. */
 static int delete_item(ops_job *j, const wchar_t *path) {
     int ok;
-    if (wcslen(path) >= MAX_PATH && path[0] && path[1] == L':' && path[2] == L'\\') {
+    if (path[0] && path[1] == L':' && path[2] == L'\\') {
         size_t cap = wcslen(path) + 5; wchar_t *x = malloc(cap * sizeof(*x));
         if (!x) { fail(j, path, ERROR_NOT_ENOUGH_MEMORY); return 0; }
         wcscpy_s(x, cap, L"\\\\?\\"); wcscat_s(x, cap, path);
@@ -321,8 +323,10 @@ static unsigned __stdcall run(void *context) {
                 }
             }
             if (SUCCEEDED(hr) && n && !cancelled(j)) {
-                hr = dfm_trash_move_cancel((const char *const *)paths, n, &j->cancel);
-                if (SUCCEEDED(hr)) { EnterCriticalSection(&j->lock); j->state.trashed = (unsigned)n; LeaveCriticalSection(&j->lock); }
+                unsigned recycled = 0;
+                hr = dfm_trash_move_cancel((const char *const *)paths, n, &j->cancel, &recycled);
+                /* Count what really reached the bin, so Undo is offered for it even when a later item failed or the job was cancelled. */
+                EnterCriticalSection(&j->lock); j->state.trashed = recycled; LeaveCriticalSection(&j->lock);
             }
             for (i = 0; i < n; ++i) free(paths[i]);
             free(paths);
