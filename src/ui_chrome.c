@@ -1,6 +1,7 @@
 /* The window's chrome: sidebar, content header with the path bar, search bar, empty and error states, status pill. */
 #include <windows.h>
 #include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <cui_internal.h>
@@ -668,6 +669,79 @@ void ui_loading_shapes(float alpha) {
 static char pill_buf[400];
 const char *ui_pill_text(void) { return pill_buf; }
 
+/* ---- the notice and the selection label never meet ----
+ * CUI keeps its toasts in the window's bottom-right corner, 16 px from the edges, and the status pill sits in the same corner.
+ * GNOME Files keeps its toast (bottom centre) and its floating status label apart, so a notice never cuts the label; here the
+ * toast cannot move, so the pill rises above the whole stack, including the stack opened by hovering it. This one place covers
+ * every cui_toast of the app. */
+#define TOAST_MARGIN 16.0f   /* CUI's own gap between a toast and the window edge */
+#define TOAST_GAP 8.0f       /* CUI's gap between stacked toasts, and what the pill keeps above them */
+#define PILL_PAD 14.0f
+
+static float toast_lift;       /* the pill's rise above its resting place, eased */
+static float pill_r[4], toast_r[4];
+
+/* The height of the stack of toasts that are not on their way out, as CUI lays it out opened. */
+static float toast_stack_h(void) {
+    cui_ctx *ui = A.ui;
+    float h = 0; int n = 0;
+    for (int i = 0; i < ui->toast_count; i++) {
+        if (ui->toasts[i].dismissed) continue;
+        h += ui->toasts[i].height + (n ? TOAST_GAP : 0.0f);
+        n++;
+    }
+    return h;
+}
+
+/* For the checks: where the toasts really are (x, y, w, h of all of them; zeros with none) and where the pill is. */
+void ui_toast_snapshot(FILE *f) {
+    fprintf(f, ",\"toast_rect\":[%.1f,%.1f,%.1f,%.1f],\"pill_rect\":[%.1f,%.1f,%.1f,%.1f],\"vw\":%.1f,\"vh\":%.1f",
+            toast_r[0], toast_r[1], toast_r[2], toast_r[3], pill_r[0], pill_r[1], pill_r[2], pill_r[3], A.ui->vw, A.ui->vh);
+}
+
+static void measure_toasts(void) {
+    cui_ctx *ui = A.ui;
+    float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+    bool any = false;
+    float W = ui->vw - 32 < 360.0f ? ui->vw - 32 : 360.0f;
+    int vis = 0;
+    for (int i = 0; i < ui->toast_count; i++) if (!ui->toasts[i].dismissed) vis++;
+    float front_h = ui->toast_count ? ui->toasts[ui->toast_count - 1].height : 0;
+    float H = front_h + 10.0f * (float)(vis > 3 ? 2 : (vis > 0 ? vis - 1 : 0));   /* CUI's collapsed stack */
+    float top = ui->vh - TOAST_MARGIN - H;
+    for (int i = 0; i < ui->toast_count; i++) {
+        float y = top + ui->toasts[i].y.x, h = ui->toasts[i].height, x = ui->vw - W - TOAST_MARGIN;
+        any = true;
+        if (x < x0) x0 = x;
+        if (y < y0) y0 = y;
+        if (x + W > x1) x1 = x + W;
+        if (y + h > y1) y1 = y + h;
+    }
+    toast_r[0] = any ? x0 : 0; toast_r[1] = any ? y0 : 0; toast_r[2] = any ? x1 - x0 : 0; toast_r[3] = any ? y1 - y0 : 0;
+}
+
+static float pill_text_w(const char *s) {
+    cui_theme *th = cui_theme_get(A.ui);
+    return cui_measure_text(A.ui, CUI_FONT_BODY, th->text_body * th->font_scale, s, (int)strlen(s)).width;
+}
+
+/* The label is one line and never wider than the pane: a long name gives way at whole characters until the whole label fits, the words
+ * after the name never. (A narrow window used to push a long name's label past the window edge, its ending cut off.) */
+static float pill_room(void) { return A.content_w - 2 * PILL_PAD - 30.0f; }   /* 30: the row's padding and border */
+
+static void pill_fit_leaf(const char *path, const char *tail, char *out, size_t cap) {
+    dlg_quoted_leaf(path, tail, out, cap);
+    if (pill_text_w(out) <= pill_room()) return;
+    size_t lo = strlen(tail) + 6 + 1 + 4, hi = cap;   /* lo: the quotes, the tail and a name of one character; hi: too wide */
+    if (lo >= hi) lo = hi - 1;
+    while (hi - lo > 1) {   /* the widest cap that still fits */
+        size_t mid = (lo + hi) / 2;
+        dlg_quoted_leaf(path, tail, out, mid);
+        if (pill_text_w(out) <= pill_room()) lo = mid; else hi = mid;
+    }
+    dlg_quoted_leaf(path, tail, out, lo);
+}
+
 void ui_status_pill(void) {
     cui_ctx *ui = A.ui;
     char buf[400] = "";
@@ -689,7 +763,7 @@ void ui_status_pill(void) {
                 fs_format_size(sz, sizeof sz, A.sel_bytes);
                 snprintf(tail, sizeof tail, " selected (%s)", sz);
             }
-            dlg_quoted_leaf(app_item_name(idx), tail, buf, sizeof buf);
+            pill_fit_leaf(app_item_name(idx), tail, buf, sizeof buf);
         }
     } else if (A.sel_n > 1) {
         char sz[48];
@@ -701,11 +775,24 @@ void ui_status_pill(void) {
         snprintf(buf, sizeof buf, "Loading\xE2\x80\xA6");
     }
     snprintf(pill_buf, sizeof pill_buf, "%s", buf);
-    if (!buf[0]) return;
-    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_END, .justify = CUI_JUSTIFY_END, .pad = 14) {
+    measure_toasts();
+    /* The pill rests PILL_PAD above the content's bottom edge, which is the window's, or the bottom bar's top line when narrow. */
+    float below = app_is_narrow() ? BAR_H : 0.0f, stack = toast_stack_h();
+    float want = stack > 0 ? TOAST_MARGIN + stack + TOAST_GAP - below - PILL_PAD : 0.0f;
+    cui__tween(ui, &toast_lift, want > 0 ? want : 0.0f, CUI__T_STATE);
+    if (!buf[0]) { pill_r[0] = pill_r[1] = pill_r[2] = pill_r[3] = 0; return; }
+    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_END, .justify = CUI_JUSTIFY_END, .pad = PILL_PAD) {
         cui_row(ui, .bg = CUI_COLOR_SURFACE_RAISED, .radius = 14, .border = 1, .border_color = CUI_COLOR_BORDER,
-                .elevation = CUI_ELEVATION_FLOATING, .pad_x = 14, .pad_y = 8, .max_width = 520) {
+                .elevation = CUI_ELEVATION_FLOATING, .pad_x = 14, .pad_y = 8, .max_width = fminf(520.0f, pill_room() + 30.0f)) {
             cui_text(ui, buf, .nowrap = true);
         }
+        if (toast_lift > 0.5f) cui_gap(ui, toast_lift);
+        /* Where the pill is drawn, from its own parts (the row's rect is not kept): the text and 14 + 1 px / 8 + 1 px around it, in the
+         * content pane's bottom-right corner, PILL_PAD in and the lift up. */
+        cui_theme *th = cui_theme_get(ui);
+        float tw = pill_text_w(buf), line = cui_measure_text(ui, CUI_FONT_BODY, th->text_body * th->font_scale, buf, (int)strlen(buf)).height;
+        float w = fminf(tw + 30.0f, fminf(520.0f, pill_room() + 30.0f)), h = line + 18.0f;
+        pill_r[0] = ui->vw - PILL_PAD - w; pill_r[2] = w; pill_r[3] = h;
+        pill_r[1] = ui->vh - below - PILL_PAD - (toast_lift > 0.5f ? toast_lift : 0.0f) - h;
     }
 }

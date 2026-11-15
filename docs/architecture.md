@@ -204,7 +204,7 @@ for observable concurrent progress on fast disks. Recent and drive overrides req
 ## Folder sizes: test hooks
 
 The test snapshot (`--test-state`) has `sizes` (for each folder in the view: name, 0 nothing / 1 value / 2 measuring, text),
-`fsz_open` (folders of the view whose work has not finished), `sel_pending` and `pill` (the status pill's text).
+`fsz_open` (folders of the view whose work has not finished), `sel_pending` and `pill` (the status pill's text), `toast_rect` and `pill_rect` (x, y, w, h of all toasts together and of the pill; zeros with none) and the window size `vw`, `vh`.
 `DFM_TEST_FSZ_DELAY_MS` (test mode only) sleeps that long before each folder walk, so a check can read the measuring state.
 `tests/test_foldersize.c` (CTest target `dfm-foldersize-tests`, 54 checks) tests the engine alone; `tests/use/foldersize_smoke.py` tests the window.
 The engine has checks-only hooks: `fsz_test_delay` (slow each folder), `fsz_test_cap` (a smaller cache), `fsz_test_reads` (directory reads so far),

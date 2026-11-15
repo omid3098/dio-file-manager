@@ -1,4 +1,4 @@
-"""Ten action checks through Win32 input, on correct/hidden.py's desktop.
+"""Twelve action checks through Win32 input, on correct/hidden.py's desktop.
 
 Brokered Open With and Terminal use an explicit stand-in: never activate an
 existing shell/terminal on the user's desktop. Properties uses the real sheet.
@@ -230,6 +230,9 @@ def clipboard_state(hwnd):
         U.CloseClipboard()
 
 
+TOAST_FILES = ('a-delete-me.txt', 'پروندهٔ بسیار بلند با نامی که جا نمی‌شود در یک خط کوچک و دراز.txt', 'b.txt', 'c.txt', 'd.txt')
+
+
 def inside():
     results = []
     command = subprocess.list2cmdline([sys.executable, str(Path(__file__).resolve()), '--standin'])
@@ -238,13 +241,13 @@ def inside():
     os.environ['DFM_TEST_OPEN'] = command+' unexpected-open'
     os.environ['DFM_TEST_CLIP_HANDSHAKE'] = 'Local' + chr(92) + 'DfmClipHandshake-%d' % os.getpid()  # the apps read it in test mode
 
-    def check(name, fn):
+    def check(name, fn, files=('action target.txt',), **app_args):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
         app = None
         try:
-            fresh('action target.txt')
-            app = App(name, SAND)
+            fresh(*files)
+            app = App(name, SAND, **app_args)
             fn(app)
             app.snap(name+'-passed')
             results.append(dict(check=name, result='passed'))
@@ -383,6 +386,37 @@ def inside():
         a.click(rect.right/scale-110, rect.bottom/scale-45)
         a.until('Toast Undo did not restore the file', target.exists, 10)
         assert target.read_text(encoding='utf-8') == 'x'
+
+    def toast_label(a, tag):
+        """A notice and the selection label never cover each other (CUI keeps toasts in the bottom-right corner; the label rises above them).
+        Hard cases: one file with a long Persian name selected under an Undo toast, and "4 items selected" under it."""
+        before = bool(os.environ.get('DFM_TOAST_BEFORE'))   # an old exe has no rectangles: only the pictures are taken
+        target = SAND/TOAST_FILES[0]
+        a.cell(0); a.key(46)
+        a.until('Delete kept the file', lambda: not target.exists())
+        finished(a)
+        def state(label, pill):
+            def settled():
+                s = a.snap()
+                return s['pill'].startswith(pill) and (before or s['pill_rect'][2] > 0)
+            a.until(f'The label never showed {pill!r}', settled, 5)
+            time.sleep(.6)   # the label's rise and the toast's own entrance have ended
+            s = a.snap(f'toast-label-{tag}-{label}')
+            if before:
+                return
+            tx, ty, tw, th = s['toast_rect']; px, py, pw, ph = s['pill_rect']
+            assert th > 0, f'{label}: the Undo toast is gone, the check proves nothing ({s["toast_rect"]})'
+            assert pw > 0 and s['pill'].startswith(pill), f'{label}: label {s["pill"]!r}'
+            assert px >= 0 and px + pw <= s['vw'] and py >= 0, f'{label}: the label leaves the window {s["pill_rect"]} in {s["vw"]}x{s["vh"]}'
+            apart = py + ph <= ty or px + pw <= tx or tx + tw <= px or ty + th <= py
+            assert apart, f'{label}: the notice {s["toast_rect"]} covers the label {s["pill_rect"]}'
+            assert not (px < tx + tw and tx < px + pw) or py + ph <= ty, f'{label}: label and notice share a column without a gap'
+        names = a.snap()['names']
+        assert names[-1] == TOAST_FILES[1], names
+        a.key(35)   # End: the long Persian name
+        state('one', f'“{TOAST_FILES[1][:8]}')   # the label shortens a long name at a whole character
+        a.key(ord('A'), (17,))
+        state('four', '4 items selected')
 
     def conflicts(a):
         source, dest = SAND/'source', SAND/'destination'
@@ -550,6 +584,8 @@ def inside():
         os.environ.pop('DFM_TEST_TERMINAL_DELAY_MS', None)
     check('3-properties', properties)
     check('4-toast-undo', toast)
+    check('11-toast-clear-of-label-1280-light', lambda a: toast_label(a, '1280-light'), TOAST_FILES, theme='light', extra=('--size', '1280x800'))
+    check('12-toast-clear-of-label-360-dark', lambda a: toast_label(a, '360-dark'), TOAST_FILES, theme='dark', extra=('--size', '360x280'))
     check('5-name-conflicts', conflicts)
     check('6-shift-delete', permanent)
     check('7-progress-cancel', progress)

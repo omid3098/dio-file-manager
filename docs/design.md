@@ -169,7 +169,10 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   is selected or loading: "“report.pdf” selected (2.4 MB)", "3 items selected (5.1 MB)",
   "Loading…". It floats, so it has the popover shadow. A selected folder counts with its measured size; while any selected
   folder is still being measured the pill ends with "…" inside the brackets ("“src” selected (…)", "2 items selected
-  (3.0 MB…)": the sum so far, then the dots).
+  (3.0 MB…)": the sum so far, then the dots). It is one line and never wider than the pane: a long name loses whole
+  characters in the middle until the label fits, the words after the name never. A toast (CUI keeps them in the window's
+  bottom-right corner) and the pill never cover each other: while any toast shows, the pill rises above the whole stack,
+  also the stack opened by hovering it (GNOME Files keeps its toast and its floating status label apart the same way).
 - **Loading:** a listing that has run 200 ms (a quicker one never flashes) shows placeholder shapes in the form of the view
   that will replace them: tiles in Grid, a header with its column titles and rows of bars in Details, short rows in
   columns in List. They are CUI's skeleton shapes in one group, so one shine runs across them; with animations off

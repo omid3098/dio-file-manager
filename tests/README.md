@@ -94,7 +94,7 @@ Each standalone smoke script defaults to `<repo root>/.agent-work/use-checks/<sc
 
 ## Action checks
 
-`tests/use/actions_smoke.py` imports the input suite's helpers and has 7 checks:
+`tests/use/actions_smoke.py` imports the input suite's helpers and has 12 checks (the first 7 are listed here; `11` and `12` prove that a toast and the selection label never cover each other, with a long Persian name and with 4 items, at 1280x800 light and 360x280 dark):
 Open With, Open in Terminal, Properties by menu and Alt+Enter, toast Undo,
 Replace/Keep Both/Skip, Shift+Delete cancel/confirm, and large-copy progress/cancel.
 It uses only its sandbox and preserves the clipboard during copy/paste checks.

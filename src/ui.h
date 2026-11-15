@@ -310,6 +310,7 @@ void ui_loading_shapes(float alpha);        /* the placeholder shapes of the cur
 void ui_loading_view(void);                 /* a listing running 200 ms or more: placeholder shapes in the current view's form */
 void ui_loading_frame_begin(void);          /* start of every frame */
 void ui_status_pill(void);
+void ui_toast_snapshot(FILE *f);         /* test state: "toast_rect" (all toasts together), "pill_rect" and the window size, as JSON members */
 const char *ui_pill_text(void);             /* test state: the pill's text of the last frame */
 
 /* ui_sizes.c: folder sizes (engine: foldersize.c) */
