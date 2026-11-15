@@ -232,7 +232,9 @@ static void job_done(file_job *j) {
     /* a move (a drop on a folder, Recent, Starred or a search result too) takes its items from where the window may be showing them */
     bool left_view = kind == OPS_MOVE && A.loc != LOC_OTHER && (A.loc != LOC_FOLDER || A.searching || same_dir(j->src, A.path));
     if ((strcmp(j->dir, A.path) == 0 || ((kind == OPS_COPY || kind == OPS_MOVE) && A.loc == LOC_FOLDER && shows_receiving(j)) || left_view) && A.loc != LOC_OTHER) {
-        if (A.searching && (kind == OPS_TRASH || kind == OPS_MOVE)) fsearch_refresh(); else app_reload();
+        if (A.searching && (kind == OPS_TRASH || kind == OPS_MOVE)) fsearch_refresh();
+        else if ((kind == OPS_COPY || kind == OPS_MOVE) && A.loc == LOC_FOLDER && !A.searching && A.list && fs_list_state(A.list) != FS_FAILED) app_reload_after_job();   /* the open folder stays as it is while it takes the new list */
+        else app_reload();
     }
     A.trash_check_t = -100;
 }

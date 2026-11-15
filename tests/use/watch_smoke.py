@@ -223,6 +223,9 @@ def inside():
             while time.monotonic() < t_end:
                 s = a.snap()
                 assert s['names'].count('big.bin') <= 1, f'doubled items: {s["names"]}'
+                # loud = the listing was opened again from scratch (loading state, placeholders, scroll and selection reset):
+                # the app counts those, so this does not depend on how fast the machine is
+                assert s['loads'] == s0['loads'], f'the copy made the view loud: {s["loads"] - s0["loads"]} full reload(s) (state {s["state"]})'
                 assert s['state'] == 1 and s['skel'] == s0['skel'], 'the copy made the view loud'
                 seen += 1
                 if (dst / 'big.bin').exists() and not s['incoming'] and s['names'] == ['big.bin'] and not s['job']['active']:

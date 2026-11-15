@@ -106,6 +106,7 @@ void app_clear_selection(void);
 void app_count_selection(void);
 void app_watch_resume(void);   /* watch the open folder again (a refused eject closed the watch) and list it once */
 void app_reload_quiet(void);   /* relist the folder, keeping selection and scroll; used while a copy writes into it */
+void app_reload_after_job(void);   /* a copy or move ended: the open folder is listed again quietly, once the running listing is done */
 void app_set_view(int view);
 void app_set_zoom(int stop);                /* jump to a stop (no glide) */
 void app_set_zoomv(float v, bool glide);   /* the continuous value; glide eases there in 150 ms */

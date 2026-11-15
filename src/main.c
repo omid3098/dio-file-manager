@@ -385,6 +385,13 @@ static void poll_next(void) {
     swap_tick = GetTickCount64();
 }
 
+/* A copy or move into (or out of) the open folder has ended: list the folder again quietly, so the view neither blanks into
+ * a loading state nor loses its selection and scroll. It waits for a running listing, like a settled change on the disk. */
+void app_reload_after_job(void) {
+    watch_wanted = true;
+    cui_request_redraw(A.ui);
+}
+
 /* The watch (watch.c) says another program changed the open folder: list it again quietly, once per settled burst. Never
  * while a listing runs (the new listing is read after the old one, so a change made meanwhile is not lost), and not in
  * search (Esc lists the folder again). */
@@ -800,7 +807,7 @@ static void test_snapshot(const char *base) {
         if (comma) fputc(',', f);
         json_text(f, app_item_name(i)); comma = true;
     }
-    fprintf(f, "],\"listed\":%d,\"skel\":%d,\"watch\":%d,\"watch_events\":%u,\"watch_ms\":%lld,\"incoming\":[", A.list ? A.list->count : 0, A.skel_frames, watch_is_open(), watch_test_events(), (long long)(swap_tick - watch_test_t0()));
+    fprintf(f, "],\"listed\":%d,\"skel\":%d,\"loads\":%u,\"watch\":%d,\"watch_events\":%u,\"watch_ms\":%lld,\"incoming\":[", A.list ? A.list->count : 0, A.skel_frames, A.nav_gen, watch_is_open(), watch_test_events(), (long long)(swap_tick - watch_test_t0()));
     comma = false;
     for (int i = 0; i < A.vis_n; i++) if (app_item(i)->flags & FS_INCOMING) {
         if (comma) fputc(',', f);
