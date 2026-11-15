@@ -19,6 +19,7 @@ os.environ.setdefault('DFM_USE_WORK', str(ROOT / '.agent-work/use-checks' / Path
 from input_smoke import App, ROOT, WORK, SAND, U, K, ENUM, fresh, preserved_clipboard
 
 U.GetClassNameW.argtypes = [W.HWND, W.LPWSTR, C.c_int]
+U.DestroyWindow.argtypes = [W.HWND]
 U.EnumChildWindows.argtypes = [W.HWND, ENUM, W.LPARAM]
 U.IsWindowVisible.argtypes = [W.HWND]
 U.PostMessageW.argtypes = [W.HWND, W.UINT, W.WPARAM, W.LPARAM]
@@ -48,12 +49,16 @@ def windows():
     return found
 
 
+STANDIN_WAIT = float(os.environ.get('DFM_STANDIN_WAIT', 45))   # seconds a started stand-in may take to show its window: a busy computer starts a process late
+CURRENT = WORK/'current-check.txt'   # the name of the check that is running; empty between checks
+
+
 def native_window(a, predicate):
     found = []
     def ready():
         found[:] = [row for row in windows() if predicate(row)]
         return bool(found)
-    a.until('Expected native window missing', ready, 10)
+    a.until('Expected native window missing', ready, STANDIN_WAIT)
     h, title, cls = found[0]
     actual = desktop(U.GetWindowThreadProcessId(h, None))
     assert actual == desktop(a.tid) and actual.startswith('correct-hidden-'), (title, actual)
@@ -118,6 +123,17 @@ def burners(n):
 def standin():
     """A real native window recording exactly what the shell child received."""
     kind, *args = sys.argv[sys.argv.index('--standin')+1:]
+    time.sleep(float(os.environ.get('DFM_STANDIN_SLOW', 0)))   # rehearses a process that starts slowly, as on a busy computer
+    mine = os.environ.get('DFM_STANDIN_CHECK', '')
+    def stale():
+        """A stand-in that starts after its check ended or gave up belongs to nobody: it must not hold the sandbox as its
+        working folder, nor overwrite the marker or show a window the next check would find."""
+        try:
+            return CURRENT.read_text(encoding='utf-8') != mine
+        except OSError:
+            return True
+    if stale():
+        return 0
     marker = WORK / (kind+'-launch.json')
     K.GetCommandLineW.restype = W.LPWSTR
     record = dict(kind=kind, args=args, cwd=os.getcwd(), command=K.GetCommandLineW(),
@@ -130,7 +146,11 @@ def standin():
                           0x10CF0000, 100, 100, 800, 180, None, None, None, None)
     assert h, C.get_last_error()
     msg = W.MSG()
+    started = time.monotonic()
     while U.IsWindow(h):
+        if time.monotonic()-started > 120 or stale():
+            U.DestroyWindow(h)
+            break
         if U.PeekMessageW(C.byref(msg), None, 0, 0, 1):
             U.TranslateMessage(C.byref(msg)); U.DispatchMessageW(C.byref(msg))
         else:
@@ -245,6 +265,8 @@ def inside():
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
         app = None
+        CURRENT.write_text(name, encoding='utf-8')
+        os.environ['DFM_STANDIN_CHECK'] = name   # the app and the stand-in it starts inherit it
         try:
             fresh(*files)
             app = App(name, SAND, **app_args)
@@ -261,6 +283,7 @@ def inside():
         finally:
             if app:
                 app.close()
+            CURRENT.write_text('', encoding='utf-8')   # any stand-in still starting leaves at once
         print(json.dumps(results[-1]), flush=True)
 
     def launch(a, kind, row, item, answer=None):
@@ -296,7 +319,7 @@ def inside():
         """The window's own longest wait while it only opens and closes the menu: what frames and a busy computer cost
         without any terminal. Open in Terminal gets that plus 150 ms."""
         with Probe(a.hwnd) as probe:
-            for _ in range(3):
+            for _ in range(8):
                 a.rclick(700, 420)
                 assert a.snap()['ctx'], 'Context menu did not open'
                 a.key(27)

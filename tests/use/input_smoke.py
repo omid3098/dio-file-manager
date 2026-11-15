@@ -211,7 +211,13 @@ SAND = WORK/'sandbox'
 def fresh(*names):
     # Only this folder is ever emptied: it holds the files the action checks create.
     import shutil
-    shutil.rmtree(SAND, ignore_errors=True)
+    deadline = time.monotonic() + 10
+    while True:   # a program that just ended (a stand-in window's process) may still hold the folder for a moment
+        shutil.rmtree(SAND, ignore_errors=True)
+        if not SAND.exists():
+            break
+        assert time.monotonic() < deadline, f'{SAND} cannot be emptied: a program still uses it'
+        time.sleep(.1)
     SAND.mkdir(parents=True)
     for n in names:
         (SAND/n).write_text('x', encoding='utf-8')

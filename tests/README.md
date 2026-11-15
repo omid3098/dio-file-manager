@@ -111,10 +111,15 @@ line, file arguments, working directory, and window desktop are checked; the
 stock chooser and actual terminal GUI are deliberately not launched. `DFM_TEST_OPEN`
 catches unintended default-handler launches, including an Alt+Enter regression.
 These overrides are confined to the check process and its children.
+A stand-in that starts late (a busy computer; the wait for its window is 45 s, `DFM_STANDIN_WAIT`) belongs to
+the check that started it: when that check has ended or given up, the stand-in exits at once without a window,
+so it never holds the sandbox folder as its working folder. `DFM_STANDIN_SLOW=<seconds>` makes every stand-in
+start that slowly, to rehearse this: only the checks that use a stand-in then fail, and the others still pass.
+`fresh()` also retries for 10 s to empty the sandbox, because a program that just ended may still hold it.
 
 Open in Terminal must never hold the window: a probe thread asks the window (`WM_NULL`) every 10 ms while the menu
 item runs, and the longest wait must stay within 150 ms of the window's own longest wait while it only opens and closes
-the menu on the same machine (`<check>-control.json`; `2-terminal`, and `2b-terminal-slow-loaded`, which adds
+the menu on the same machine, the longest of 8 open-and-close rounds (`<check>-control.json`; `2-terminal`, and `2b-terminal-slow-loaded`, which adds
 `DFM_TEST_TERMINAL_DELAY_MS=1500`, a slow process start as on a busy computer, and one busy process per core). The
 numbers are written to `<check>-answer.json`. Before the process start moved to a worker, the slow case measured
 about 1580 ms and failed with "Window stopped answering" (error 1460), the failure `2-terminal` showed on a busy machine.
