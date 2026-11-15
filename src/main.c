@@ -478,8 +478,12 @@ static void global_keys(void) {
 
 /* ---- the frame ---- */
 
-/* A folder name for the title: a word wider than the pane (a long name with no spaces) is cut in the middle; the rest wraps as text does. */
-static void fit_title_name(const char *name, char out[UI_NAME_BYTES]) {
+/* A folder name for the title: at most about two lines (a long name cut in the middle), and a word wider than the pane
+ * (a name with no spaces) is cut too; the rest wraps as text does. */
+static void fit_title_name(const char *whole, char out[UI_NAME_BYTES]) {
+    char cut[UI_NAME_BYTES];
+    ui_fit_name(whole, 1.5f * (A.content_w - 64), 22, cut);
+    const char *name = cut;
     size_t n = 0;
     out[0] = 0;
     while (*name) {

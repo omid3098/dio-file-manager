@@ -188,6 +188,13 @@ def inside():
         check('19-try-again', try_again, 'light', 'grid', where=denied, env={'DFM_TEST_LIST_DELAY_MS': '1500'})
     if denied.exists():
         check('20-denied-short-window', denied_page, 'dark', 'grid', '360x280', where=denied)
+    spaced = WORK / 'Annual project planning documents and quarterly financial reports for the engineering and research teams before the final board meeting'
+    spaced.mkdir(exist_ok=True)
+    subprocess.run(['icacls', str(spaced), '/deny', f"{os.environ.get('USERNAME', 'Everyone')}:(RD)"], check=True, creationflags=subprocess.CREATE_NO_WINDOW, capture_output=True)
+    try:
+        check('21-denied-long-spaced-name-short-window', denied_page, 'dark', 'grid', '360x280', where=spaced)
+    finally:
+        subprocess.run(['icacls', str(spaced), '/remove:d', os.environ.get('USERNAME', 'Everyone')], creationflags=subprocess.CREATE_NO_WINDOW, capture_output=True)
     check('14-5200-files', listing_big, 'light', 'grid', where=big)
     check('15-5200-files-details', listing_big, 'dark', 'list', where=big)
     check('16-search-no-results', no_results, 'light', 'grid')
