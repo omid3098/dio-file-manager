@@ -35,6 +35,27 @@ const wchar_t *dfm_leaf(const wchar_t *s) {
     if (!p || (q && q > p)) p = q;
     return p ? p + 1 : s;
 }
+/* Every path a job touches is made absolute and given the extended prefix in absolute(), the one place, so copy, move,
+   delete, rename and new folder all work past 260 characters, whether from paste, drag or drop. Takes p, returns it or its
+   replacement (NULL when out of memory). */
+static wchar_t *extended(wchar_t *p) {
+    wchar_t *x; size_t n;
+    if (!wcsncmp(p, L"\\\\?\\", 4) || !wcsncmp(p, L"\\\\.\\", 4)) return p;
+    n = wcslen(p) + 8; x = malloc(n * sizeof(*x));
+    if (!x) { free(p); SetLastError(ERROR_NOT_ENOUGH_MEMORY); return NULL; }
+    if (p[0] == L'\\') _snwprintf_s(x, n, _TRUNCATE, L"\\\\?\\UNC\\%s", p + 2);   /* \\server\share becomes \\?\UNC\server\share */
+    else _snwprintf_s(x, n, _TRUNCATE, L"\\\\?\\%s", p);
+    free(p); return x;
+}
+/* The same path as a person and the shell know it: X:\... or \\server\share, without the extended prefix. */
+static wchar_t *plain_dup(const wchar_t *w) {
+    if (!wcsncmp(w, L"\\\\?\\UNC\\", 8)) {
+        size_t n = wcslen(w) - 6 + 1; wchar_t *p = malloc(n * sizeof(*p));
+        if (p) { p[0] = L'\\'; wcscpy_s(p + 1, n - 1, w + 7); }
+        return p;
+    }
+    return _wcsdup(!wcsncmp(w, L"\\\\?\\", 4) && w[4] && w[5] == L':' ? w + 4 : w);
+}
 static wchar_t *absolute(const char *s) {
     wchar_t *w = dfm_wide(s), *p; DWORD n;
     if (!w) return NULL;
@@ -48,7 +69,7 @@ static wchar_t *absolute(const char *s) {
     if (!p) { SetLastError(ERROR_NOT_ENOUGH_MEMORY); return NULL; }
     n = (DWORD)wcslen(p);
     while (n > 3 && (p[n-1] == L'\\' || p[n-1] == L'/')) p[--n] = 0;
-    return p;
+    return extended(p);
 }
 const char *ops_name_error(const char *name) {
     wchar_t *w = dfm_wide(name), base[256]; size_t n, i, b;
@@ -85,9 +106,9 @@ struct ops_job {
 };
 static int cancelled(ops_job *j) { return InterlockedCompareExchange(&j->cancel, 0, 0) != 0; }
 static void text_path(char *out, size_t size, const wchar_t *w) {
-    char *u = dfm_utf8(w);
-    /* Show X:\... without the extended prefix. */
-    if (u) { strncpy_s(out, size, !strncmp(u, "\\\\?\\", 4) && u[4] && u[5] == ':' ? u + 4 : u, _TRUNCATE); free(u); } else out[0] = 0;
+    wchar_t *x = plain_dup(w); char *u = x ? dfm_utf8(x) : NULL;   /* shown without the extended prefix */
+    if (u) strncpy_s(out, size, u, _TRUNCATE); else out[0] = 0;
+    free(u); free(x);
 }
 static void fail(ops_job *j, const wchar_t *path, DWORD error) {
     EnterCriticalSection(&j->lock); ++j->state.errors; j->state.error_code = error;
@@ -189,18 +210,7 @@ static int remove_node(ops_job *j, const wchar_t *path, int progress) {
     else if (progress) completed(j, 1, (a.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? 0 : ((uint64_t)a.nFileSizeHigh << 32) | a.nFileSizeLow);
     return ok;
 }
-/* Permanent delete of a top-level item. Always with the extended prefix: the item may be short while a child path of
-   MAX_PATH characters or more is reachable only that way. */
-static int delete_item(ops_job *j, const wchar_t *path) {
-    int ok;
-    if (path[0] && path[1] == L':' && path[2] == L'\\') {
-        size_t cap = wcslen(path) + 5; wchar_t *x = malloc(cap * sizeof(*x));
-        if (!x) { fail(j, path, ERROR_NOT_ENOUGH_MEMORY); return 0; }
-        wcscpy_s(x, cap, L"\\\\?\\"); wcscat_s(x, cap, path);
-        ok = remove_node(j, x, 1); free(x); return ok;
-    }
-    return remove_node(j, path, 1);
-}
+static int delete_item(ops_job *j, const wchar_t *path) { return remove_node(j, path, 1); }   /* absolute() already gave the extended prefix */
 static int copy_node(ops_job *j, const wchar_t *src, const wchar_t *requested, int move) {
     WIN32_FILE_ATTRIBUTE_DATA a; DWORD target_attrs, error; wchar_t *dst = NULL; int replace = 0, ok = 1;
     if (cancelled(j)) return 0;
@@ -317,7 +327,11 @@ static unsigned __stdcall run(void *context) {
             hr = S_OK;
             /* An item the bin cannot take is the user's call: Delete removes it for good, Skip and Cancel leave it. */
             for (i = 0; i < j->count && !cancelled(j); ++i) {
-                if (SUCCEEDED(dfm_trash_blocker(j->sources[i]))) { paths[n] = dfm_utf8(j->sources[i]); if (!paths[n]) { hr = E_OUTOFMEMORY; break; } ++n; }
+                if (SUCCEEDED(dfm_trash_blocker(j->sources[i]))) {   /* the shell and the Undo list know the plain path */
+                    wchar_t *x = plain_dup(j->sources[i]); paths[n] = x ? dfm_utf8(x) : NULL; free(x);
+                    if (!paths[n]) { hr = E_OUTOFMEMORY; break; }
+                    ++n;
+                }
                 else if (conflict(j, j->sources[i], L"", 1) == OPS_DELETE_NOW && !cancelled(j)) {
                     if (delete_item(j, j->sources[i])) { EnterCriticalSection(&j->lock); ++j->state.deleted; LeaveCriticalSection(&j->lock); }
                 }

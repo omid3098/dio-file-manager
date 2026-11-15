@@ -27,7 +27,7 @@ static const GUID DFM_IID_IDropTargetHelper = { 0x4657278B, 0x411B, 0x11D2, { 0x
 static const GUID DFM_IID_IDragSourceHelper = { 0xDE5BF786, 0x477A, 0x11D2, { 0x83, 0x9D, 0x00, 0xC0, 0x4F, 0xD9, 0x18, 0xD0 } };
 
 enum { K_NONE = 0, K_BG, K_FOLDER, K_PLACE, K_TRASH };   /* what a drop would go to */
-enum { ROWS_MAX = 64, ENTRIES_MAX = 16, EDGE = 32 };
+enum { ENTRIES_MAX = 16, EDGE = 32 };
 
 /* ---- the data object ---- */
 
@@ -181,7 +181,7 @@ static struct {
     ULONGLONG scroll_t;
     /* this frame's layout */
     cui_rect content;
-    cui_rect row[ROWS_MAX]; char row_to[ROWS_MAX][FS_PATH_MAX]; int row_n;
+    struct drop_row { cui_rect r; char to[FS_PATH_MAX]; } *row; int row_n, row_cap;   /* one per sidebar row that takes a drop; grows with the sidebar */
     /* test state */
     IDataObject *test_obj;
     int drops, drags; DWORD last_effect, last_preferred; int last_n; char last_dest[FS_PATH_MAX]; bool last_move;
@@ -210,9 +210,15 @@ void dnd_frame_begin(void) {
 }
 
 void dnd_row(const char *target) {
-    if (D.row_n >= ROWS_MAX || !target || !target[0]) return;
-    D.row[D.row_n] = cui_last_rect(A.ui);
-    snprintf(D.row_to[D.row_n], sizeof D.row_to[0], "%s", target);
+    if (!target || !target[0]) return;
+    if (D.row_n >= D.row_cap) {
+        int cap = D.row_cap ? D.row_cap * 2 : 64;
+        struct drop_row *grown = realloc(D.row, (size_t)cap * sizeof *grown);
+        if (!grown) return;
+        D.row = grown; D.row_cap = cap;
+    }
+    D.row[D.row_n].r = cui_last_rect(A.ui);
+    snprintf(D.row[D.row_n].to, sizeof D.row[0].to, "%s", target);
     D.row_n++;
 }
 
@@ -319,9 +325,9 @@ static void resolve(void) {
     if (!act_drop_allowed()) return;
     if (D.pt.y >= HEADER_H) {
         for (int i = D.row_n - 1; i >= 0; i--) {
-            if (!has(D.row[i], D.pt)) continue;
-            if (!strcmp(D.row_to[i], "@3")) D.kind = K_TRASH;
-            else if (D.row_to[i][0] != '@') { D.kind = K_PLACE; snprintf(D.dest, sizeof D.dest, "%s", D.row_to[i]); }
+            if (!has(D.row[i].r, D.pt)) continue;
+            if (!strcmp(D.row[i].to, "@3")) D.kind = K_TRASH;
+            else if (D.row[i].to[0] != '@') { D.kind = K_PLACE; snprintf(D.dest, sizeof D.dest, "%s", D.row[i].to); }
             break;
         }
     }
@@ -675,8 +681,8 @@ void dnd_snapshot(FILE *f) {
     fprintf(f, ",\"drag_data\":"); json_list(f, D.drag_back, D.drag_back_n);
     fprintf(f, ",\"rows\":[");
     for (int i = 0; i < D.row_n; i++) {   /* the sidebar rows that take a drop: [x, y, w, h, where] */
-        fprintf(f, "%s[%.1f,%.1f,%.1f,%.1f,\"", i ? "," : "", D.row[i].x, D.row[i].y, D.row[i].w, D.row[i].h);
-        for (const char *c = D.row_to[i]; *c; c++) { if (*c == '\\' || *c == '"') fputc('\\', f); fputc(*c, f); }
+        fprintf(f, "%s[%.1f,%.1f,%.1f,%.1f,\"", i ? "," : "", D.row[i].r.x, D.row[i].r.y, D.row[i].r.w, D.row[i].r.h);
+        for (const char *c = D.row[i].to; *c; c++) { if (*c == '\\' || *c == '"') fputc('\\', f); fputc(*c, f); }
         fprintf(f, "\"]");
     }
     fprintf(f, "],\"content\":[%.1f,%.1f,%.1f,%.1f]}", D.content.x, D.content.y, D.content.w, D.content.h);

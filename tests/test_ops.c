@@ -335,6 +335,60 @@ static void cross_volume(void) {
     }
     puts(ran ? "PASS cross-volume move copies then removes source; second-drive sandbox removed" : "SKIP cross-volume move: no second writable fixed drive");
 }
+/* ---- paths past 260 characters, Persian, as source and target of copy, move and delete: on one drive and across drives ---- */
+static void long_content(const char *p, const char *expected) {
+    char buf[64] = {0}; DWORD n; wchar_t *x = extended(p); HANDLE h = CreateFileW(x, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL); free(x);
+    CHECK(h != INVALID_HANDLE_VALUE); CHECK(ReadFile(h, buf, sizeof(buf) - 1, &n, NULL)); CloseHandle(h); CHECK(!strcmp(buf, expected));
+}
+static void long_write(const char *p, const char *text) {
+    wchar_t *x = extended(p); DWORD n; HANDLE h = CreateFileW(x, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL); free(x);
+    CHECK(h != INVALID_HANDLE_VALUE); CHECK(WriteFile(h, text, (DWORD)strlen(text), &n, NULL)); CloseHandle(h);
+}
+/* base\<3 folders of 90 Persian letters>, made with the extended prefix; the result is a plain UTF-8 path of over 260 characters. */
+static char *deep_dir(const char *base) {
+    static const char seg[] = "\\"
+        "گگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگگ";
+    size_t n = strlen(base) + 3 * strlen(seg) + 1; char *d = malloc(n); wchar_t *x; int i; CHECK(d);
+    strcpy_s(d, n, base);
+    for (i = 0; i < 3; i++) { strcat_s(d, n, seg); x = extended(d); CHECK(CreateDirectoryW(x, NULL) || GetLastError() == ERROR_ALREADY_EXISTS); free(x); }
+    return d;
+}
+static char *under(const char *dir, const char *leaf) { size_t n = strlen(dir) + strlen(leaf) + 2; char *p = malloc(n); CHECK(p); sprintf_s(p, n, "%s\\%s", dir, leaf); return p; }
+static void long_one(const char *from, const char *to, const char *label) {
+    char *sd, *td, *a, *b, *ta, *tb; const char *one[1]; wchar_t *x;
+    mkdir_u(from); mkdir_u(to);
+    { char *s = under(from, "src"), *t = under(to, "dst"); mkdir_u(s); mkdir_u(t); sd = deep_dir(s); td = deep_dir(t); free(s); free(t); }
+    CHECK(strlen(sd) > 400 && strlen(td) > 400);
+    a = under(sd, "\u0641\u0627\u06cc\u0644-\u0627\u0644\u0641.txt"); b = under(sd, "\u0641\u0627\u06cc\u0644-\u0628.txt");
+    ta = under(td, "\u0641\u0627\u06cc\u0644-\u0627\u0644\u0641.txt"); tb = under(td, "\u0641\u0627\u06cc\u0644-\u0628.txt");
+    long_write(a, "alpha"); long_write(b, "beta");
+    one[0] = a; finish(ops_start(OPS_COPY, one, 1, td, NULL), -1, 0);                    /* long source, long target: copy */
+    long_content(ta, "alpha"); CHECK(long_exists(a)); CHECK(state->files_done == 1 && state->bytes_done == 5);
+    one[0] = b; finish(ops_start(OPS_MOVE, one, 1, td, NULL), -1, 0);                    /* and move */
+    long_content(tb, "beta"); CHECK(!long_exists(b));
+    one[0] = sd; finish(ops_start(OPS_COPY, one, 1, td, NULL), -1, 0);                   /* a long folder with its files */
+    { const char *leaf = strrchr(sd, '\\'); char *copy = under(td, leaf + 1), *f = under(copy, "\u0641\u0627\u06cc\u0644-\u0627\u0644\u0641.txt"); long_content(f, "alpha"); free(copy); free(f); }
+    one[0] = ta; finish(ops_start(OPS_DELETE, one, 1, NULL, NULL), -1, 0); CHECK(!long_exists(ta)); CHECK(long_exists(tb));   /* and delete */
+    { char *s = under(from, "src"), *t = under(to, "dst"); x = extended(s); remove_tree(x); free(x); x = extended(t); remove_tree(x); free(x); free(s); free(t); }
+    free(sd); free(td); free(a); free(b); free(ta); free(tb);
+    printf("PASS long Persian paths: copy, move, folder copy and delete, %s\n", label);
+}
+static void long_paths(void) {
+    wchar_t drives[512], *p, our_root[MAX_PATH]; int ran = 0;
+    long_one(ROOT "\\longpaths", ROOT "\\longpaths", "one drive");
+    CHECK(GetVolumePathNameW(L"E:\\w\\dio-file-manager", our_root, MAX_PATH)); CHECK(GetLogicalDriveStringsW(512, drives));
+    for (p = drives; *p; p += wcslen(p) + 1) if (GetDriveTypeW(p) == DRIVE_FIXED && _wcsicmp(p, our_root)) {
+        wchar_t dest[MAX_PATH]; char *u;
+        _snwprintf_s(dest, MAX_PATH, _TRUNCATE, L"%sdio-file-manager-test-long-%lu", p, GetCurrentProcessId());
+        if (!CreateDirectoryW(dest, NULL)) continue;
+        u = dfm_utf8(dest); CHECK(u);
+        long_one(ROOT "\\longpaths", u, "from this drive to another"); long_one(u, ROOT "\\longpaths", "from another drive to this");
+        { wchar_t *x = extended(u); remove_tree(x); free(x); }
+        free(u); ran = 1; break;
+    }
+    if (!ran) puts("SKIP long paths across drives: no second writable fixed drive");
+    { wchar_t *x = extended(ROOT "\\longpaths"); if (GetFileAttributesW(x) != INVALID_FILE_ATTRIBUTES) remove_tree(x); free(x); }
+}
 /* ---- dialog names: cut in the middle at 50 characters, the extension kept, no character cut apart ---- */
 static int cps(const char *s) { int n = 0; for (; *s; s++) if (((unsigned char)*s & 0xC0) != 0x80) n++; return n; }
 static int valid_utf8(const char *s) {
@@ -442,6 +496,6 @@ int main(void) {
           if (!strcmp(only, "names")) dialog_names(); else if (!strcmp(only, "nested")) nested_long(); else if (!strcmp(only, "junction")) through_junction(); else if (!strcmp(only, "partial")) partial_success(); else CHECK(0);
           puts("PASS the one check ran"); cleanup(); return 0;
       } }
-    dialog_names(); basic(); conflicts(); names(); cancellation(); searching(); clipboard(); recycle(); unrecyclable(); cross_volume();
+    dialog_names(); basic(); conflicts(); names(); cancellation(); searching(); clipboard(); recycle(); unrecyclable(); cross_volume(); long_paths();
     cleanup(); free(root); free(state); puts("ALL CHECKS PASSED; sandboxes removed"); return 0;
 }

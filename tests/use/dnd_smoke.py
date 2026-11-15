@@ -24,6 +24,7 @@ U = base.U
 SAND = WORK / 'dnd'
 PERSIAN = 'گزارش-نهایی-بسیار-طولانی-سال-۱۴۰۵-با-نام-خیلی-بلند-برای-آزمایش-نمایش.txt'
 COPY, MOVE = 1, 2
+LONG = '\\\\?\\'   # the extended prefix: Python itself needs it to make, read and remove a path past 260 characters
 SHIFT, CTRL = 4, 8
 
 
@@ -94,9 +95,9 @@ def row_xy(a, target):
 def fresh():
     for child in SAND.glob('*') if SAND.exists() else []:   # the sandbox drive's own folder stays: a drive letter is mapped to it
         if child.name != 'drive':
-            shutil.rmtree(child, ignore_errors=True)
+            shutil.rmtree(LONG + str(child), ignore_errors=True)
     for child in (SAND / 'drive').glob('*') if (SAND / 'drive').exists() else []:
-        shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink()
+        shutil.rmtree(LONG + str(child), ignore_errors=True) if child.is_dir() else child.unlink()
     for d in ('src', 'ext', 'dst', 'dst/sub', 'dst/sub/deep', 'drive', 'many'):
         (SAND / d).mkdir(parents=True, exist_ok=True)
     for n in ('a.txt', 'b.txt', PERSIAN):
@@ -108,6 +109,31 @@ def fresh():
     for n in ('one.txt', 'two.txt', 'three.txt'):
         (SAND / 'ext' / n).write_text(n, encoding='utf-8')
     (SAND / 'dst' / 'keep.txt').write_text('keep', encoding='utf-8')
+
+
+def long_dir(base):
+    """base plus five folders of 100 Persian letters each: a path of about 590 characters (over 1040 bytes in UTF-8)."""
+    d = Path(base)
+    for part in ('گ', 'ر', 'م', 'ن', 'ی'):
+        d = d / (part * 100)
+    os.makedirs(LONG + str(d), exist_ok=True)
+    return d
+
+
+def long_file(folder, name, text):
+    p = Path(folder) / name
+    with open(LONG + str(p), 'w', encoding='utf-8') as f:
+        f.write(text)
+    assert len(str(p)) > 400 and len(str(p).encode('utf-8')) > 800, len(str(p))
+    return p
+
+
+def long_read(p):
+    try:
+        with open(LONG + str(p), encoding='utf-8') as f:
+            return f.read()
+    except OSError:
+        return None
 
 
 def free_letter():
@@ -422,25 +448,119 @@ def inside():
         assert a.snap()['dnd']['drops'] == 0 and one.exists() and not (SAND / 'dst' / 'one.txt').exists()
 
     def in_long_path(a):
-        # two files, one with a path of 590 characters (over 1040 bytes in UTF-8): both reach the job, none drops out
+        # a source path of 590 characters (over 1040 bytes in UTF-8) reaches the job and the file arrives, by copy and by move
         top = SAND / 'ext' / ('گ' * 100)
-        deep = top / ('ر' * 100) / ('م' * 100) / ('ن' * 100) / ('ی' * 100)
-        long_prefix = '\\\\?\\'
         try:
-            os.makedirs(long_prefix + str(deep))
-            longfile = deep / 'long-one.txt'
-            with open(long_prefix + str(longfile), 'w', encoding='utf-8') as f:
-                f.write('long')
-            assert len(str(longfile)) > 560 and len(str(longfile).encode('utf-8')) > 1040, len(str(longfile))
+            deep = long_dir(SAND / 'ext')
+            one = long_file(deep, 'long-one.txt', 'long one')
+            two = long_file(deep, 'long-two.txt', 'long two')
+            assert len(str(one)) > 560, len(str(one))   # the 590-character path of the request
             bx, by = bg_xy(a)
-            d = enter(a, bx, by, [SAND / 'ext' / 'one.txt', longfile], CTRL)
+            d = enter(a, bx, by, [SAND / 'ext' / 'one.txt', one], CTRL)
             assert d['effect'] == COPY, d
             d = drop(a, bx, by, CTRL)
             assert d['last_n'] == 2, d
             jobs_done(a)
-            assert (SAND / 'dst' / 'one.txt').exists()   # what the file job then does with a path past 260 characters is its own business, as with a paste
+            assert (SAND / 'dst' / 'one.txt').exists()
+            assert long_read(SAND / 'dst' / 'long-one.txt') == 'long one', 'The long-path file did not arrive in the target folder'
+            assert long_read(one) == 'long one', 'A copy took the source away'
+            d = enter(a, bx, by, [two])   # the same drive moves
+            assert d['effect'] == MOVE, d
+            drop(a, bx, by)
+            jobs_done(a)
+            assert long_read(SAND / 'dst' / 'long-two.txt') == 'long two', 'The moved long-path file did not arrive in the target folder'
+            assert long_read(two) is None, 'The moved long-path file stayed at its source'
         finally:
-            shutil.rmtree(long_prefix + str(top), ignore_errors=True)
+            shutil.rmtree(LONG + str(top), ignore_errors=True)
+
+    def long_parent(base):
+        """A folder the window can open (its path under 240 characters) holding a folder, so that the folder inside has a path of over 260."""
+        pad = 230 - len(str(base)) - 1
+        parent = Path(base) / ('گ' * pad)
+        child = parent / ('ر' * 120)
+        os.makedirs(LONG + str(child), exist_ok=True)
+        assert len(str(child)) > 330, len(str(child))
+        return parent, child
+
+    def in_long_target(a):
+        # a folder item whose own path is over 260 characters takes a drop: a short file and a 590-character one copy, then a short one moves
+        parent, child = long_parent(SAND / 'dst')
+        try:
+            far = long_file(long_dir(SAND / 'ext' / 'from'), 'far.txt', 'far')
+            a.path(parent)
+            a.until('the long folder did not open', lambda: a.snap()['path'] == str(parent), 6)
+            x, y = item_xy(a, child.name)
+            d = enter(a, x, y, [SAND / 'ext' / 'one.txt', far], CTRL)
+            assert (d['kind'], d['dest']) == (2, str(child)), d
+            a.snap('drop-over-long-folder')
+            d = drop(a, x, y, CTRL)
+            assert d['last_dest'] == str(child) and d['last_n'] == 2, d
+            jobs_done(a)
+            assert long_read(child / 'one.txt') == 'one.txt' and long_read(child / 'far.txt') == 'far', 'A file did not arrive in the long target folder'
+            assert long_read(far) == 'far'
+            enter(a, x, y, [SAND / 'ext' / 'two.txt'])
+            drop(a, x, y)
+            jobs_done(a)
+            assert long_read(child / 'two.txt') == 'two.txt' and not (SAND / 'ext' / 'two.txt').exists(), 'A move into the long target folder did not arrive'
+        finally:
+            shutil.rmtree(LONG + str(parent), ignore_errors=True)
+            shutil.rmtree(LONG + str(SAND / 'ext' / 'from'), ignore_errors=True)
+
+    def in_long_other_drive(a):
+        # long sources onto the other drive's row (copy, then Shift moves), and short ones onto a folder item with a long path on it
+        try:
+            src = long_dir(SAND / 'ext' / 'from')
+            one = long_file(src, 'across-one.txt', 'across one')
+            two = long_file(src, 'across-two.txt', 'across two')
+            x, y = row_xy(a, drive)
+            d = enter(a, x, y, [one])
+            assert (d['kind'], d['effect']) == (3, COPY), d
+            drop(a, x, y)
+            jobs_done(a)
+            assert long_read(Path(drive) / 'across-one.txt') == 'across one', 'The long-path file did not arrive on the other drive'
+            enter(a, x, y, [two], SHIFT)
+            drop(a, x, y, SHIFT)
+            jobs_done(a)
+            assert long_read(Path(drive) / 'across-two.txt') == 'across two' and long_read(two) is None, 'The moved long-path file did not arrive on the other drive'
+            parent, child = long_parent(Path(drive) / 'in')
+            a.path(parent)
+            a.until('the long folder on the other drive did not open', lambda: a.snap()['path'].lower() == str(parent).lower(), 6)
+            x, y = item_xy(a, child.name)
+            d = enter(a, x, y, [SAND / 'ext' / 'one.txt', SAND / 'ext' / 'three.txt'])
+            assert (d['kind'], d['effect']) == (2, COPY), d   # another drive copies
+            drop(a, x, y)
+            jobs_done(a)
+            assert long_read(child / 'one.txt') == 'one.txt' and long_read(child / 'three.txt') == 'three.txt', 'A copy into the long folder on the other drive did not arrive'
+            enter(a, x, y, [SAND / 'ext' / 'two.txt'], SHIFT)
+            drop(a, x, y, SHIFT)
+            jobs_done(a)
+            assert long_read(child / 'two.txt') == 'two.txt' and not (SAND / 'ext' / 'two.txt').exists(), 'A move into the long folder on the other drive did not arrive'
+        finally:
+            shutil.rmtree(LONG + str(SAND / 'ext' / 'from'), ignore_errors=True)
+
+    def in_many_rows(a):
+        # 70 folders added to the sidebar: the last row takes a drop like the first (the list of drop rows has no fixed size)
+        many = SAND / 'rows70'
+        for i in range(70):
+            (many / f'f{i:02}').mkdir(parents=True, exist_ok=True)
+        for i in range(70):
+            a.path(many / f'f{i:02}')
+            a.key(ord('D'), (17,))
+            time.sleep(.08)
+        a.path(SAND / 'ext')
+        a.until('70 added rows did not show', lambda: sum(1 for *_, t in a.snap()['dnd']['rows'] if t.lower().startswith(str(many).lower())) == 70, 10)
+        for i in (0, 56, 63, 64, 69):
+            target = many / f'f{i:02}'
+            x, y = row_xy(a, target)
+            d = enter(a, x, y, [SAND / 'ext' / 'one.txt'], CTRL)
+            assert (d['kind'], d['dest'].lower()) == (3, str(target).lower()), (i, d)
+            leave(a)
+        x, y = row_xy(a, many / 'f69')
+        enter(a, x, y, [SAND / 'ext' / 'one.txt'])
+        a.snap('drop-over-70th-row')
+        drop(a, x, y)
+        jobs_done(a)
+        assert (many / 'f69' / 'one.txt').exists() and not (SAND / 'ext' / 'one.txt').exists()
 
     def in_source_follows(a):
         # a file leaves the open folder from another process (what Explorer does after an outgoing move): the list drops it
@@ -476,7 +596,11 @@ def inside():
         check('21-in-long-path', in_long_path)
         check('22-source-list-follows-move-out', in_source_follows)
         check('23-in-added-folder-row', in_added_folder_row, 'ext')
-        (WORK / 'appdata' / 'dio-file-manager' / 'sidebar.txt').unlink(missing_ok=True)   # the added row was this check's own
+        (WORK / 'appdata' / 'dio-file-manager' / 'sidebar.txt').unlink(missing_ok=True)
+        check('24-in-long-target-folder', in_long_target)
+        check('25-in-long-path-other-drive', in_long_other_drive, 'ext')
+        check('26-in-70-sidebar-rows', in_many_rows, 'ext')
+        (WORK / 'appdata' / 'dio-file-manager' / 'sidebar.txt').unlink(missing_ok=True)   # the added rows were these checks' own
     finally:
         subprocess.run(['subst', f'{letter}:', '/d'], creationflags=subprocess.CREATE_NO_WINDOW)
     (WORK / 'dnd-results.json').write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding='utf-8')
