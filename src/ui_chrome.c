@@ -122,16 +122,26 @@ void ui_sidebar_header(void) {
 
 /* The line between the sidebar and the content: a 6 px strip over it. Drag moves the line, a double click makes the sidebar 240 px again.
  * Called first inside the window's row (so the strip's position is the window's, and its press is taken before the file view's band selection looks at it). */
+static cui_id edge_id;   /* the strip's id: the file view's band selection leaves a press the strip holds alone */
+bool ui_sidebar_edge_held(void) { return edge_id && A.ui->active == edge_id; }
+
 void ui_sidebar_edge(float window_w, float window_h) {
     cui_ctx *ui = A.ui;
-    static float grab;
+    static float grab, press_x;
     static bool dragging;   /* a press that took the line to move it (a double click resets and moves nothing) */
+    static bool moved;      /* the pointer left the press point: only then is the width set, so a click never changes the saved width */
     cui_id id = cui_make_id(ui, "sidebar-edge");
+    edge_id = id;
+    /* The hit test gives a press to the last control built over the point, and the Details table is built after this strip:
+     * below the header the strip takes the press itself, so its content-side half resizes as the sidebar-side half does. */
+    cui_vec2 m = cui_mouse_pos(ui);
+    if (ui->mouse_inside && !ui->hot_layer && (!ui->active || ui->active == id) && m.y >= HEADER_H && fabsf(m.x - A.sidebar_px) <= 3.0f) ui->hot = id;
     cui_interact r = cui__interact(ui, id, CUI_IF_DRAG);
-    if (r.active && cui_mouse_clicked(ui, CUI_MOUSE_LEFT)) { grab = cui_mouse_pos(ui).x - A.sidebar_px; dragging = !r.double_clicked; }   /* where on the strip it was taken */
+    if (r.active && cui_mouse_clicked(ui, CUI_MOUSE_LEFT)) { grab = cui_mouse_pos(ui).x - A.sidebar_px; press_x = cui_mouse_pos(ui).x; moved = false; dragging = !r.double_clicked; }   /* where on the strip it was taken */
     if (!cui_mouse_down(ui, CUI_MOUSE_LEFT)) dragging = false;
     float room = window_w - CONTENT_W_MIN;
-    if (dragging && r.active) {
+    if (dragging && r.active && cui_mouse_pos(ui).x != press_x) moved = true;
+    if (dragging && r.active && moved) {
         float w = cui_mouse_pos(ui).x - grab;
         if (w > room) w = room;   /* the line stays under the pointer: the content keeps its minimum */
         app_set_sidebar_w((int)floorf(w + 0.5f));

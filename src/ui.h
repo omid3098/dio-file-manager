@@ -267,6 +267,7 @@ void drive_usage_text(const fs_drive *d, char *out, size_t cap);   /* ui_views.c
 void ui_sidebar_slide_begin(float shown, float full, float height);   /* inside a clipped row `shown` wide: the sidebar's own `full` width, moved left so only `shown` of it shows */
 void ui_sidebar_slide_end(void);
 void ui_sidebar_edge_nodrag(float window_h);
+bool ui_sidebar_edge_held(void);                         /* the strip holds the press now (the file view's band must not start) */
 void ui_sidebar_edge(float window_w, float window_h);   /* the 6 px strip on the line between the sidebar and the content: drag to resize, double click to reset */
 void ui_default_fm_snapshot(FILE *f);       /* the main menu button and its switch, for real-input checks */
 void ui_view_mode_snapshot(FILE *f);       /* the grid/list toggles of the open view-options menu, for real-input checks */

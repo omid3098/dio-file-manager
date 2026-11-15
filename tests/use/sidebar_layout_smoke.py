@@ -65,7 +65,7 @@ def inside():
     results = []
     folder = WORK / 'fixture'
 
-    def check(name, fn, theme='light', env=None, size=None, width=None):
+    def check(name, fn, theme='light', env=None, size=None, width=None, view='grid'):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
         if width:
@@ -74,7 +74,7 @@ def inside():
         saved = {k: os.environ.get(k) for k in (env or {})}
         os.environ.update(env or {})
         try:
-            app = base.App(name, folder, 'grid', theme, extra=('--size', size) if size else ())
+            app = base.App(name, folder, view, theme, extra=('--size', size) if size else ())
             fn(app)
             app.snap(name + '-passed')
             results.append({'check': name, 'result': 'passed'})
@@ -128,6 +128,32 @@ def inside():
         resize(a, 1080)
         assert settled(a)['sidebar_px'] == 400, 'The saved width is back when there is room'
         assert saved_width() == 400, 'A narrow window never changes the saved width'
+
+    def content_side_drag(a):
+        """The content-side half of the strip in Details view resizes, it does not start the rubber band."""
+        s = a.snap()
+        assert s['sidebar_px'] == 240 and s['zoom'] >= 0, 'Start width 240'
+        a.msg(0x200, 0, a.point(241, 400)); time.sleep(.05)
+        a.msg(0x201, 1, a.point(241, 400)); time.sleep(.05)
+        for i in range(1, 9):
+            a.msg(0x200, 1, a.point(241 + 59 * i / 8, 400)); time.sleep(.03)
+            assert not a.snap()['band'], 'The press on the strip started the band'
+        a.msg(0x202, 0, a.point(300, 400)); time.sleep(.15)
+        s = a.snap()
+        assert 295 <= s['sidebar_px'] <= 305 and not s['band'], f'Dragged to 300 from the content side: {s["sidebar_px"]}, band {s["band"]}'
+
+    def click_keeps_saved(a):
+        """A click on a constrained divider (drawn narrower than saved) moves nothing and saves nothing."""
+        resize(a, 700)
+        s = settled(a)
+        assert s['sidebar_px'] < 400 and s['sidebar_w'] == 400, f'Constrained: {s["sidebar_px"]} of {s["sidebar_w"]}'
+        x = round(s['sidebar_px'])
+        a.msg(0x200, 0, a.point(x, 300)); time.sleep(.05)
+        a.msg(0x201, 1, a.point(x, 300)); time.sleep(.1)
+        a.msg(0x202, 0, a.point(x, 300)); time.sleep(.2)
+        assert a.snap()['sidebar_w'] == 400, 'The saved width stays 400 after a click'
+        time.sleep(.6)   # the writer runs 300 ms after a change
+        assert saved_width() == 400, 'A click on the divider never changes the saved width'
 
     def slide_fast(a):
         """Default 150 ms: crossing 683 both ways, with the frame log counting the frames that moved the sidebar."""
@@ -247,6 +273,9 @@ def inside():
     check('3-double-click-reset', width_reset)
     SETTINGS.write_text('view-v2 3.000 3.000 400\n', encoding='utf-8')
     check('4-content-minimum', content_minimum)
+    check('4b-content-side-drag-details', content_side_drag, width=240, view='list')
+    SETTINGS.write_text('view-v2 3.000 3.000 400\n', encoding='utf-8')
+    check('4c-click-keeps-saved-width', click_keeps_saved)
     check('5-slide-150ms', slide_fast, width=240)
     check('6-slide-slow-and-reverse', slide_slow, env={'DFM_TEST_GLIDE_MS': '1500'}, width=240)
     check('7-snap-jump', snap_jump, width=240)

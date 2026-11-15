@@ -412,7 +412,7 @@ void ui_band_begin(void) {
         /* Scrollbar and floating controls keep their own press, even over empty space. */
         bool bar = (A.zoom == Z_LIST && ui->my >= view.y + view.h - 12) ||
                    (A.zoom != Z_LIST && ui->mx >= view.x + view.w - 12);
-        if (!content && !bar && (!ui->hot_layer) && (hit >= 0 || !ui->active || ui->hot == n->id || A.zoom == Z_DETAILS)) {
+        if (!content && !bar && !ui_sidebar_edge_held() && (!ui->hot_layer) && (hit >= 0 || !ui->active || ui->hot == n->id || A.zoom == Z_DETAILS)) {
             ui_band_cancel();
             band.saved = calloc((size_t)A.vis_n, sizeof *band.saved);
             if (!band.saved) return;
