@@ -356,7 +356,7 @@ void ui_sidebar_places(void) {
             cui_push_id_int(ui, 1000 + i);
             cui_row(ui, .width = CUI_FILL, .gap = 0) {
                 if (gone) ui_node_opacity(0.5f);
-                if (place_row(label, CUI_ICON_FOLDER, A.loc == LOC_FOLDER && same_path(A.path, p))) app_navigate(p);
+                if (place_row(label, CUI_ICON_FOLDER, A.loc == LOC_FOLDER && sidebar_same_path(A.path, p))) app_navigate(p);
                 cui_tooltip(ui, p);
                 row_rclick(cui_last_rect(ui), p, true);
                 if (srow_n) srow[srow_n - 1].dim = gone;
