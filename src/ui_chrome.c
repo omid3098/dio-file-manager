@@ -783,7 +783,7 @@ void ui_status_pill(void) {
     cui_theme *th = cui_theme_get(ui);
     float line = cui_measure_text(ui, CUI_FONT_BODY, th->text_body * th->font_scale, buf, (int)strlen(buf)).height, h = line + 18.0f;
     /* Many toasts in a short window can fill the pane: the label then waits (it never sits under a toast) and returns when they go. */
-    if (!buf[0] || PILL_PAD + want + h > A.content_h) { pill_r[0] = pill_r[1] = pill_r[2] = pill_r[3] = 0; return; }
+    if (!buf[0] || 2 * PILL_PAD + want + h > A.content_h) { pill_r[0] = pill_r[1] = pill_r[2] = pill_r[3] = 0; return; }
     cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_END, .justify = CUI_JUSTIFY_END, .pad = PILL_PAD) {
         cui_row(ui, .bg = CUI_COLOR_SURFACE_RAISED, .radius = 14, .border = 1, .border_color = CUI_COLOR_BORDER,
                 .elevation = CUI_ELEVATION_FLOATING, .pad_x = 14, .pad_y = 8, .max_width = pill_room() + 30.0f) {
