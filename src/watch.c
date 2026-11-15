@@ -180,7 +180,7 @@ void watch_open(const char *dir) {
     w->stop = CreateEventW(NULL, TRUE, FALSE, NULL);
     w->closed = CreateEventW(NULL, TRUE, FALSE, NULL);
     snprintf(w->path, sizeof w->path, "%s", dir);
-    fs_u8_to_w(dir, w->wpath, FS_PATH_MAX);
+    fs_u8_to_w_long(dir, w->wpath, FS_PATH_MAX);
     uintptr_t t = w->stop && w->closed ? _beginthreadex(NULL, 0, watch_thread, w, 0, NULL) : 0;
     if (!t) { CloseHandle(w->stop); CloseHandle(w->closed); free(w); return; }
     CloseHandle((HANDLE)t);

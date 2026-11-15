@@ -16,6 +16,29 @@ int fs_u8_to_w(const char *s, wchar_t *w, int cap) {
     if (n <= 0 && cap > 0) w[0] = 0;
     return n;
 }
+/* The one place a long path gets the extended prefix when the app reads a folder: from FS_LONG_FROM characters on, an absolute
+ * path (X:\... or \\server\share) is made canonical and written as \\?\X:\... or \\?\UNC\server\share, which Windows reads
+ * without the 260-character limit. Shorter and already-prefixed paths stay as they are. The prefix lives only in this wide
+ * string; the paths the app keeps, shows and puts in messages are the plain UTF-8 ones. When the result would not fit in cap,
+ * the plain form is returned. Returns what fs_u8_to_w returns (the length with the end mark). */
+#define FS_LONG_FROM 240
+int fs_u8_to_w_long(const char *s, wchar_t *w, int cap) {
+    int n = fs_u8_to_w(s, w, cap);
+    if (n <= 0 || n - 1 < FS_LONG_FROM) return n;
+    bool drive = ((w[0] >= L'A' && w[0] <= L'Z') || (w[0] >= L'a' && w[0] <= L'z')) && w[1] == L':' && (w[2] == L'\\' || w[2] == L'/');
+    bool unc = (w[0] == L'\\' || w[0] == L'/') && (w[1] == L'\\' || w[1] == L'/') && w[2] != L'?' && w[2] != L'.';
+    if (!drive && !unc) return n;
+    DWORD need = GetFullPathNameW(w, 0, NULL, NULL);
+    wchar_t *full = need ? malloc((size_t)need * sizeof *full) : NULL;
+    if (!full) return n;
+    DWORD got = GetFullPathNameW(w, need, full, NULL);
+    int len = -1;
+    if (got && got < need) len = _snwprintf_s(w, (size_t)cap, _TRUNCATE, unc ? L"\\\\?\\UNC\\%s" : L"\\\\?\\%s", full + (unc ? 2 : 0));
+    free(full);
+    if (len < 0) { fs_u8_to_w(s, w, cap); return n; }   /* it did not fit */
+    return len + 1;
+}
+
 int fs_w_to_u8(const wchar_t *w, char *s, int cap) {
     int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, s, cap, NULL, NULL);
     if (n <= 0 && cap > 0) s[0] = 0;
@@ -279,7 +302,7 @@ static unsigned __stdcall list_thread(void *arg) {
         return 0;
     }
     wchar_t wpath[FS_PATH_MAX + 4];
-    fs_u8_to_w(l->path, wpath, FS_PATH_MAX);
+    fs_u8_to_w_long(l->path, wpath, FS_PATH_MAX);
     size_t n = wcslen(wpath);
     if (n && wpath[n - 1] != L'\\') wpath[n++] = L'\\';
     wpath[n++] = L'*'; wpath[n] = 0;
@@ -459,7 +482,7 @@ unsigned long fs_eject(const char *root) {
 
 bool fs_is_dir(const char *path) {
     wchar_t w[FS_PATH_MAX];
-    fs_u8_to_w(path, w, FS_PATH_MAX);
+    fs_u8_to_w_long(path, w, FS_PATH_MAX);
     DWORD a = GetFileAttributesW(w);
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY);
 }
@@ -479,7 +502,7 @@ bool fs_parent(const char *path, char *out, size_t cap) {
 
 int fs_subdirs(const char *path, char names[][128], int max) {
     wchar_t wp[FS_PATH_MAX + 4];
-    fs_u8_to_w(path, wp, FS_PATH_MAX);
+    fs_u8_to_w_long(path, wp, FS_PATH_MAX);
     size_t n = wcslen(wp);
     if (n && wp[n - 1] != L'\\') wp[n++] = L'\\';
     wp[n++] = L'*'; wp[n] = 0;

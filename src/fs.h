@@ -82,4 +82,7 @@ int fs_subdirs(const char *path, char names[][128], int max);  /* a few child fo
 /* UTF-8 and UTF-16 */
 int fs_u8_to_w(const char *s, wchar_t *w, int cap);
 int fs_w_to_u8(const wchar_t *w, char *s, int cap);
+/* The wide form for a call that reads or lists a folder: a path of 240+ characters gets the extended prefix (the one place), so
+ * it works past 260. The prefix stays in the wide string; the app's own paths stay plain. */
+int fs_u8_to_w_long(const char *s, wchar_t *w, int cap);
 #endif

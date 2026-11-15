@@ -142,7 +142,7 @@ static bool exists_path(const char *dir, const char *name) {
     size_t l = strlen(dir);
     snprintf(p, sizeof p, "%s%s%s", dir, (l && dir[l - 1] == '\\') ? "" : "\\", name);
     wchar_t w[FS_PATH_MAX];
-    return fs_u8_to_w(p, w, FS_PATH_MAX) && GetFileAttributesW(w) != INVALID_FILE_ATTRIBUTES;
+    return fs_u8_to_w_long(p, w, FS_PATH_MAX) && GetFileAttributesW(w) != INVALID_FILE_ATTRIBUTES;
 }
 
 /* ---- jobs ---- */

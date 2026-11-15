@@ -44,6 +44,8 @@ const char *ops_name_error(const char *name);
 /* Private shared helpers; allocations use malloc/free. */
 wchar_t *dfm_wide(const char *s);
 char *dfm_utf8(const wchar_t *s);
+wchar_t *dfm_wide_long(const char *s);   /* absolute, with the extended prefix (a job's path); NULL sets GetLastError() */
+wchar_t *dfm_plain(const wchar_t *w);    /* the plain form of a path with the extended prefix; free it */
 wchar_t *dfm_join(const wchar_t *a, const wchar_t *b);
 const wchar_t *dfm_leaf(const wchar_t *s);
 #endif

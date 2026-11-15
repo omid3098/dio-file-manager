@@ -17,8 +17,17 @@ static int stopped(search_job *j) { return InterlockedCompareExchange(&j->cancel
 static void error(search_job *j, DWORD code) {
     EnterCriticalSection(&j->lock); ++j->state.errors; j->state.last_error = code; LeaveCriticalSection(&j->lock);
 }
+/* The folder searched is read with the extended prefix past 240 characters, so it works past 260; the paths it finds are reported plain. */
+static wchar_t *long_wide(const char *u8) {
+    wchar_t *w = dfm_wide(u8), *x;
+    if (!w || wcslen(w) < 240) return w;
+    x = dfm_wide_long(u8);
+    if (!x) return w;
+    free(w); return x;
+}
 static void emit(search_job *j, const wchar_t *path) {
-    char *u = dfm_utf8(path);
+    wchar_t *plain = dfm_plain(path); char *u = dfm_utf8(plain ? plain : path);
+    free(plain);
     if (!u) { error(j, GetLastError()); return; }
     EnterCriticalSection(&j->lock);
     if (j->count == j->capacity) {
@@ -57,7 +66,7 @@ static unsigned __stdcall run_search(void *arg) {
 search_job *search_start(const char *folder, const char *query, int hidden) {
     search_job *j = calloc(1, sizeof(*j)); DWORD attr;
     if (!j) { SetLastError(ERROR_NOT_ENOUGH_MEMORY); return NULL; }
-    InitializeCriticalSection(&j->lock); j->folder = dfm_wide(folder); j->query = dfm_wide(query); j->hidden = hidden;
+    InitializeCriticalSection(&j->lock); j->folder = long_wide(folder); j->query = dfm_wide(query); j->hidden = hidden;
     if (!j->folder || !j->query || !*j->query) goto failure;
     attr = GetFileAttributesW(j->folder);
     if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY)) goto failure;

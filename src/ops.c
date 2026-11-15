@@ -71,6 +71,8 @@ static wchar_t *absolute(const char *s) {
     while (n > 3 && (p[n-1] == L'\\' || p[n-1] == L'/')) p[--n] = 0;
     return extended(p);
 }
+wchar_t *dfm_wide_long(const char *s) { return absolute(s); }
+wchar_t *dfm_plain(const wchar_t *w) { return plain_dup(w); }
 const char *ops_name_error(const char *name) {
     wchar_t *w = dfm_wide(name), base[256]; size_t n, i, b;
     const char *error = NULL;

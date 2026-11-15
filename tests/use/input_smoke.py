@@ -222,14 +222,14 @@ def inside():
     # The real Recycle Bin is shared with other runs of this check and lists same-named items in no fixed order, so
     # the file gets a name no other run uses: the Trash selection then can only be this run's own item.
     restore_name = f'dio-views-v2-restore-{uuid.uuid4().hex[:12]}.txt'
-    def check(name, folder, fn, view='grid', prep=None):
+    def check(name, folder, fn, view='grid', prep=None, theme='light'):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
         app = None
         try:
             if prep:
                 prep()
-            app = App(name, folder, view)
+            app = App(name, folder, view, theme)
             fn(app)
             app.snap(name+'-passed')
             results.append({'check':name,'result':'passed'})
@@ -591,6 +591,58 @@ def inside():
     check('2-list-wheel', WORK/'big', wheel, 'list')
     check('3-navigation', WORK/'fixture', navigation)
     check('4-selection', WORK/'fixture', selection)
+    # A folder whose own path is over 400 characters (Persian names, so the UTF-8 form is about twice as long): it must
+    # open, list, follow the disk, go back and forward and take a typed path like any other folder.
+    BS, LP = chr(92), chr(92) * 2 + '?' + chr(92)   # a backslash; the extended prefix
+    long_made = {}
+    def long_chain():
+        import shutil
+        root = WORK/'longroot'
+        shutil.rmtree(LP + str(root), ignore_errors=True)
+        levels, path, i = [], str(root), 0
+        while len(path) <= 420:
+            i += 1
+            path += BS + f'پوشهٔ-خیلی-بلند-شمارهٔ-{i:02d}'
+            levels.append(path)
+        deep = LP + path
+        os.makedirs(deep + BS + 'زیرپوشه')
+        Path(deep + BS + 'فایل-یک.txt').write_text('x' * 2000, encoding='utf-8')
+        Path(deep + BS + 'زیرپوشه' + BS + 'داخل.txt').write_text('y' * 5000, encoding='utf-8')
+        assert len(path) > 400 and len(path.encode('utf-8')) < 1000, (len(path), len(path.encode('utf-8')))
+        long_made['v'] = root, levels
+        return root, levels
+    def long_at(a, path, count=None):
+        s = a.wait_ready()
+        assert s['path'] == path and s['state'] == 1, f"{s['path']!r} state {s['state']} wanted {path!r} listed"
+        assert count is None or s['count'] == count, f"{s['count']} items"
+        return s
+    def long_folder(a):
+        root, levels = long_made['v']
+        for k, level in enumerate(levels):   # open each from its parent: double click its only entry
+            x, y = a.cell_xy(0)
+            a.click(x, y); a.key(13)
+            long_at(a, level, 1 if k < len(levels) - 1 else 2)
+        deep = levels[-1]
+        s = a.snap('long-deep')
+        assert set(s['names']) == {'زیرپوشه', 'فایل-یک.txt'}, s['names']
+        if a.view == 'list':   # Details: the folder size of a folder in it
+            a.until('folder size', lambda: any(r[0] == 'زیرپوشه' and r[1] == 1 for r in a.snap()['sizes']))
+        assert a.snap()['watch'], 'The folder watch did not start'
+        Path(LP + deep + BS + 'از-بیرون.txt').write_text('z', encoding='utf-8')   # another program adds a file
+        a.until('a file added from outside shows', lambda: 'از-بیرون.txt' in a.snap()['names'], 8)
+        a.key(37, (18,)); long_at(a, levels[-2], 1)
+        a.key(39, (18,)); long_at(a, deep, 3)
+        a.key(116); long_at(a, deep, 3)
+        a.key(38, (18,)); long_at(a, levels[-2], 1)
+        a.path(root); long_at(a, str(root))
+        a.path(deep); long_at(a, deep, 3)   # the typed path
+        assert not a.snap()['path'].startswith(LP), 'The path shows the extended prefix'
+    def long_small_dark(a):
+        dpi = U.GetDpiForWindow(a.hwnd) / 96
+        U.SetWindowPos(a.hwnd, None, 0, 0, int(360 * dpi), int(280 * dpi), 0x16)
+        time.sleep(.5)
+        a.until('long folder listed', lambda: a.snap()['state'] == 1 and a.snap()['count'] == 2)
+        a.snap('long-small-dark')
     def prepare_copy():
         import shutil
         for d in ('copy-src', 'copy-dst'):
@@ -600,6 +652,9 @@ def inside():
             for _ in range(64): f.write(block)
         os.environ['DFM_TEST_COPY_DELAY_MS'] = '50'   # slow enough that the copy outlives the checks
     check('14-mouse-navigation', WORK/'fixture', mouse_navigation, prep=prepare_copy)
+    check('15-long-folder-grid', WORK/'longroot', long_folder, prep=long_chain)
+    check('15-long-folder-list', WORK/'longroot', long_folder, 'list', prep=long_chain)
+    check('15-long-folder-small-dark', long_chain()[1][-1], long_small_dark, theme='dark')
     check('5-shortcuts', WORK/'fixture', shortcuts)
     check('6-sidebar', WORK/'fixture', sidebar)
     check('7-narrow', WORK/'fixture', narrow)
