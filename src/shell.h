@@ -2,6 +2,7 @@
 #define DFM_SHELL_H
 /* UTF-8 absolute paths. Return HRESULT. Call on the UI's COM-initialized STA.
    These actions may show Windows UI; Terminal hides its console launcher.
+   shell_terminal starts a process and may take seconds on a busy computer: call it from a worker, never the window's thread.
    owner is the application window, or NULL. copy_path writes CF_UNICODETEXT. */
 #include <windows.h>
 void shell_test_log(const char *path);

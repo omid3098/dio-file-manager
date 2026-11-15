@@ -56,6 +56,7 @@ static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_DFM_SIZES || m == WM_DFM_WATCH) { if (A.ui) cui_request_redraw(A.ui); return 0; }
     if (m == WM_DEVICECHANGE && watch_device_event(w, l)) return TRUE;   /* Windows asks to remove the drive: the watch lets go of the folder first */
     if (m == WM_DFM_DRAG) { dnd_run(); return 0; }
+    if (m == WM_DFM_TERMINAL) { act_terminal_failed((void *)l); return 0; }
     if (m == WM_COPYDATA && test_mode && dnd_test_message((void *)l)) return TRUE;
     if (m == WM_NCMOUSELEAVE && test_mode) return 0;   /* same reason: the maximize button's hover comes from the driver */
     if (chrome_message(h, m, w, l, (intptr_t *)&chrome_result)) return chrome_result;

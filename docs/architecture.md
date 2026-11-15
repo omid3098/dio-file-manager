@@ -21,7 +21,7 @@ FetchContent at the commit `CMakeLists.txt` pins (76a5f1f, master after v1.4.0).
 | `src/trash.c`, `src/trash.h` | The Recycle Bin: list, restore, empty, undo of the last trash. |
 | `src/search.c`, `src/search.h` | Recursive search below a folder on a worker thread. |
 | `src/recent.c`, `src/recent.h` | Recent files from the Windows Recent folder. |
-| `src/shell.c`, `src/shell.h` | Open, Open With, Open in Terminal, Properties, Copy Path. |
+| `src/shell.c`, `src/shell.h` | Open, Open With, Open in Terminal, Properties, Copy Path. Open in Terminal starts its process on a worker thread (`act_open_terminal`, `ui_actions.c`), so the window answers the whole time; a failure comes back as `WM_APP+20` (`WM_DFM_TERMINAL`) and the window shows the toast. |
 | `src/defaultfm.c`, `src/defaultfm.h` | Use as Default File Manager: HKCU registration with exact restore, the launcher, Explorer-style requests, the Explorer fallback. |
 | `tests/` | Console tests of the non-window parts, on a sandbox under `.agent-work/`. |
 

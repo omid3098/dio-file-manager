@@ -112,6 +112,13 @@ stock chooser and actual terminal GUI are deliberately not launched. `DFM_TEST_O
 catches unintended default-handler launches, including an Alt+Enter regression.
 These overrides are confined to the check process and its children.
 
+Open in Terminal must never hold the window: a probe thread asks the window (`WM_NULL`) every 10 ms while the menu
+item runs, and the longest wait must stay within 150 ms of the window's own longest wait while it only opens and closes
+the menu on the same machine (`<check>-control.json`; `2-terminal`, and `2b-terminal-slow-loaded`, which adds
+`DFM_TEST_TERMINAL_DELAY_MS=1500`, a slow process start as on a busy computer, and one busy process per core). The
+numbers are written to `<check>-answer.json`. Before the process start moved to a worker, the slow case measured
+about 1580 ms and failed with "Window stopped answering" (error 1460), the failure `2-terminal` showed on a busy machine.
+
 The progress check copies roughly 256 MB of real data. `DFM_TEST_COPY_DELAY_MS=50`
 slows each copy callback in that check's app, so a fast disk cannot finish before
 the ring and Cancel can be clicked. The normal default is zero; values above

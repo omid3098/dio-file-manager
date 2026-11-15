@@ -434,8 +434,34 @@ void act_new_folder(void) {
     begin_popover(POP_NEWDIR, "Untitled Folder", A.path, 0, 15);
 }
 
+/* Starting a process can take a second or more on a busy computer (security scans, a slow disk or network folder).
+ * It runs on a worker, so the window answers the whole time; only a failure comes back, as a message. */
+typedef struct { char path[FS_PATH_MAX]; HRESULT hr; HWND window; } terminal_job;
+
+static DWORD WINAPI terminal_worker(void *p) {
+    terminal_job *j = p;
+    j->hr = shell_terminal(j->path);
+    if (!FAILED(j->hr) || !PostMessageW(j->window, WM_DFM_TERMINAL, 0, (LPARAM)j)) free(j);   /* no window to tell: nothing to show */
+    return 0;
+}
+
+void act_terminal_failed(void *job) {
+    terminal_job *j = job;
+    report(j->hr, "Could not open the terminal", j->path);
+    free(j);
+}
+
 void act_open_terminal(void) {
-    if (A.loc == LOC_FOLDER) report(shell_terminal(A.path), "Could not open the terminal", A.path);
+    terminal_job *j;
+    HANDLE thread;
+    if (A.loc != LOC_FOLDER) return;
+    j = calloc(1, sizeof *j);
+    if (!j) { report(E_OUTOFMEMORY, "Could not open the terminal", A.path); return; }
+    snprintf(j->path, sizeof j->path, "%s", A.path);
+    j->window = hwnd();
+    thread = CreateThread(NULL, 0, terminal_worker, j, 0, NULL);
+    if (!thread) { HRESULT hr = HRESULT_FROM_WIN32(GetLastError()); free(j); report(hr, "Could not open the terminal", A.path); return; }
+    CloseHandle(thread);
 }
 
 /* ---- keys and menus ---- */

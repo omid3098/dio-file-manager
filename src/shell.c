@@ -74,6 +74,9 @@ HRESULT shell_terminal(const char *folder) {
     terminal_dir = dfm_join(w, L".");
     if (!cmd || !terminal_dir) { free(cmd); free(terminal_dir); free(w); return E_OUTOFMEMORY; }
     _snwprintf_s(cmd, n, _TRUNCATE, L"-d \"%s\"", terminal_dir);
+    { wchar_t ms[16];   /* test mode: rehearse a slow process start, as on a busy computer */
+      DWORD got = GetEnvironmentVariableW(L"DFM_TEST_TERMINAL_DELAY_MS", ms, 16);
+      if (got && got < 16) Sleep((DWORD)_wtoi(ms)); }
     HRESULT test = test_launch(L"DFM_TEST_TERMINAL", cmd, w);
     if (test != S_FALSE) { free(cmd); free(terminal_dir); free(w); return test; }
     if (SearchPathW(NULL, L"wt.exe", NULL, MAX_PATH, wt, NULL)) {

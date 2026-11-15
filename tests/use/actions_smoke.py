@@ -26,6 +26,7 @@ U.GetThreadDesktop.argtypes = [W.DWORD]
 U.GetThreadDesktop.restype = W.HANDLE
 U.GetUserObjectInformationW.argtypes = [W.HANDLE, C.c_int, C.c_void_p, W.DWORD, C.POINTER(W.DWORD)]
 U.GetClientRect.argtypes = [W.HWND, C.POINTER(W.RECT)]
+U.SetWindowPos.argtypes = [W.HWND, W.HWND, C.c_int, C.c_int, C.c_int, C.c_int, W.UINT]
 
 
 def desktop(tid):
@@ -83,6 +84,35 @@ def click_rect(a, index):
 
 def finished(a):
     a.until('Operation did not finish', lambda: not (a.snap()['act'] & 2), 15)
+
+
+class Probe:
+    """Asks the window a question every 10 ms from its own thread and keeps the longest wait for an answer.
+    A window whose thread is busy (a process start on the UI thread, say) answers late: that wait is the number."""
+    def __init__(self, hwnd):
+        self.hwnd, self.longest, self.count, self.stop_flag = hwnd, 0.0, 0, False
+        self.thread = threading.Thread(target=self.run, daemon=True)
+
+    def run(self):
+        result = C.c_size_t()
+        while not self.stop_flag:
+            start = time.monotonic()
+            U.SendMessageTimeoutW(self.hwnd, 0, 0, 0, 0, 10000, C.byref(result))   # WM_NULL, no abort: a long block is a number
+            self.longest = max(self.longest, time.monotonic()-start)
+            self.count += 1
+            time.sleep(.01)
+
+    def __enter__(self):
+        self.thread.start(); return self
+
+    def __exit__(self, *_):
+        self.stop_flag = True; self.thread.join(15)
+
+
+def burners(n):
+    """n processes that each keep one core busy: a computer that is doing other work."""
+    return [subprocess.Popen([sys.executable, '-c', 'while True: pass'], creationflags=subprocess.CREATE_NO_WINDOW)
+            for _ in range(n)]
 
 
 def standin():
@@ -230,11 +260,22 @@ def inside():
                 app.close()
         print(json.dumps(results[-1]), flush=True)
 
-    def launch(a, kind, row, item):
+    def launch(a, kind, row, item, answer=None):
+        """`answer`: (label, limit) the window must answer within `limit` seconds the whole time the menu item runs."""
         marker = WORK/(kind+'-launch.json')
         marker.unlink(missing_ok=True)
-        menu(a, row, item)
-        h, title, cls = native_window(a, lambda r: r[1].startswith('DFM shell stand-in '+kind))
+        probe = Probe(a.hwnd) if answer else None
+        if probe: probe.__enter__()
+        try:
+            menu(a, row, item)
+            h, title, cls = native_window(a, lambda r: r[1].startswith('DFM shell stand-in '+kind))
+        finally:
+            if probe:
+                probe.__exit__()
+                (WORK/(answer[0]+'-answer.json')).write_text(json.dumps(
+                    dict(longest_ms=round(probe.longest*1000, 1), asks=probe.count, limit_ms=answer[1]*1000)), encoding='utf-8')
+        if probe:
+            assert probe.longest < answer[1], f'The window did not answer for {probe.longest*1000:.0f} ms while the item ran (limit {answer[1]*1000:.0f})'
         try:
             record = json.loads(marker.read_text(encoding='utf-8'))
             target = SAND/'action target.txt'
@@ -247,6 +288,47 @@ def inside():
             assert str(target if item else SAND) in title, title
         finally:
             close_native(a, h)
+
+    def control(a, label):
+        """The window's own longest wait while it only opens and closes the menu: what frames and a busy computer cost
+        without any terminal. Open in Terminal gets that plus 150 ms."""
+        with Probe(a.hwnd) as probe:
+            for _ in range(3):
+                a.rclick(700, 420)
+                assert a.snap()['ctx'], 'Context menu did not open'
+                a.key(27)
+        (WORK/(label+'-control.json')).write_text(json.dumps(dict(longest_ms=round(probe.longest*1000, 1))), encoding='utf-8')
+        return probe.longest + .15
+
+    def quiet(a):
+        launch(a, 'terminal', 4, False, ('2-terminal', control(a, '2-terminal')))
+
+    def slow_loaded(a):
+        """A slow process start (1.5 s, as on a busy computer) on one busy process per core: the window must still
+        answer at once, because the app never starts the terminal on its window's thread."""
+        busy = burners(os.cpu_count() or 4)
+        try:
+            launch(a, 'terminal', 4, False, ('2b-terminal-slow-loaded', control(a, '2b-terminal-slow-loaded')))
+        finally:
+            for p in busy: p.kill()
+            for p in busy: p.wait()
+
+    def terminal_fails(a):
+        """A terminal that cannot start, in a folder with a long Persian name, in a small dark window: the error comes
+        back from the worker as a toast, the window answers the whole time, and no terminal opens."""
+        folder = SAND/'-'.join(['پوشهٔ بسیار طولانی برای آزمایش گشودن پایانه']*3)
+        folder.mkdir()
+        a.theme = 'dark'; a.restart()
+        assert a.path(folder)['state'] != 0
+        dpi = U.GetDpiForWindow(a.hwnd)/96
+        with Probe(a.hwnd) as probe:
+            menu(a, 4, False)
+            time.sleep(.8)   # the worker's failure comes back as a message
+            U.SetWindowPos(a.hwnd, None, 0, 0, int(360*dpi), int(280*dpi), 0x16)
+            time.sleep(.6)
+            a.snap('2c-terminal-fails-toast')
+        assert probe.longest < .25, f'The window did not answer for {probe.longest*1000:.0f} ms'
+        assert not [r for r in windows() if r[1].startswith('DFM shell stand-in')], 'A terminal opened'
 
     def properties(a):
         unexpected = WORK/'unexpected-open-launch.json'
@@ -440,7 +522,18 @@ def inside():
             os.environ.pop('DFM_TEST_COPY_DELAY_MS', None)
 
     check('1-open-with', lambda a: launch(a, 'open-with', 2, True))
-    check('2-terminal', lambda a: launch(a, 'terminal', 4, False))
+    check('2-terminal', quiet)
+    os.environ['DFM_TEST_TERMINAL_DELAY_MS'] = '1500'   # the app reads it at its start
+    try:
+        check('2b-terminal-slow-loaded', slow_loaded)
+    finally:
+        os.environ.pop('DFM_TEST_TERMINAL_DELAY_MS', None)
+    working = os.environ['DFM_TEST_TERMINAL']
+    os.environ['DFM_TEST_TERMINAL'] = 'C:/no-such-folder/no-terminal.exe'   # the process cannot start
+    try:
+        check('2c-terminal-fails', terminal_fails)
+    finally:
+        os.environ['DFM_TEST_TERMINAL'] = working
     check('3-properties', properties)
     check('4-toast-undo', toast)
     check('5-name-conflicts', conflicts)
