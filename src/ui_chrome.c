@@ -196,7 +196,18 @@ void ui_sidebar_places(void) {
             bool here = A.loc == LOC_FOLDER && same_path(A.path, A.drives[i].root);
             cui_push_id_int(ui, i);
             cui_row(ui, .width = CUI_FILL, .gap = 0) {
-                if (place_row(A.drives[i].name, CUI_ICON_SERVER, here)) app_navigate(A.drives[i].root);
+                cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL) {
+                    if (place_row(A.drives[i].name, CUI_ICON_SERVER, here)) app_navigate(A.drives[i].root);
+                    if (A.drives[i].total) {   /* how full the drive is: a thin bar under the label, in the Other Locations colours */
+                        char tip[64];
+                        drive_usage_text(&A.drives[i], tip, sizeof tip);
+                        cui_tooltip(ui, tip);
+                        float used = (float)(A.drives[i].total - A.drives[i].free) / (float)A.drives[i].total;
+                        cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad_left = 36, .pad_right = 10, .pad_top = 26) {
+                            cui_progress(ui, used, .height = 3, .tone = used > 0.9f ? CUI_TONE_DANGER : CUI_TONE_ACCENT);
+                        }
+                    }
+                }
                 if (A.drives[i].type == DRIVE_REMOVABLE) {
                     cui_box(ui, .dir = CUI_STACK, .width = CUI_PX(36), .height = CUI_PX(36)) {
                         bool clicked = cui_icon_button(ui, "", .tooltip = "Eject Drive", .disabled = eject.thread != NULL);

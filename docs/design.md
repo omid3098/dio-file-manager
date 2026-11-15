@@ -56,6 +56,13 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   for removable drives; "Other Locations" last (all drives with their used and free space).
   Rows are 36 px, a 16 px Lucide icon and 14 px text, radius 10, 6 px inside the pane edge.
   The current place is filled with the `selected` colour; hover with `hover`.
+  A drive with a known size shows how full it is: a 3 px bar with rounded ends under its label, from the label's left edge
+  to the row's right padding (it stops before the eject button on a removable drive). The fill is the accent colour and turns
+  danger red above 90% used, as the meter in Other Locations does; the rest is CUI's muted track. The label and the bar sit in the
+  same 32 px row (CUI's nav item keeps its label centred, so the bar fits under the text's descenders). Selected and hovered rows
+  keep both. No numbers are written in the row: its hover tooltip reads "199.5 GB of 238.2 GB used (84%)" (the unit by the
+  drive's size, as in Other Locations). A drive without a size (an empty card reader, a network location) has no bar and no tooltip.
+  The bars change with the drive list, which is read at start and each time Other Locations opens.
   Trash shows an item-count badge when nonempty. CUI has no empty-bin icon,
   so the icon stays the same when the bin is empty or full.
 - **Grid view (default):** cells about 112 px wide; a 64 px icon above the name; the name centred,

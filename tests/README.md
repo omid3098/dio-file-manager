@@ -336,3 +336,12 @@ dark, at 1280, 600 and 360 px wide, and with animations off; a quick folder, a 1
 results and 5,200 files draw none; after loading no frame is drawn while idle; "Unable to access" (`C:\System Volume Information`,
 and a long Persian folder name that the check denies List Folder on and resets afterwards) shows Try Again, and a click on it
 lists again.
+
+## Drive usage bars in the sidebar
+
+`sidebar_bars_smoke.py` runs on the hidden desktop and writes pictures of the whole window to `shots/`. Drives get sizes from the
+sandbox list (`DFM_TEST_DRIVES`, read only with `--test-state`): a line is `C 3 Label|total bytes|free bytes` (a line without sizes
+is a drive of unknown size). Checks, light and dark: a bar under each sized drive (3 px, from the label's left edge to the
+row's right padding, to the eject button on a removable drive), its fill share equal to the used share, danger red only above 90%,
+no bar for the drive without a size; the same with the selected row, the hovered row, Other Locations open, and the 360 px sheet;
+the hover tooltip of each drive reads "199.5 GB of 238.2 GB used (84%)", and the drive without a size has none.

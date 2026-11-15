@@ -367,6 +367,8 @@ int fs_drives(fs_drive *out, int max) {
             if (letter < 'A' || letter > 'Z' || (test_ejected & (1u << (letter - 'A')))) continue;
             fs_drive *d = &out[n++]; memset(d, 0, sizeof *d);
             snprintf(d->root, sizeof d->root, "%c:\\", letter);
+            char *bar = strchr(label, '|');   /* test only: "Label|total bytes|free bytes" gives the drive a size */
+            if (bar) { *bar = 0; d->total = _strtoui64(bar + 1, &bar, 10); if (*bar == '|') d->free = _strtoui64(bar + 1, NULL, 10); }
             snprintf(d->name, sizeof d->name, "%s (%c:)", label, letter); d->type = type;
         }
         fclose(f); return n;

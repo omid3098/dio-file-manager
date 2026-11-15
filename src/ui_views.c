@@ -236,6 +236,16 @@ static void drive_unit(const fs_drive *d, double *div, const char **unit, const 
     else { *div = 1e6; *unit = "MB"; *fmt = "%.0f"; }
 }
 
+/* "199.5 GB of 238.2 GB used (84%)", the sidebar's tooltip for a drive: the unit by size as in the meter below. */
+void drive_usage_text(const fs_drive *d, char *out, size_t cap) {
+    double div; const char *unit, *fmt;
+    char used[32], total[32];
+    drive_unit(d, &div, &unit, &fmt);
+    snprintf(used, sizeof used, fmt, (double)(d->total - d->free) / div);
+    snprintf(total, sizeof total, fmt, (double)d->total / div);
+    snprintf(out, cap, "%s %s of %s %s used (%d%%)", used, unit, total, unit, (int)((double)(d->total - d->free) * 100.0 / (double)d->total + 0.5));
+}
+
 /* The used space of a drive: one meter part in the accent, danger above 90% used; the rest of the bar is free. */
 static bool drive_meter(cui_ctx *ui, const fs_drive *d) {
     bool hovered = false;

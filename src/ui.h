@@ -249,6 +249,7 @@ void menu_snapshot(FILE *f);                   /* test state: the highlighted me
 /* ui_chrome.c */
 void ui_sidebar_header(void);
 void ui_sidebar_places(void);
+void drive_usage_text(const fs_drive *d, char *out, size_t cap);   /* ui_views.c: the sidebar tooltip of a drive */
 void ui_default_fm_snapshot(FILE *f);       /* the main menu button and its switch, for real-input checks */
 void ui_view_mode_snapshot(FILE *f);       /* the grid/list toggles of the open view-options menu, for real-input checks */
 void app_toggle_default_fm(void);           /* main.c: the "Use as Default File Manager" switch */
