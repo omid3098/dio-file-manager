@@ -20,8 +20,8 @@ static const char *leaf_of(const char *p) {
 static uint64_t ft64(FILETIME f) { return ((uint64_t)f.dwHighDateTime << 32) | f.dwLowDateTime; }
 
 static bool stat_path(const char *p, WIN32_FILE_ATTRIBUTE_DATA *d) {
-    wchar_t w[FS_PATH_MAX];
-    return fs_u8_to_w_long(p, w, FS_PATH_MAX) && GetFileAttributesExW(w, GetFileExInfoStandard, d);
+    wchar_t w[FS_WPATH_MAX];
+    return fs_u8_to_w_long(p, w, FS_WPATH_MAX) && GetFileAttributesExW(w, GetFileExInfoStandard, d);
 }
 
 static long fill_recent(fs_list *l) {

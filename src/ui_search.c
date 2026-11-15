@@ -42,9 +42,9 @@ void fsearch_refresh(void) {
     sizes_forget();   /* the folder's listing is made again: its children are measured again when search closes */
     int kept = 0;
     for (int i = 0; i < A.list->count; i++) {
-        wchar_t w[FS_PATH_MAX];
+        wchar_t w[FS_WPATH_MAX];
         const char *p = fs_extra(A.list, A.list->items[i].path_off);
-        if (fs_u8_to_w(p, w, FS_PATH_MAX) && GetFileAttributesW(w) == INVALID_FILE_ATTRIBUTES) {
+        if (fs_u8_to_w_long(p, w, FS_WPATH_MAX) && GetFileAttributesW(w) == INVALID_FILE_ATTRIBUTES) {
             DWORD e = GetLastError();
             if (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND) continue;
         }
@@ -100,9 +100,9 @@ void fsearch_changed(void) {
 }
 
 static void add_result(char *path) {
-    wchar_t w[FS_PATH_MAX];
+    wchar_t w[FS_WPATH_MAX];
     WIN32_FILE_ATTRIBUTE_DATA d;
-    if (!fs_u8_to_w(path, w, FS_PATH_MAX) || !GetFileAttributesExW(w, GetFileExInfoStandard, &d)) return;
+    if (!fs_u8_to_w_long(path, w, FS_WPATH_MAX) || !GetFileAttributesExW(w, GetFileExInfoStandard, &d)) return;
     const char *leaf = strrchr(path, '\\');
     leaf = leaf && leaf[1] ? leaf + 1 : path;
     uint32_t flags = 0;

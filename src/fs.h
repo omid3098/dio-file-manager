@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #define FS_PATH_MAX 1040
+#define FS_WPATH_MAX (FS_PATH_MAX + 16)   /* a wide buffer for a path of FS_PATH_MAX: room for the extended prefix (fs_u8_to_w_long) */
 
 enum { FS_DIR = 1, FS_HIDDEN = 2, FS_LINK = 4, FS_INCOMING = 8 };   /* FS_INCOMING: a file still being copied here, listed under its final name */
 typedef enum {

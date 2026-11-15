@@ -637,6 +637,27 @@ def inside():
         a.path(root); long_at(a, str(root))
         a.path(deep); long_at(a, deep, 3)   # the typed path
         assert not a.snap()['path'].startswith(LP), 'The path shows the extended prefix'
+        a.key(ord('F'), (17,))   # search inside it: the match is in the folder under it
+        a.until('Search field did not take the keyboard', lambda: a.snap()['typing'])
+        for char in 'داخل':
+            a.msg(0x102, ord(char))
+        a.until('Search finds the file in the long folder', lambda: a.snap()['searching'] and a.snap()['names'] == ['داخل.txt'], 8)
+        a.key(27)
+        a.until('Esc leaves the search', lambda: not a.snap()['search'])
+    def long_limit_chain():   # the longest path the app keeps: 1036 characters, so the extended form needs the headroom
+        import shutil
+        root = WORK/'longlimit'
+        shutil.rmtree(LP + str(root), ignore_errors=True)
+        path = str(root)
+        while len(path) < 1036:
+            path += BS + 'd' * min(60, max(1, 1036 - len(path) - 1))
+        os.makedirs(LP + path)
+        Path(LP + path + BS + 'x.txt').write_text('x', encoding='utf-8')
+        assert len(path) == 1036, len(path)
+        return path
+    def long_limit(a):
+        s = a.wait_ready()
+        assert s['state'] == 1 and s['count'] == 1 and len(s['path']) == 1036, (s['state'], s['count'], s['path'][-40:])
     def long_small_dark(a):
         dpi = U.GetDpiForWindow(a.hwnd) / 96
         U.SetWindowPos(a.hwnd, None, 0, 0, int(360 * dpi), int(280 * dpi), 0x16)
@@ -654,6 +675,7 @@ def inside():
     check('14-mouse-navigation', WORK/'fixture', mouse_navigation, prep=prepare_copy)
     check('15-long-folder-grid', WORK/'longroot', long_folder, prep=long_chain)
     check('15-long-folder-list', WORK/'longroot', long_folder, 'list', prep=long_chain)
+    check('15-long-folder-limit', long_limit_chain(), long_limit)
     check('15-long-folder-small-dark', long_chain()[1][-1], long_small_dark, theme='dark')
     check('5-shortcuts', WORK/'fixture', shortcuts)
     check('6-sidebar', WORK/'fixture', sidebar)

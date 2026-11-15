@@ -301,8 +301,8 @@ static unsigned __stdcall list_thread(void *arg) {
         if (InterlockedDecrement(&l->owner) == 0) list_free(l);
         return 0;
     }
-    wchar_t wpath[FS_PATH_MAX + 4];
-    fs_u8_to_w_long(l->path, wpath, FS_PATH_MAX);
+    wchar_t wpath[FS_WPATH_MAX];
+    fs_u8_to_w_long(l->path, wpath, FS_WPATH_MAX - 4);   /* 4 left for "\*" */
     size_t n = wcslen(wpath);
     if (n && wpath[n - 1] != L'\\') wpath[n++] = L'\\';
     wpath[n++] = L'*'; wpath[n] = 0;
@@ -322,11 +322,11 @@ static unsigned __stdcall list_thread(void *arg) {
         /* An incoming file whose final name already exists (a replace in progress) is not listed twice. */
         for (int i = l->count - 1; i >= 0 && !l->abandoned; i--) {
             if (!(l->items[i].flags & FS_INCOMING)) continue;
-            wchar_t full[FS_PATH_MAX + 300], leaf[300];
+            wchar_t full[FS_WPATH_MAX + 300], leaf[300];
             fs_u8_to_w(l->names + l->items[i].name_off, leaf, 300);
-            wcscpy_s(full, FS_PATH_MAX + 300, wpath);
+            wcscpy_s(full, FS_WPATH_MAX + 300, wpath);
             full[n - 1] = 0;
-            wcscat_s(full, FS_PATH_MAX + 300, leaf);
+            wcscat_s(full, FS_WPATH_MAX + 300, leaf);
             if (GetFileAttributesW(full) != INVALID_FILE_ATTRIBUTES) l->items[i] = l->items[--l->count];
         }
         if (!l->abandoned) fs_list_sort(l, l->sort_key, l->sort_desc);
@@ -481,8 +481,8 @@ unsigned long fs_eject(const char *root) {
 }
 
 bool fs_is_dir(const char *path) {
-    wchar_t w[FS_PATH_MAX];
-    fs_u8_to_w_long(path, w, FS_PATH_MAX);
+    wchar_t w[FS_WPATH_MAX];
+    fs_u8_to_w_long(path, w, FS_WPATH_MAX);
     DWORD a = GetFileAttributesW(w);
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY);
 }
@@ -501,8 +501,8 @@ bool fs_parent(const char *path, char *out, size_t cap) {
 }
 
 int fs_subdirs(const char *path, char names[][128], int max) {
-    wchar_t wp[FS_PATH_MAX + 4];
-    fs_u8_to_w_long(path, wp, FS_PATH_MAX);
+    wchar_t wp[FS_WPATH_MAX];
+    fs_u8_to_w_long(path, wp, FS_WPATH_MAX - 4);
     size_t n = wcslen(wp);
     if (n && wp[n - 1] != L'\\') wp[n++] = L'\\';
     wp[n++] = L'*'; wp[n] = 0;

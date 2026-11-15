@@ -23,7 +23,7 @@ typedef struct watch {
     volatile LONG pending;            /* a settled change the window has not taken yet */
     volatile LONG removing;           /* Windows asked to remove the device: the registration stays for the answer */
     char path[FS_PATH_MAX];
-    wchar_t wpath[FS_PATH_MAX + 4];
+    wchar_t wpath[FS_WPATH_MAX];
 } watch;
 
 static watch *cur;
@@ -63,9 +63,9 @@ static bool copy_growth(const FILE_NOTIFY_INFORMATION *n) {
 static bool folder_touch(const watch *w, const FILE_NOTIFY_INFORMATION *n) {
     if (n->Action != FILE_ACTION_MODIFIED) return false;
     size_t dl = wcslen(w->wpath), nl = n->FileNameLength / sizeof(wchar_t);
-    if (dl + nl + 2 >= FS_PATH_MAX + 4 || nl == 0) return false;
-    wchar_t full[FS_PATH_MAX + 8];
-    wcscpy_s(full, FS_PATH_MAX + 8, w->wpath);
+    if (dl + nl + 2 >= FS_WPATH_MAX || nl == 0) return false;
+    wchar_t full[FS_WPATH_MAX + 8];
+    wcscpy_s(full, FS_WPATH_MAX + 8, w->wpath);
     if (full[dl - 1] != L'\\') full[dl++] = L'\\';
     memcpy(full + dl, n->FileName, nl * sizeof(wchar_t));
     full[dl + nl] = 0;
@@ -180,7 +180,7 @@ void watch_open(const char *dir) {
     w->stop = CreateEventW(NULL, TRUE, FALSE, NULL);
     w->closed = CreateEventW(NULL, TRUE, FALSE, NULL);
     snprintf(w->path, sizeof w->path, "%s", dir);
-    fs_u8_to_w_long(dir, w->wpath, FS_PATH_MAX);
+    fs_u8_to_w_long(dir, w->wpath, FS_WPATH_MAX);
     uintptr_t t = w->stop && w->closed ? _beginthreadex(NULL, 0, watch_thread, w, 0, NULL) : 0;
     if (!t) { CloseHandle(w->stop); CloseHandle(w->closed); free(w); return; }
     CloseHandle((HANDLE)t);

@@ -41,9 +41,9 @@ static void read_shortcut(shortcut_job *j) {
 }
 
 static void check_target(shortcut_job *j) {
-    wchar_t w[FS_PATH_MAX];
+    wchar_t w[FS_WPATH_MAX];
     j->exists = j->is_dir = false;
-    if (!fs_u8_to_w_long(j->in, w, FS_PATH_MAX)) return;
+    if (!fs_u8_to_w_long(j->in, w, FS_WPATH_MAX)) return;
     DWORD a = GetFileAttributesW(w);
     if (a == INVALID_FILE_ATTRIBUTES) return;
     j->exists = true;
