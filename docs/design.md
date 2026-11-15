@@ -208,8 +208,8 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   a file this program is copying does not ask for a new listing, and neither does a subfolder's own modified time moving because something inside it changed (the Modified cell of a subfolder shows the time it had when the folder was read). With nothing changing in the folder there is no timer
   and no CPU use (below 0.1 % of one core, also while other folders on the drive change). The watch never holds a USB
   drive: it lets go of the folder when Windows asks to remove the drive and when Eject Drive is pressed (a refused eject
-  watches the folder again), and when the folder is left. When the open folder is deleted, or its drive goes, the page for
-  a folder that cannot be read shows, as after F5. Folder sizes keep their own rule (above).
+  watches the folder again), and when the folder is left. When the open folder is deleted, or its drive goes (also after
+  an eject through Windows), the page for a folder that cannot be read shows, as after F5. If Windows loses some changes in a very large burst, the folder is listed again and stays watched. Folder sizes keep their own rule (above).
 - F2 renames in a small popover under the item ("Rename" field and button); Ctrl+Shift+N makes a
   folder through a popover ("New Folder" name field and Create).
 - Ctrl+C, Ctrl+X, Ctrl+V copy, cut and paste through the Windows clipboard, so files move between

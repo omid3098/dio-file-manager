@@ -125,16 +125,23 @@ static unsigned __stdcall watch_thread(void *arg) {
         if (armed && r == WAIT_OBJECT_0 + 1) {
             DWORD got = 0;
             BOOL ok = GetOverlappedResult(w->dir, &ov, &got, FALSE);
+            bool hit = false;
             if (ok) {
                 memcpy(copy, buf, got);
                 ResetEvent(ev);
                 armed = ReadDirectoryChangesW(w->dir, buf, BUF_BYTES, FALSE, filter, NULL, &ov, NULL) != 0;   /* re-armed before the batch is read */
-                if (relevant(w, copy, got)) { ULONGLONG now = GetTickCount64(); if (!burst) { burst = true; t0 = now; burst_t0 = (LONGLONG)now; } last = now; }
+                hit = relevant(w, copy, got);
+            } else if (GetLastError() == ERROR_NOTIFY_ENUM_DIR) {
+                /* Windows lost events (a burst filled its buffer): the folder is still there, so read it again and go on watching */
+                ResetEvent(ev);
+                armed = ReadDirectoryChangesW(w->dir, buf, BUF_BYTES, FALSE, filter, NULL, &ov, NULL) != 0;
+                hit = true;
             } else {
                 /* the folder went away (deleted, or its drive left): let the window read it, which shows what is wrong, and stop */
                 fire(w);
                 break;
             }
+            if (hit) { ULONGLONG now = GetTickCount64(); if (!burst) { burst = true; t0 = now; burst_t0 = (LONGLONG)now; } last = now; }
         } else if (r == WAIT_TIMEOUT || !armed) {
             if (!armed) { fire(w); break; }
         }
@@ -199,6 +206,7 @@ bool watch_device_event(uintptr_t wparam, intptr_t lparam) {
         if (cur) fire(cur);
     } else {
         unregister(w);
+        fire(w);                                /* the folder is gone with its drive: the window reads it and shows the unreadable-folder page */
     }
     return true;
 }
