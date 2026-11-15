@@ -53,6 +53,18 @@ static void paint_star(cui_ctx *ui, cui_rect r, void *user) {
 
 static bool star_hot_now, star_hot_prev;   /* the pointer was over a star button: a click there is not a double click */
 
+/* Where each row's icon and name text sit (window px), as laid out last frame: a press there is an item press,
+ * a press elsewhere on the row starts the selection box (ui_band_begin). */
+enum { SPAN_N = 128 };
+static struct { int row; float x0, x1; } name_span[SPAN_N];
+
+bool ui_list_content_at(int row, float x) {   /* x: window px */
+    if (star_hot_prev) return true;
+    if (row < 0) return false;
+    int s = row % SPAN_N;
+    return name_span[s].row == row + 1 && x >= name_span[s].x0 && x < name_span[s].x1;
+}
+
 void ui_list_view(void) {
     cui_ctx *ui = A.ui;
     A.cols = 1; A.cell_h = 36;
@@ -88,10 +100,21 @@ void ui_list_view(void) {
                 switch (cs.kind[c]) {
                 case C_NAME:
                     cui_data_grid_cell(ui);
+                    cui_id name_id = cui_box_begin(ui, &(cui_box){ .id = "name", .dir = CUI_ROW, .width = CUI_FILL, .height = CUI_FILL, .gap = 8, .align = CUI_ALIGN_CENTER });
                     ui_set_dim(e->flags & FS_INCOMING);
                     cui_icon(ui, ui_kind_icon(e->kind), 16, ui_dimmed(ui, ui_icon_ink(ui, ui_kind_color(e->kind), 4.5f)));
                     cui_text(ui, app_item_name(r), .nowrap = true, .width = CUI_FILL, .color = ui_dimmed(ui, CUI_COLOR_FOREGROUND));
                     ui_set_dim(false);
+                    cui_box_end(ui);
+                    {   /* last frame's layout: the icon and the name text are the part of the row that is not blank */
+                        cui_rect nr = cui_get_rect(ui, name_id);
+                        const char *nm = app_item_name(r);
+                        float full = 16 + 8 + ui_body_text_w(nm);
+                        if (nr.w > 0) {
+                            int s = r % SPAN_N;
+                            name_span[s].row = r + 1; name_span[s].x0 = nr.x; name_span[s].x1 = nr.x + (full < nr.w ? full : nr.w);
+                        }
+                    }
                     break;
                 case C_LOC:
                     if (A.searching) search_location_text(r, buf, sizeof buf); else view_location_text(r, buf, sizeof buf);

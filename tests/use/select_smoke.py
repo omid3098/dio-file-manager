@@ -97,6 +97,8 @@ def band_case(a, stop, picture=None, prefix='item-', finish=False, items=None):
     assert a.snap()['ctx'], 'Background menu missing'
     a.key(27)
     px, py = cell_xy(a, 0)
+    if stop == 2:
+        px = x + 16 + 28   # Small icons: the middle of the cell is blank now; press on the icon (12 px in, 32 px wide)
     press(a, px, py)
     move(a, px+8, py+8)
     assert not a.snap()['band'], 'Item press started a box'

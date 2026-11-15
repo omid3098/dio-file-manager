@@ -297,7 +297,7 @@ void ui_columns_reveal(int column) {
 
 /* The anchor and item rectangles are in document coordinates, including virtual rows. */
 static struct {
-    bool pending, dragging;
+    bool pending, dragging, taken;   /* taken: the box owns the press (from the start on the background, from the first 4 px on an item's blank part) */
     bool *saved;
     cui_vec2 anchor, press;
     cui_rect box;
@@ -305,6 +305,10 @@ static struct {
 } band;
 
 bool ui_band_dragging(void) { return band.dragging; }
+
+float ui_body_text_w(const char *s) {   /* the width cui_text gives s at the theme's body size */
+    return cui_measure_text(A.ui, CUI_FONT_BODY, cui__fs(A.ui, A.ui->theme.text_body), s, (int)strlen(s)).width;
+}
 
 void ui_band_cancel(void) {
     if (A.ui && A.ui->active == band.owner) A.ui->active = 0;
@@ -382,25 +386,39 @@ void ui_band_begin(void) {
     }
     cui_vec2 p = { ui->mx - view.x + n->scroll_x, ui->my - view.y + n->scroll_y };
     if (ui->mpressed[0] && rect_has(clip, ui->mx, ui->my)) {
-        bool item = false;
-        for (int i = 0; i < A.vis_n; i++)
-            if (rect_has(band_item(i, view.w), p.x, p.y)) { item = true; break; }
+        /* A press on an item's icon or name text is the item's own; a press on the rest of an item (a row's blank part, a cell's
+         * padding) is an item press until the pointer moves, then it becomes the box (see below), so a click and a double click
+         * there act as they always did. */
+        int hit = -1;
+        bool content = false;
+        for (int i = 0; i < A.vis_n; i++) {
+            cui_rect ir = band_item(i, view.w);
+            if (!rect_has(ir, p.x, p.y)) continue;
+            hit = i;
+            content = A.zoom == Z_DETAILS ? ui_list_content_at(i, ui->mx) : ui_grid_content_at(i, ir, p);
+            break;
+        }
         /* Scrollbar and floating controls keep their own press, even over empty space. */
         bool bar = (A.zoom == Z_LIST && ui->my >= view.y + view.h - 12) ||
                    (A.zoom != Z_LIST && ui->mx >= view.x + view.w - 12);
-        if (!item && !bar && (!ui->hot_layer) && (!ui->active || ui->hot == n->id || A.zoom == Z_DETAILS)) {
+        if (!content && !bar && (!ui->hot_layer) && (hit >= 0 || !ui->active || ui->hot == n->id || A.zoom == Z_DETAILS)) {
             ui_band_cancel();
             band.saved = calloc((size_t)A.vis_n, sizeof *band.saved);
             if (!band.saved) return;
-            if (ui->mods & (CUI_MOD_CTRL | CUI_MOD_SHIFT)) memcpy(band.saved, A.sel, (size_t)A.vis_n * sizeof *A.sel);
-            else app_clear_selection();
+            bool add = (ui->mods & (CUI_MOD_CTRL | CUI_MOD_SHIFT)) != 0;
+            if (add) memcpy(band.saved, A.sel, (size_t)A.vis_n * sizeof *A.sel);
             band.pending = true; band.anchor = p; band.press = (cui_vec2){ui->mx, ui->my};
             band.owner = n->id ^ 0xBA4Du;
-            ui->active = band.owner; ui->focus = 0; A.last_click_idx = -1;
+            if (hit < 0) { if (!add) app_clear_selection(); band.taken = true; ui->active = band.owner; ui->focus = 0; A.last_click_idx = -1; }
         }
     }
     if (!band.pending) return;
     if (fabsf(ui->mx - band.press.x) >= 4 || fabsf(ui->my - band.press.y) >= 4) band.dragging = true;
+    if (band.dragging && !band.taken) {   /* the press began on an item's blank part: the box takes the press from the item now */
+        band.taken = true;
+        if (!(ui->mods & (CUI_MOD_CTRL | CUI_MOD_SHIFT))) app_clear_selection();
+        ui->active = band.owner; ui->focus = 0; A.last_click_idx = -1;
+    }
     if (band.dragging) {
         p.x = clampf(ui->mx, clip.x, clip.x + clip.w) - view.x + n->scroll_x;
         p.y = clampf(ui->my, clip.y, clip.y + clip.h) - view.y + n->scroll_y;

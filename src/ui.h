@@ -105,6 +105,8 @@ float app_view_fade(void);                 /* opacity of the file view while a m
 bool app_zoom_busy(void);
 double app_glide_seconds(void);            /* 0.15; a test can slow it down to take a frame strip */
 cui_rect ui_grid_item_rect(int i, float width);   /* the item's drawn rectangle in document px, for hit tests */
+bool ui_grid_content_at(int i, cui_rect cell, cui_vec2 p);   /* p (document px) is on item i's icon or name text; cell is its rectangle */
+bool ui_list_content_at(int row, float x);                   /* Details: x (window px) is on the row's icon or name text, or its star */
 bool ui_grid_gliding(void);                  /* a glide is running */
 void ui_scroll_get(const char *id, float *y, float *ty, float *view_h);   /* a scroll area's state from the last frame */
 void ui_scroll_jump(const char *id, float y);        /* set offset and target at once, no tween */
@@ -188,6 +190,7 @@ void ui_columns_reveal(int column);
 void ui_band_begin(void);                  /* inside the file view's scroll container, before its rows */
 void ui_band_cancel(void);
 bool ui_band_dragging(void);
+float ui_body_text_w(const char *s);       /* the width cui_text gives s at the theme's body size */
 
 /* ui_search.c: the Location column text of a search result */
 void search_location_text(int vis, char *out, size_t cap);

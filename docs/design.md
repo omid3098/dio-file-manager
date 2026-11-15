@@ -97,9 +97,16 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   Presentation keeps CUI's normal event-driven display pacing. Idle windows wake only for
   input, timers or worker progress. Recycle Bin badge queries run on a worker.
 - **Selection:** the icon gets a rounded `selected` fill; the name gets an accent pill with
-  `accent-fg` text. Click selects, Ctrl+click toggles, Shift+click selects a range, dragging on
-  the empty background draws a rubber band.
-  A background drag replaces the selection live with every cell or row the box touches;
+  `accent-fg` text. Click selects, Ctrl+click toggles, Shift+click selects a range. Dragging from
+  anywhere but an item's icon or name text draws a rubber band: from the empty background,
+  and from an item's blank part too (in Details and List the row beside the name text and the Size,
+  Modified and Type cells; in the icon views the padding around the icon and the label). A press on
+  the icon or the name text is the item's own and never draws the box. A press on an item's blank
+  part is an item press until the pointer has moved 4 px: a click selects that item and a double
+  click opens it as on any part of the item, and only a drag turns into the box. In a Details row the
+  name's blank part starts where the name text ends; a name that fills its column has none, but its
+  Size, Modified and Type cells still do.
+  A drag replaces the selection live with every cell or row the box touches;
   Ctrl or Shift adds to the selection saved at press time. Shrinking the box removes
   items outside it again. The box has an 18% accent fill and a one-device-pixel accent
   border in both themes. Holding it within 32 px of the top or bottom scrolls vertically;

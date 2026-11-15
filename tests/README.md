@@ -141,6 +141,16 @@ State capture invalidates the window and posts a wakeup, rather than synchronous
 waiting on a UI thread that may be encoding a PNG. Double-click navigation uses one
 coordinate lookup and two clicks, with no screenshot between the clicks.
 
+## Selection box from an item's blank part
+
+`tests/use/band_anywhere_smoke.py` (eleven checks, about 4 minutes, real input on the private desktop, no clipboard) imports
+`press`, `move` and `release` from `select_smoke.py`. It checks that a drag from the Size, Modified or Type cell or
+from beside a Details name draws the box (5,200 files: row 3's Size cell to row 20 selects exactly 18 rows, in dark and light), that
+a Details press on the name text or a tile's icon draws none, that auto-scroll past the bottom extends the box, that
+List, Small, Medium and Large icons start from the padding between icons, Ctrl+drag adds, a click with no drag on
+a blank part selects the item, Persian names (a short one with a blank part, a long one that fills its column), and a
+360x280 window in Details and icons, and a double click on a folder's blank part opening it. Pictures of the whole window go to `final/` of `DFM_USE_WORK`.
+
 ## Concurrent jobs, Recent and eject
 
 `tests/use/jobs_smoke.py` imports the real-input driver from `input_smoke.py` and
