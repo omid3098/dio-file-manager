@@ -600,6 +600,9 @@ def inside():
         check('24-in-long-target-folder', in_long_target)
         check('25-in-long-path-other-drive', in_long_other_drive, 'ext')
         check('26-in-70-sidebar-rows', in_many_rows, 'ext')
+        (WORK / 'appdata' / 'dio-file-manager' / 'sidebar.txt').unlink(missing_ok=True)
+        check('27-in-long-path-small-window-dark', in_long_path, 'dst', 'grid', 'dark', ('--size', '360x280'))
+        check('28-in-70-sidebar-rows-dark', in_many_rows, 'ext', 'grid', 'dark')
         (WORK / 'appdata' / 'dio-file-manager' / 'sidebar.txt').unlink(missing_ok=True)   # the added rows were these checks' own
     finally:
         subprocess.run(['subst', f'{letter}:', '/d'], creationflags=subprocess.CREATE_NO_WINDOW)
