@@ -322,6 +322,28 @@ def inside():
         assert not (SAND / 'ext' / 'one.txt').exists()
         a.until('The bin count did not change', lambda: a.snap()['trash'] > 0)
 
+    def in_added_folder_row(a):
+        # a folder added with Add to Sidebar (Ctrl+D) takes a drop as the built-in places do; a missing one takes none
+        target = SAND / 'dst' / 'sub'
+        a.path(target)
+        a.key(ord('D'), (17,))
+        a.path(SAND / 'ext')
+        a.until('the added folder has no sidebar row', lambda: any(t.lower() == str(target).lower() for *_, t in a.snap()['dnd']['rows']), 4)
+        x, y = row_xy(a, target)
+        d = enter(a, x, y, [SAND / 'ext' / 'one.txt'])
+        assert (d['kind'], d['dest'].lower()) == (3, str(target).lower()), d
+        a.snap('drop-over-added-folder')
+        drop(a, x, y)
+        jobs_done(a)
+        assert (target / 'one.txt').exists() and not (SAND / 'ext' / 'one.txt').exists()
+        shutil.rmtree(target)
+        a.until('the row of a deleted folder still takes a drop', lambda: (a.msg(0), not any(t.lower() == str(target).lower() for *_, t in a.snap()['dnd']['rows']))[1], 6)
+        x, y = [r for r in a.snap()['sbrows'] if r['key'].lower() == str(target).lower()][0]['r'][:2]
+        d = enter(a, x + 40, y + 18, [SAND / 'ext' / 'two.txt'])
+        assert d['kind'] == 0 and d['effect'] == 0, d
+        leave(a)
+        assert (SAND / 'ext' / 'two.txt').exists()
+
     def in_busy(a):
         big = SAND / 'ext' / 'big.bin'
         with big.open('wb') as f:
@@ -453,6 +475,8 @@ def inside():
         check('20-in-effect-not-allowed', in_effect_choice)
         check('21-in-long-path', in_long_path)
         check('22-source-list-follows-move-out', in_source_follows)
+        check('23-in-added-folder-row', in_added_folder_row, 'ext')
+        (WORK / 'appdata' / 'dio-file-manager' / 'sidebar.txt').unlink(missing_ok=True)   # the added row was this check's own
     finally:
         subprocess.run(['subst', f'{letter}:', '/d'], creationflags=subprocess.CREATE_NO_WINDOW)
     (WORK / 'dnd-results.json').write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding='utf-8')

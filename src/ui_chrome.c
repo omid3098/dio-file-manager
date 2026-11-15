@@ -359,6 +359,7 @@ void ui_sidebar_places(void) {
                 cui_tooltip(ui, p);
                 row_rclick(cui_last_rect(ui), p, true);
                 if (srow_n) srow[srow_n - 1].dim = gone;
+                if (!gone) dnd_row(p);   /* a drop goes into the folder; a missing one takes none */
             }
             cui_pop_id(ui);
         }

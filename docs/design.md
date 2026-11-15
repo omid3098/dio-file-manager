@@ -354,7 +354,7 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
     takes the files. The drag image is the first item's icon, with a round count on its corner for several. A press on a
     blank part of an item (the selection box's area, see above) never drags.
   - In: the window takes drops from every program, itself and its other windows included. What is under the pointer
-    decides the target, and it shows the same hover as a click would: a folder item, a sidebar place or drive row, Trash,
+    decides the target, and it shows the same hover as a click would: a folder item, a sidebar place, added folder or drive row (a missing, dimmed added folder takes no drop), Trash,
     or else the open folder's blank part. Recent, Starred, a search, Other Locations and a folder that is still loading
     take no drop; neither does a window with a dialog open. A drop whose path cannot be read is refused whole, never with an item
     missing. When the pointer leaves a folder for blank space, the open folder takes the drop.
