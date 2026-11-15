@@ -30,12 +30,13 @@ static void place_key(int i, char out[8]) { snprintf(out, 8, "place%d", i); }
 /* Whether a default row that is showing (not removed) is this folder. */
 static bool default_row_has(const char *path) {
     char k[8];
-    for (int i = 0; i < 7; i++) { place_key(i, k); if (A.places[i][0] && !sidebar_is_hidden(k) && same_path(path, A.places[i])) return true; }
-    for (int i = 0; i < A.drive_n; i++) { drive_key(&A.drives[i], k); if (!sidebar_is_hidden(k) && same_path(path, A.drives[i].root)) return true; }
+    for (int i = 0; i < 7; i++) { place_key(i, k); if (A.places[i][0] && !sidebar_is_hidden(k) && sidebar_same_path(path, A.places[i])) return true; }
+    for (int i = 0; i < A.drive_n; i++) { drive_key(&A.drives[i], k); if (!sidebar_is_hidden(k) && sidebar_same_path(path, A.drives[i].root)) return true; }
     return false;
 }
 
-bool app_sidebar_has(const char *path) { return sidebar_has(path) || default_row_has(path); }
+/* A folder whose row was not saved (the file could not be written) takes another Add: that Add saves it. */
+bool app_sidebar_has(const char *path) { return (sidebar_has(path) && !sidebar_unsaved()) || default_row_has(path); }
 
 /* Brings the hidden default rows back. A folder added while its default row was hidden would show twice: its added row goes. */
 static bool restore_hidden_rows(void) {

@@ -142,7 +142,7 @@ void app_path_of(int vis_index, char *out, size_t cap);
 bool app_is_narrow(void);
 void app_set_theme(int pref);              /* 0 system, 1 light, 2 dark */
 void app_set_search_open(bool open);
-bool app_sidebar_has(const char *path);    /* the folder already has a sidebar row (a visible place or drive, or an added folder) */
+bool app_sidebar_has(const char *path);    /* the folder already has a sidebar row (a visible place or drive, or an added folder that is saved) */
 void app_sidebar_add(const char *path);    /* Add to Sidebar: adds the folder as a row, or says it is there already */
 bool app_at_place(int which);              /* is the sidebar place 0..6 (Home..Videos) the current folder */
 

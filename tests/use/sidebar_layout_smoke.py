@@ -155,26 +155,37 @@ def inside():
         time.sleep(.6)   # the writer runs 300 ms after a change
         assert saved_width() == 400, 'A click on the divider never changes the saved width'
 
+    def slide_log(a):
+        """The sidebar's own frames (<state>.sidebar: time, width, sliding), one slide per run of sliding lines; each is closed by the
+        first frame after it. Returns (slide time in ms, frames) for each slide so far. No picture is taken while it slides."""
+        out, run = [], []
+        for line in Path(str(a.base) + '.sidebar').read_text(encoding='utf-8').splitlines():
+            t, w, sliding = line.split()
+            if int(sliding):
+                run.append(float(t))
+            elif run:
+                out.append((round((float(t) - run[0]) * 1000, 1), len(run)))
+                run = []
+        return out
+
     def slide_fast(a):
-        """Default 150 ms: crossing 683 both ways, with the frame log counting the frames that moved the sidebar."""
-        import motion_smoke as ms
+        """Default 150 ms: crossing 683 both ways, timed from the app's own frames (the first sliding frame to the first frame after it)
+        while the test only waits: no picture, no state dump during the slide."""
         time.sleep(.4)
-        mark = len(ms.frames(a))
         resize(a, 600)
+        time.sleep(.6)
         s = settled(a)
         assert s['narrow'] and s['sidebar_px'] == 0, 'Slid out'
-        rows = ms.frames(a)[mark:]
-        moving = [r for r in rows if r['glide']]
-        assert moving, 'The slide drew frames'
-        ms_ = (moving[-1]['t'] - moving[0]['t']) * 1000
-        assert 60 <= ms_ <= 260, f'Slide out took {ms_:.0f} ms over {len(moving)} frames'
-        mark = len(ms.frames(a))
         resize(a, 900)
+        time.sleep(.6)
         s = settled(a)
         assert s['docked'] and s['sidebar_px'] == 240 and not s['narrow'], 'Slid back in'
-        rows = [r for r in ms.frames(a)[mark:] if r['glide']]
-        assert rows and 60 <= (rows[-1]['t'] - rows[0]['t']) * 1000 <= 260, 'Slide in took its time'
-        print(json.dumps({'slide_out_ms': round(ms_), 'frames': len(moving)}), flush=True)
+        slides = slide_log(a)
+        assert len(slides) == 2, f'Expected a slide out and a slide in: {slides}'
+        for (ms_, n), way in zip(slides, ('out', 'in')):
+            assert n >= 3, f'Slide {way} drew {n} frames'
+            assert 150 <= ms_ <= 170, f'Slide {way} took {ms_:.0f} ms over {n} frames (150 ms planned, one frame late at most)'
+        print(json.dumps({'slide_out_ms': slides[0][0], 'slide_in_ms': slides[1][0], 'frames': [slides[0][1], slides[1][1]]}), flush=True)
 
     def slide_slow(a):
         """Slowed to 1.5 s: monotonic, the narrow chrome only at the end, a crossing back in the middle turns round from where it is."""
@@ -267,6 +278,7 @@ def inside():
             mm.montage(d, PICS / (d.name + '.png'))
         return run, {'DFM_TEST_GLIDE_MS': '1500', 'DFM_TEST_STRIP_EVERY': '12', 'DFM_TEST_STRIP': str(d)}
 
+    SETTINGS.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS.unlink(missing_ok=True)
     check('1-drag-and-limits', width_drag)
     check('2-restart-keeps-width', width_restart)

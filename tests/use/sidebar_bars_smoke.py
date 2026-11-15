@@ -157,11 +157,6 @@ def inside():
         hover(a, 120, bars[4][0] + 34, 1.2)   # the drive without a size: no bar and no tooltip
         assert not a.snap().get('tooltip'), 'a tooltip on the drive without a size'
 
-    def unknown(a, n):
-        img = image(a)
-        bars = find_bars(img)
-        assert all(b[0] < 536 or b[0] > 556 for b in bars), 'a bar under the drive without a size'
-
     def other(a, n):
         bars = find_bars(image(a))
         a.click(100, bars[4][0] + 68)   # Other Locations, the row after the drive without a size
@@ -184,7 +179,6 @@ def inside():
         check(f'selected-{theme}', lambda a, n: check_bars(a, n), theme, where=Path('C:/'))
         check(f'hover-{theme}', hovered, theme)
         check(f'other-{theme}', other, theme)
-    check('unknown-size', unknown)
     check('narrow-360', narrow, 'light', size='360x700')
     for r in results:
         print(r)

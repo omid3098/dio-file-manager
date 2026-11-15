@@ -624,6 +624,18 @@ static void sidebar_step(float vw) {
     A.sidebar_docked = s.want && !s.moving;
 }
 
+/* Test mode: the sidebar's own slide, one line "time width sliding" for each frame while it slides and for the first frame after it
+ * (the .sidebar file beside the frame log). The frame log's glide flag also holds while the file grid reflows, so it cannot time the slide. */
+static FILE *sb_log;
+static void sidebar_frame_log(void) {
+    static bool was;
+    bool sliding = !A.sidebar_docked && !A.sidebar_gone;
+    if (!sb_log || (!sliding && !was)) return;
+    fprintf(sb_log, "%.4f %.2f %d\n", cui_time(A.ui), A.sidebar_px, sliding);
+    fflush(sb_log);
+    was = sliding;
+}
+
 static void sidebar_column(float w) {
     cui_ctx *ui = A.ui;
     cui_column(ui, .width = CUI_PX(w), .height = CUI_FILL, .bg = CUI_COLOR_BACKGROUND) {
@@ -848,6 +860,7 @@ static void window_frame(cui_ctx *ui, void *user) {
         fprintf((FILE *)A.frame_log, "%.4f %u %.4f %.2f %d %d %d %.2f %.2f %.3f\n", cui_time(A.ui), A.frame_no, A.zv, app_icon_size(), A.cols, app_zoom_busy() || ui_grid_gliding() || (!A.sidebar_docked && !A.sidebar_gone),
                 A.probe_idx, A.probe_x, A.probe_y, (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)hz.QuadPart);
         fflush((FILE *)A.frame_log);
+        sidebar_frame_log();
         static int strip_n;
         char dir[FS_PATH_MAX];   /* test mode: pictures of the frames of a glide or a size drag, for a frame strip */
         static int skipped;   /* DFM_TEST_STRIP_EVERY=n: keep every nth moving frame, so 14 pictures span a slowed motion */
@@ -967,6 +980,8 @@ int main(void) {
         static char flog[FS_PATH_MAX + 16];
         snprintf(flog, sizeof flog, "%s.frames", o.test_state);
         A.frame_log = fopen(flog, "w");
+        snprintf(flog, sizeof flog, "%s.sidebar", o.test_state);
+        sb_log = fopen(flog, "w");
     }
     if (o.zoomv >= 0) app_set_zoomv(o.zoomv, false);
     ui_window_callback(g_app, window_frame, o.test_state);

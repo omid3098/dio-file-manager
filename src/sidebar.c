@@ -13,17 +13,46 @@ static int added_n;
 static bool gone_flag[ADD_MAX];
 static ULONGLONG gone_at;   /* when the missing-folder flags were last read; 0 forces a read */
 
-static void norm(const char *in, char *out, size_t cap) {
-    snprintf(out, cap, "%s", in);
-    size_t l = strlen(out);
-    while (l > 3 && out[l - 1] == '\\') out[--l] = 0;
+static wchar_t *added_w[ADD_MAX];   /* the same folders as wide canonical paths, what they are compared by */
+static bool unsaved;                /* the last save failed: the file does not hold what the rows show */
+
+/* One spelling of a folder: separators and "." / ".." parts resolved, no trailing backslash (a drive root keeps its one). The
+ * comparison ignores letter case the way the file system does (CompareStringOrdinal): C:\Users\x, c:\users\X\ and C:\Users\.\x are one. */
+static bool canon(const char *in, wchar_t *w, size_t cap) {
+    wchar_t raw[FS_PATH_MAX];
+    if (!MultiByteToWideChar(CP_UTF8, 0, in, -1, raw, FS_PATH_MAX)) return false;
+    DWORD n = GetFullPathNameW(raw, (DWORD)cap, w, NULL);
+    if (!n || n >= cap) return false;
+    while (n > 3 && w[n - 1] == L'\\') w[--n] = 0;
+    return true;
+}
+
+static bool same_wide(const wchar_t *a, const wchar_t *b) {
+    return CompareStringOrdinal(a, -1, b, -1, TRUE) == CSTR_EQUAL;
+}
+
+bool sidebar_same_path(const char *a, const char *b) {
+    wchar_t x[FS_PATH_MAX], y[FS_PATH_MAX];
+    return canon(a, x, FS_PATH_MAX) && canon(b, y, FS_PATH_MAX) && same_wide(x, y);
 }
 
 static int find_add(const char *p) {
-    char n[FS_PATH_MAX];
-    norm(p, n, sizeof n);
-    for (int i = 0; i < added_n; i++) if (_stricmp(added[i], n) == 0) return i;
+    wchar_t n[FS_PATH_MAX];
+    if (!canon(p, n, FS_PATH_MAX)) return -1;
+    for (int i = 0; i < added_n; i++) if (same_wide(added_w[i], n)) return i;
     return -1;
+}
+
+/* Puts the folder at the end of the list, in its canonical spelling. false: no memory, or the path is too long to read. */
+static bool push_add(const char *path) {
+    wchar_t w[FS_PATH_MAX];
+    char n[FS_PATH_MAX * 3];
+    if (!canon(path, w, FS_PATH_MAX) || !WideCharToMultiByte(CP_UTF8, 0, w, -1, n, sizeof n, NULL, NULL)) return false;
+    char *u = _strdup(n);
+    wchar_t *d = _wcsdup(w);
+    if (!u || !d) { free(u); free(d); return false; }
+    added[added_n] = u; added_w[added_n++] = d;
+    return true;
 }
 
 static int find_hidden(const char *key) {
@@ -43,35 +72,38 @@ static bool file_path(wchar_t *path, size_t cap, const wchar_t *name) {
 
 static bool save(void) {
     wchar_t path[FS_PATH_MAX], tmp[FS_PATH_MAX];
-    if (!file_path(path, FS_PATH_MAX, L"sidebar.txt") || !file_path(tmp, FS_PATH_MAX, L"sidebar.tmp")) return false;
+    if (!file_path(path, FS_PATH_MAX, L"sidebar.txt") || !file_path(tmp, FS_PATH_MAX, L"sidebar.tmp")) { unsaved = true; return false; }
     FILE *f = _wfopen(tmp, L"wb");
-    if (!f) return false;
+    if (!f) { unsaved = true; return false; }
     bool ok = true;
     for (int i = 0; i < hidden_n && ok; i++) ok = fprintf(f, "hide %s\n", hidden[i]) > 0;
     for (int i = 0; i < added_n && ok; i++) ok = fprintf(f, "add %s\n", added[i]) > 0;
     if (fclose(f)) ok = false;
     if (ok) ok = MoveFileExW(tmp, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
     if (!ok) DeleteFileW(tmp);
+    unsaved = !ok;
     return ok;
 }
 
 void sidebar_load(void) {
     wchar_t path[FS_PATH_MAX];
-    hidden_n = added_n = 0; gone_at = 0;
+    for (int i = 0; i < added_n; i++) { free(added[i]); free(added_w[i]); }
+    hidden_n = added_n = 0; gone_at = 0; unsaved = false;
     if (!file_path(path, FS_PATH_MAX, L"sidebar.txt")) return;
     FILE *f = _wfopen(path, L"rb");
     if (!f) return;
     char line[FS_PATH_MAX + 8];
     while (fgets(line, sizeof line, f)) {
         size_t l = strlen(line);
+        if (l && line[l - 1] != '\n' && !feof(f)) {   /* longer than any path: the whole line is one broken record, not two */
+            int c;
+            while ((c = fgetc(f)) != EOF && c != '\n') {}
+            continue;
+        }
         while (l && (line[l - 1] == '\n' || line[l - 1] == '\r' || line[l - 1] == ' ')) line[--l] = 0;
         if (!strncmp(line, "hide ", 5) && strlen(line + 5) < KEY_MAX && hidden_n < HIDE_MAX && find_hidden(line + 5) < 0)
             snprintf(hidden[hidden_n++], KEY_MAX, "%s", line + 5);
-        else if (!strncmp(line, "add ", 4) && line[4] && added_n < ADD_MAX && find_add(line + 4) < 0) {
-            char n[FS_PATH_MAX];
-            norm(line + 4, n, sizeof n);
-            if ((added[added_n] = _strdup(n)) != NULL) added_n++;
-        }
+        else if (!strncmp(line, "add ", 4) && line[4] && added_n < ADD_MAX && find_add(line + 4) < 0) push_add(line + 4);
     }
     fclose(f);
 }
@@ -96,21 +128,22 @@ int sidebar_count(void) { return added_n; }
 const char *sidebar_path(int i) { return i >= 0 && i < added_n ? added[i] : ""; }
 bool sidebar_has(const char *path) { return find_add(path) >= 0; }
 
+bool sidebar_unsaved(void) { return unsaved; }
+
 bool sidebar_add(const char *path) {
-    char n[FS_PATH_MAX];
-    if (!path[0] || find_add(path) >= 0) return true;
-    if (added_n == ADD_MAX) return false;
-    norm(path, n, sizeof n);
-    if (!(added[added_n] = _strdup(n))) return false;
-    added_n++; gone_at = 0;
+    if (!path[0]) return true;
+    if (find_add(path) >= 0) return unsaved ? save() : true;   /* a row whose save failed is saved again by the next Add */
+    if (added_n == ADD_MAX || !push_add(path)) return false;
+    gone_at = 0;
     return save();
 }
 
 bool sidebar_remove(const char *path) {
     int i = find_add(path);
     if (i < 0) return true;
-    free(added[i]);
+    free(added[i]); free(added_w[i]);
     memmove(&added[i], &added[i + 1], (size_t)(added_n - i - 1) * sizeof *added);
+    memmove(&added_w[i], &added_w[i + 1], (size_t)(added_n - i - 1) * sizeof *added_w);
     added_n--; gone_at = 0;
     return save();
 }

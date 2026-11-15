@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -21,6 +22,7 @@ WORK = base.WORK
 SHOTS = Path(os.environ.get('DFM_SHOTS', WORK / 'shots'))
 SETTINGS = WORK / 'appdata' / 'dio-file-manager' / 'sidebar.txt'
 FA = 'گزارش نهایی سالانه شرکت و برنامه‌ی بلندمدت توسعه‌ی فروش'   # a long Persian name with spaces
+BS = chr(92)
 DEFAULT_KEYS = ['recent', 'starred', 'trash', 'other']
 
 
@@ -97,11 +99,15 @@ def inside():
     # the grid shows folders first, by name: Alpha, Beta, then the Persian name
     ALPHA, BETA, PERSIAN = 0, 1, 2
 
-    def check(name, fn, theme='light', size='1280x800', where=fx, fresh=True):
+    def check(name, fn, theme='light', size='1280x800', where=fx, fresh=True, seed=None):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
         if fresh:
+            SETTINGS.chmod(stat.S_IREAD | stat.S_IWRITE) if SETTINGS.exists() else None
             SETTINGS.unlink(missing_ok=True)
+        if seed is not None:   # what sidebar.txt holds when the window starts
+            SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+            SETTINGS.write_bytes(seed)
         a = None
         try:
             a = base.App(name, where, 'grid', theme, extra=('--size', size))
@@ -320,6 +326,53 @@ def inside():
         a.rclick(60, 265)   # the sheet's bottom padding: the list is clipped here
         assert not a.snap()['ctx'], 'A right click outside the visible list opened a row menu'
 
+    def overlong_line(a, name):
+        """One 5,000-character line is one broken record: nothing of it is a row, and the lines after it are read."""
+        assert paths(a) == [str(fx / 'Alpha'), str(fx / FA)], f'Rows: {paths(a)}'   # not the junk path, not Beta from inside the long line
+        a.path(fx)
+        a.key(ord('D'), (17,))
+        a.until('the open folder was not added', lambda: len(paths(a)) == 3, 3)
+        assert not any(len(l) > 400 for l in saved()), 'The long line was written back'
+        assert str(fx / 'Beta') not in paths(a)
+
+    spellings = [str(fx / FA), str(fx / FA) + BS, str(fx) + BS + '.' + BS + FA, str(fx) + BS + 'x' + BS + '..' + BS + FA,
+                 str(fx).lower() + BS + 'alpha', str(fx) + BS + 'Alpha' + BS]
+
+    def same_folder_spellings(a, name):
+        """The long Persian folder and Alpha, each written several ways in the file, are two rows; adding them again in other spellings adds none."""
+        assert paths(a) == [str(fx / FA), str(fx).lower() + BS + 'alpha'], f'Rows: {paths(a)}'
+        for sp in (str(fx / FA) + BS, str(fx) + BS + '.' + BS + FA, str(fx) + BS + 'Alpha' + BS + '.'):
+            a.path(sp)
+            a.key(ord('D'), (17,))
+            time.sleep(.4)
+            assert len(paths(a)) == 2, f'{sp!r} gave a new row: {paths(a)}'
+        assert saved() == [f'add {p}' for p in spellings], f'Settings file: {saved()}'   # nothing new was added, so nothing was written
+
+    def retry_save(a, name):
+        """A save that fails (sidebar.txt is read-only) shows the row for this run; the next Add saves it."""
+        SETTINGS.chmod(stat.S_IREAD)
+        try:
+            a.path(fx / 'Alpha')
+            a.key(ord('D'), (17,))
+            a.until('the row did not show', lambda: paths(a) == [str(fx / 'Alpha')], 3)
+            time.sleep(.3)
+            assert saved() == [], f'The read-only file changed: {saved()}'
+            a.key(ord('D'), (17,))   # still read-only: another try, another failure, still one row
+            time.sleep(.4)
+            assert paths(a) == [str(fx / 'Alpha')] and saved() == [], f'{paths(a)} {saved()}'
+        finally:
+            SETTINGS.chmod(stat.S_IREAD | stat.S_IWRITE)
+        a.key(ord('D'), (17,))
+        a.until('the next Add did not save', lambda: saved() == [f'add {fx / "Alpha"}'], 3)
+        assert paths(a) == [str(fx / 'Alpha')], f'A second row: {paths(a)}'
+
+    def sheet_spellings(a, name):
+        a.click(26, 23)
+        a.until('the sidebar sheet did not open', lambda: a.snap()['overlay'], 3)
+        time.sleep(.4)
+        assert paths(a) == [str(fx / FA), str(fx).lower() + BS + 'alpha'], f'Rows: {paths(a)}'
+        shot(a, name)
+
     check('1-long-persian-name-light', long_persian, 'light')
     check('2-long-persian-name-dark', long_persian, 'dark')
     check('3-same-folder-twice', twice, 'light')
@@ -335,6 +388,14 @@ def inside():
     check('13-restore-no-duplicate', restore_duplicate, 'light')
     check('14-resized-sheet-menu-keys', resized_menu, 'light')
     check('15-clipped-row-no-menu', clipped_rows, 'light', size='360x280')
+    def seed_of(*lines):
+        return ''.join(f'add {l}\n' for l in lines).encode('utf-8')
+
+    check('16-overlong-line', overlong_line, 'light', fresh=False,
+          seed=seed_of('X' * 1043 + 'add ' + str(fx / 'Beta'), 'Y' * 5000, str(fx / 'Alpha'), str(fx / FA)))
+    check('17-same-folder-spellings', same_folder_spellings, 'light', seed=seed_of(*spellings), fresh=False)
+    check('18-failed-save-tried-again', retry_save, 'light', seed=b'')
+    check('19-spellings-sheet-360-dark', sheet_spellings, 'dark', size='360x280', seed=seed_of(*spellings), fresh=False)
     (WORK / 'sidebar-results.json').write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding='utf-8')
     return 1 if any(r['result'] != 'passed' for r in results) else 0
 

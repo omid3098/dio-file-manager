@@ -14,7 +14,9 @@ bool sidebar_show_hidden(void);              /* every hidden default row comes b
 int  sidebar_count(void);                    /* added folders, in the order added */
 const char *sidebar_path(int i);
 bool sidebar_has(const char *path);
-bool sidebar_add(const char *path);          /* false: full or not saved */
+bool sidebar_add(const char *path);          /* false: full or not saved. A folder already there whose save failed is saved again. */
+bool sidebar_unsaved(void);                  /* the last save failed: the file is older than the rows */
+bool sidebar_same_path(const char *a, const char *b);   /* one folder in two spellings: ".\", trailing "\", letter case */
 bool sidebar_remove(const char *path);
 bool sidebar_gone(int i);                    /* the added folder (or its drive) is missing; looked at most once a second */
 void sidebar_leaf(const char *path, char *out, size_t cap);   /* the row's label: the folder's name, or "C:\" for a drive root */
