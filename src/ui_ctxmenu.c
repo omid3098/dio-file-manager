@@ -187,7 +187,7 @@ cui_rect ctxmenu_row_rect(cui_ctx *ui) {
     return cui_get_rect(ui, ui->nodes[cui__current(ui)].id);
 }
 
-static cui_id menu_pids[2];   /* the ids made inside the frame's id scope (the file view's menu, the sidebar's); ctxmenu_is_open runs outside it */
+static cui_id menu_active;   /* the id of the row menu opened last, made inside the frame's id scope (a menu's id depends on the layout: the sidebar sheet makes its own); ctxmenu_is_open runs outside it */
 
 bool ctxmenu_row_hovered(cui_ctx *ui) {
     /* CUI 1.4.0's data-grid row does not set last_id; use its clipped hit rectangle. */
@@ -202,8 +202,8 @@ bool ctxmenu_row_hovered(cui_ctx *ui) {
 
 bool ctxmenu_begin(cui_ctx *ui, const char *id, bool open_here) {
     cui_id pid = cui_make_id(ui, id) ^ 0xC7Cu;
-    for (int k = 0; k < 2; k++) if (menu_pids[k] == pid) break; else if (!menu_pids[k]) { menu_pids[k] = pid; break; }
     if (open_here) {
+        menu_active = pid;
         cui__close_all_popups(ui);
         cui__popup_set(ui, pid, true);
         cui_popup *p = cui__popup_get(ui, pid, false);
@@ -225,11 +225,8 @@ bool popover_menu_begin(cui_ctx *ui, const char *id, int placement, float width,
 void ctxmenu_end(cui_ctx *ui) { cui__popup_end(ui); }
 
 bool ctxmenu_is_open(cui_ctx *ui) {
-    for (int k = 0; k < 2 && menu_pids[k]; k++) {
-        cui_popup *p = cui__popup_get(ui, menu_pids[k], false);
-        if (p && p->open) return true;
-    }
-    return false;
+    cui_popup *p = menu_active ? cui__popup_get(ui, menu_active, false) : NULL;
+    return p && p->open;
 }
 
 void ui_search_focus(void) { A.ui->focus = cui_make_id(A.ui, "searchfield"); }

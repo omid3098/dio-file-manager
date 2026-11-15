@@ -285,6 +285,41 @@ def inside():
         assert 'place0' in rows(a)
         shot(a, name + '-back')
 
+    def restore_duplicate(a, name):
+        drive = next(k for k in rows(a) if k.startswith('drive:'))
+        root = drive[len('drive:'):] + ':' + chr(92)
+        row_menu(a, drive, 'remove')
+        a.path(root)
+        a.key(ord('D'), (17,))
+        a.until('the folder was not added', lambda: paths(a), 3)
+        row_menu(a, 'recent', 'show')
+        k = rows(a)
+        assert drive in k, 'The drive row did not come back'
+        assert paths(a) == [], f'The restored drive shows twice: {paths(a)}'
+        assert not [l for l in saved() if l.startswith('add ')], f'Settings file: {saved()}'
+
+    def resized_menu(a, name):
+        dpi = base.U.GetDpiForWindow(a.hwnd) / 96
+        assert base.U.SetWindowPos(a.hwnd, None, 0, 0, int(600 * dpi), int(500 * dpi), 0x16), 'The window did not resize'
+        a.until('the window is not narrow', lambda: a.snap()['narrow'], 3)
+        a.click(26, 23)
+        a.until('the sidebar sheet did not open', lambda: a.snap()['overlay'], 3)
+        time.sleep(.4)
+        a.rclick(*centre(rows(a)['recent']))
+        a.until('the row menu did not open', lambda: a.snap()['ctx'], 3)
+        a.key(0x28)
+        a.key(13)
+        time.sleep(.3)
+        assert 'recent' not in rows(a), 'Down and Enter did not remove Recent'
+        assert 'hide recent' in saved(), f'Settings file: {saved()}'
+
+    def clipped_rows(a, name):
+        a.click(26, 23)
+        a.until('the sidebar sheet did not open', lambda: a.snap()['overlay'], 3)
+        time.sleep(.4)
+        a.rclick(60, 265)   # the sheet's bottom padding: the list is clipped here
+        assert not a.snap()['ctx'], 'A right click outside the visible list opened a row menu'
+
     check('1-long-persian-name-light', long_persian, 'light')
     check('2-long-persian-name-dark', long_persian, 'dark')
     check('3-same-folder-twice', twice, 'light')
@@ -297,6 +332,9 @@ def inside():
     check('10-small-window-sheet-light', small_sheet, 'light', size='360x280')
     check('11-small-window-sheet-dark', small_sheet, 'dark', size='360x280')
     check('12-wide-narrow-480', long_persian, 'dark', size='683x500')
+    check('13-restore-no-duplicate', restore_duplicate, 'light')
+    check('14-resized-sheet-menu-keys', resized_menu, 'light')
+    check('15-clipped-row-no-menu', clipped_rows, 'light', size='360x280')
     (WORK / 'sidebar-results.json').write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding='utf-8')
     return 1 if any(r['result'] != 'passed' for r in results) else 0
 
