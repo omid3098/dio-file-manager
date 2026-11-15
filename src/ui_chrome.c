@@ -780,7 +780,10 @@ void ui_status_pill(void) {
     float below = app_is_narrow() ? BAR_H : 0.0f, stack = toast_stack_h();
     float want = stack > 0 ? TOAST_MARGIN + stack + TOAST_GAP - below - PILL_PAD : 0.0f;
     cui__tween(ui, &toast_lift, want > 0 ? want : 0.0f, CUI__T_STATE);
-    if (!buf[0]) { pill_r[0] = pill_r[1] = pill_r[2] = pill_r[3] = 0; return; }
+    cui_theme *th = cui_theme_get(ui);
+    float line = cui_measure_text(ui, CUI_FONT_BODY, th->text_body * th->font_scale, buf, (int)strlen(buf)).height, h = line + 18.0f;
+    /* Many toasts in a short window can fill the pane: the label then waits (it never sits under a toast) and returns when they go. */
+    if (!buf[0] || PILL_PAD + want + h > A.content_h) { pill_r[0] = pill_r[1] = pill_r[2] = pill_r[3] = 0; return; }
     cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_END, .justify = CUI_JUSTIFY_END, .pad = PILL_PAD) {
         cui_row(ui, .bg = CUI_COLOR_SURFACE_RAISED, .radius = 14, .border = 1, .border_color = CUI_COLOR_BORDER,
                 .elevation = CUI_ELEVATION_FLOATING, .pad_x = 14, .pad_y = 8, .max_width = pill_room() + 30.0f) {
@@ -789,9 +792,7 @@ void ui_status_pill(void) {
         if (toast_lift > 0.5f) cui_gap(ui, toast_lift);
         /* Where the pill is drawn, from its own parts (the row's rect is not kept): the text and 14 + 1 px / 8 + 1 px around it, in the
          * content pane's bottom-right corner, PILL_PAD in and the lift up. */
-        cui_theme *th = cui_theme_get(ui);
-        float tw = pill_text_w(buf), line = cui_measure_text(ui, CUI_FONT_BODY, th->text_body * th->font_scale, buf, (int)strlen(buf)).height;
-        float w = fminf(tw + 30.0f, pill_room() + 30.0f), h = line + 18.0f;
+        float w = fminf(pill_text_w(buf) + 30.0f, pill_room() + 30.0f);
         pill_r[0] = ui->vw - PILL_PAD - w; pill_r[2] = w; pill_r[3] = h;
         pill_r[1] = ui->vh - below - PILL_PAD - (toast_lift > 0.5f ? toast_lift : 0.0f) - h;
     }

@@ -395,11 +395,14 @@ def inside():
         a.cell(0); a.key(46)
         a.until('Delete kept the file', lambda: not target.exists())
         finished(a)
-        def state(label, pill):
+        def state(label, pill, hover=False):
             def settled():
                 s = a.snap()
                 return s['pill'].startswith(pill) and (before or s['pill_rect'][2] > 0)
             a.until(f'The label never showed {pill!r}', settled, 5)
+            if hover and not before:   # the pointer on the toast opens CUI's stack: the label must still be clear of it
+                tx, ty, tw, th = a.snap()['toast_rect']
+                a.msg(0x200, 0, a.point(tx + tw / 2, ty + th / 2))
             time.sleep(.6)   # the label's rise and the toast's own entrance have ended
             s = a.snap(f'toast-label-{tag}-{label}')
             if before:
@@ -417,6 +420,7 @@ def inside():
         state('one', f'“{TOAST_FILES[1][:8]}')   # the label shortens a long name at a whole character
         a.key(ord('A'), (17,))
         state('four', '4 items selected')
+        state('four-hover', '4 items selected', hover=True)
 
     def conflicts(a):
         source, dest = SAND/'source', SAND/'destination'
