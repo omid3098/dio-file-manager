@@ -650,7 +650,8 @@ def inside():
         shutil.rmtree(LP + str(root), ignore_errors=True)
         path = str(root)
         while len(path) < 1036:
-            path += BS + 'd' * min(60, max(1, 1036 - len(path) - 1))
+            room = 1036 - len(path) - 1   # what the next folder name may take
+            path += BS + 'd' * (room if room <= 60 else 59 if room == 61 else 60)   # never leave a gap of 0 for the last name
         os.makedirs(LP + path)
         Path(LP + path + BS + 'x.txt').write_text('x', encoding='utf-8')
         assert len(path) == 1036, len(path)
