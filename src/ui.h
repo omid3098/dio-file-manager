@@ -216,7 +216,7 @@ bool ui_band_dragging(void);
 float ui_body_text_w(const char *s);       /* the width cui_text gives s at the theme's body size */
 
 /* ui_dnd.c: files dragged out of the window and dropped into it (OLE) */
-#define WM_DFM_DRAG (WM_APP + 8)                 /* posted by the frame: start the drag of the selection (never inside the frame) */
+#define WM_DFM_DRAG (WM_APP + 9)                 /* posted by the frame: start the drag of the selection (never inside the frame) */
 void dnd_init(void *hwnd, bool test_mode);       /* OLE is up: the window becomes a drop target */
 void dnd_shutdown(void);
 void dnd_frame_begin(void);                      /* start of every frame */

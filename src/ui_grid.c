@@ -237,16 +237,17 @@ static cui_rect label_box(cui_ctx *ui, int idx, cui_rect r) {
     return (cui_rect){ r.x + (r.w - w) * .5f - pad, r.y + 2 + icon_size() + 16 + 4, w + 2 * pad, nl.n * LINE_H };
 }
 
-/* The icon and the name text are what a press drags; every other point of the cell starts the selection box (ui_band_begin).
- * In the row shapes (small icons, List) the whole cell height counts, from the icon to the end of the name. */
+/* The icon and the name text, as drawn, are what a press drags; every other point of the cell, its padding too, starts the
+ * selection box (ui_band_begin). */
 static bool rect_has(cui_rect r, float x, float y) { return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h; }
 
 bool ui_grid_content_at(int i, cui_rect cell, cui_vec2 p) {
     if (i < 0 || i >= A.vis_n) return false;
     cui_rect lb = label_box(A.ui, i, cell);
-    if (A.zoom <= Z_SMALL) return p.x >= cell.x + 12 && p.x < lb.x + lb.w + 2;
-    float box = icon_size() + 16;
-    cui_rect ib = { cell.x + cell.w * 0.5f - box * 0.5f, cell.y + 2, box, box };
+    float icon = icon_size();
+    cui_rect ib;   /* the icon as paint_compact and paint_row place it */
+    if (A.zoom <= Z_SMALL) ib = (cui_rect){ cell.x + 12, cell.y + cell.h * 0.5f - icon * 0.5f, icon, icon };
+    else ib = (cui_rect){ cell.x + cell.w * 0.5f - icon * 0.5f, cell.y + 2 + (icon + 16) * 0.5f - icon * 0.5f, icon, icon };
     return rect_has(ib, p.x, p.y) || rect_has((cui_rect){ lb.x - 2, lb.y, lb.w + 4, lb.h }, p.x, p.y);
 }
 

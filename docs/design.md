@@ -120,8 +120,9 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   `accent-fg` text. Click selects, Ctrl+click toggles, Shift+click selects a range. Dragging from
   anywhere but an item's icon or name text draws a rubber band: from the empty background,
   and from an item's blank part too (in Details and List the row beside the name text and the Size,
-  Modified and Type cells; in the icon views the padding around the icon and the label). A press on
-  the icon or the name text is the item's own and never draws the box. A press on an item's blank
+  Modified and Type cells; in the icon views the padding around the icon and the label, above and below them too: only the drawn icon and
+  the name text are the item's own). A press on
+  the icon or the name text never draws the box. A press on an item's blank
   part is an item press until the pointer has moved 4 px: a click selects that item and a double
   click opens it as on any part of the item, and only a drag turns into the box. In a Details row the
   name's blank part starts where the name text ends; a name that fills its column has none, but its
@@ -355,9 +356,11 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   - In: the window takes drops from every program, itself and its other windows included. What is under the pointer
     decides the target, and it shows the same hover as a click would: a folder item, a sidebar place or drive row, Trash,
     or else the open folder's blank part. Recent, Starred, a search, Other Locations and a folder that is still loading
-    take no drop; neither does a window with a dialog open.
+    take no drop; neither does a window with a dialog open. A drop whose path cannot be read is refused whole, never with an item
+    missing. When the pointer leaves a folder for blank space, the open folder takes the drop.
   - Effect, as in Explorer: the same drive moves, another drive copies, Shift forces a move, Ctrl a copy, both together are
-    refused. Dropping on Trash moves to the Recycle Bin. A folder dropped into itself or into one of its own folders is
+    refused; a Shift or Ctrl that the source does not allow is refused too, and only without a key does a source that offers one effect
+    get that one. Dropping on Trash moves to the Recycle Bin. A folder dropped into itself or into one of its own folders is
     refused, and so is a move into the folder every item already sits in; a refused target shows no hover.
   - Every drop is an ordinary file job (the progress and the name conflict dialog with Replace, Skip and Keep Both).
     A move drop leaves the clipboard alone. Dropping while a job runs adds another job.

@@ -7,6 +7,7 @@
  * with the pointer where the drag is, so the item and the sidebar row that show the hover are the ones that take the drop.
  * Every copy and move is a file job of ui_actions.c: nothing here copies a file. */
 #define COBJMACROS
+#define DFM_INTERNAL   /* dfm_utf8 of ops.h: a path of any length */
 #include <windows.h>
 #include "ui.h"   /* before shlobj.h: its commctrl.h defines VIEW_LIST */
 #include <objbase.h>
@@ -19,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "clip.h"
+#include "ops.h"
 
 static const GUID DFM_CLSID_DragDropHelper = { 0x4657278A, 0x411B, 0x11D2, { 0x83, 0x9A, 0x00, 0xC0, 0x4F, 0xD9, 0x18, 0xD0 } };
 static const GUID DFM_IID_IDropTargetHelper = { 0x4657278B, 0x411B, 0x11D2, { 0x83, 0x9A, 0x00, 0xC0, 0x4F, 0xD9, 0x18, 0xD0 } };
@@ -131,19 +133,20 @@ static bool read_paths(IDataObject *d, char ***out, size_t *count) {
     UINT n = drop ? DragQueryFileW(drop, 0xFFFFFFFF, NULL, 0) : 0;
     char **p = calloc(n ? n : 1, sizeof *p);
     size_t k = 0;
-    for (UINT i = 0; p && i < n; i++) {
+    bool whole = true;   /* a drop with an item that cannot be read is refused whole: no item drops out unseen */
+    for (UINT i = 0; p && i < n && whole; i++) {
         UINT len = DragQueryFileW(drop, i, NULL, 0);
         wchar_t *w = malloc(((size_t)len + 1) * sizeof *w);
-        if (!w) break;
+        if (!w) { whole = false; break; }
         DragQueryFileW(drop, i, w, len + 1);
-        p[k] = malloc(FS_PATH_MAX);
-        if (p[k] && fs_w_to_u8(w, p[k], FS_PATH_MAX)) k++; else free(p[k]);
+        p[k] = dfm_utf8(w);
+        if (p[k]) k++; else whole = false;
         free(w);
     }
     if (drop) GlobalUnlock(sm.hGlobal);
     ReleaseStgMedium(&sm);
     *out = p; *count = k;
-    return p && k > 0;
+    return p && whole && k > 0;
 }
 
 static DWORD read_effect(IDataObject *d) {
@@ -299,7 +302,8 @@ static DWORD effect_for(int kind, const char *dest, DWORD keys, DWORD allowed) {
         want = shift ? DROPEFFECT_MOVE : ctrl ? DROPEFFECT_COPY : same_volume_all(dest) ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
         for (size_t i = 0; i < D.src_n; i++) if (inside_or_same(D.src[i], dest)) return DROPEFFECT_NONE;
     }
-    if (!(allowed & want) && kind != K_TRASH) want = want == DROPEFFECT_MOVE ? DROPEFFECT_COPY : DROPEFFECT_MOVE;   /* a source that offers one effect only */
+    /* A source that offers one effect only: without a modifier the drop takes that one; a Shift or Ctrl the source does not allow is refused. */
+    if (!(allowed & want) && kind != K_TRASH && !(keys & (MK_SHIFT | MK_CONTROL))) want = want == DROPEFFECT_MOVE ? DROPEFFECT_COPY : DROPEFFECT_MOVE;
     if (!(allowed & want)) return DROPEFFECT_NONE;
     if (want == DROPEFFECT_MOVE && kind != K_TRASH) {
         bool any = false;

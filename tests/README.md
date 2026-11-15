@@ -143,21 +143,21 @@ coordinate lookup and two clicks, with no screenshot between the clicks.
 
 ## Selection box from an item's blank part
 
-`tests/use/band_anywhere_smoke.py` (eleven checks, about 4 minutes, real input on the private desktop, no clipboard) imports
+`tests/use/band_anywhere_smoke.py` (thirteen checks, about 5 minutes, real input on the private desktop, no clipboard) imports
 `press`, `move` and `release` from `select_smoke.py`. It checks that a drag from the Size, Modified or Type cell or
 from beside a Details name draws the box (5,200 files: row 3's Size cell to row 20 selects exactly 18 rows, in dark and light), that
 a Details press on the name text or a tile's icon draws none, that auto-scroll past the bottom extends the box, that
 List, Small, Medium and Large icons start from the padding between icons, Ctrl+drag adds, a click with no drag on
-a blank part selects the item, Persian names (a short one with a blank part, a long one that fills its column), and a
+a blank part selects the item, a press in the padding above a Small or Medium icon cell (inside the cell, outside the drawn icon and name) draws the box, Persian names (a short one with a blank part, a long one that fills its column), and a
 360x280 window in Details and icons, and a double click on a folder's blank part opening it. Pictures of the whole window go to `final/` of `DFM_USE_WORK`.
 
 ## Drag and drop
 
-`tests/use/dnd_smoke.py` (eighteen checks, about 8 minutes, real mouse messages on the private desktop, the clipboard untouched)
+`tests/use/dnd_smoke.py` (twenty-two checks, about 2 minutes, real mouse messages on the private desktop, the clipboard untouched)
 checks a drag out and a drop in. Out: a press that barely moves starts nothing; a drag of one file, a folder, a long Persian name,
 a selection of two, 300 files and a Details row reports the data the drag would carry (every path, Preferred DropEffect copy). In: test-only
 `WM_COPYDATA` commands (`enter`, `over`, `drop`, `leave`) hand a real `IDataObject` of sandbox files to the window's own
-`IDropTarget` at client points and keys: the background, a folder item, a sidebar drive row (a `subst` letter), Trash, a same-drive
+`IDropTarget` at client points and keys (checks 19 to 22: in Details the pointer moving from a folder into blank space drops into the open folder; a Shift or Ctrl the source does not allow is refused, with no key the one effect it offers is taken; a drop with a 590-character path hands both files to the job; a file moved out of the open folder by another process leaves the list): the background, a folder item, a sidebar drive row (a `subst` letter), Trash, a same-drive
 move, a cross-drive copy, Shift and Ctrl, a folder onto itself and into its own subfolder (refused), the name conflict dialog, a drop
 while a copy runs, edge scroll in icons and Details, a 360x280 window in dark and light, and leaving the window. Pictures of the whole window
 (`drop-over-*.png`) go to `DFM_USE_WORK`. Needs a free drive letter. Not covered: a real drag between two programs (a browser upload,

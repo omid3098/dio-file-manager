@@ -373,6 +373,59 @@ def inside():
         assert d['session'] == 0 and d['effect'] == 0 and d['drops'] == 0
         assert (SAND / 'ext' / 'one.txt').exists()
 
+    def in_details_background(a):
+        # over a folder, then into blank space: the drop goes into the open folder, not the folder the pointer left
+        x, y = item_xy(a, 'sub')
+        d = enter(a, x, y, [SAND / 'ext' / 'one.txt'])
+        assert d['kind'] == 2, d
+        bx, by = bg_xy(a)
+        d = over(a, bx, by)
+        assert (d['kind'], d['dest'], d['item']) == (1, str(SAND / 'dst'), -1), d
+        drop(a, bx, by)
+        jobs_done(a)
+        assert (SAND / 'dst' / 'one.txt').exists() and not (SAND / 'dst' / 'sub' / 'one.txt').exists()
+
+    def in_effect_choice(a):
+        # a Shift or Ctrl the source does not allow is refused; with no key the one effect it offers is taken
+        bx, by = bg_xy(a)
+        one = SAND / 'ext' / 'one.txt'
+        assert enter(a, bx, by, [one], CTRL, MOVE)['effect'] == 0
+        assert over(a, bx, by, SHIFT, COPY)['effect'] == 0
+        assert over(a, bx, by, 0, COPY)['effect'] == COPY
+        assert over(a, bx, by, 0, MOVE)['effect'] == MOVE
+        assert over(a, bx, by, CTRL, COPY | MOVE)['effect'] == COPY
+        over(a, bx, by, CTRL, MOVE)
+        drop(a, bx, by, CTRL, MOVE)
+        time.sleep(.5)
+        assert a.snap()['dnd']['drops'] == 0 and one.exists() and not (SAND / 'dst' / 'one.txt').exists()
+
+    def in_long_path(a):
+        # two files, one with a path of 590 characters (over 1040 bytes in UTF-8): both reach the job, none drops out
+        top = SAND / 'ext' / ('گ' * 100)
+        deep = top / ('ر' * 100) / ('م' * 100) / ('ن' * 100) / ('ی' * 100)
+        long_prefix = '\\\\?\\'
+        try:
+            os.makedirs(long_prefix + str(deep))
+            longfile = deep / 'long-one.txt'
+            with open(long_prefix + str(longfile), 'w', encoding='utf-8') as f:
+                f.write('long')
+            assert len(str(longfile)) > 560 and len(str(longfile).encode('utf-8')) > 1040, len(str(longfile))
+            bx, by = bg_xy(a)
+            d = enter(a, bx, by, [SAND / 'ext' / 'one.txt', longfile], CTRL)
+            assert d['effect'] == COPY, d
+            d = drop(a, bx, by, CTRL)
+            assert d['last_n'] == 2, d
+            jobs_done(a)
+            assert (SAND / 'dst' / 'one.txt').exists()   # what the file job then does with a path past 260 characters is its own business, as with a paste
+        finally:
+            shutil.rmtree(long_prefix + str(top), ignore_errors=True)
+
+    def in_source_follows(a):
+        # a file leaves the open folder from another process (what Explorer does after an outgoing move): the list drops it
+        assert 'keep.txt' in a.snap()['names']
+        shutil.move(str(SAND / 'dst' / 'keep.txt'), str(SAND / 'ext' / 'keep.txt'))
+        a.until('The moved-out file stayed listed', lambda: 'keep.txt' not in a.snap()['names'], 15)
+
     subprocess.run(['subst', f'{letter}:', str(SAND / 'drive')], check=True, creationflags=subprocess.CREATE_NO_WINDOW)
     try:
         # subst must exist before the apps start so that the sidebar lists the drive
@@ -396,6 +449,10 @@ def inside():
         check('16-in-small-window-dark', in_small_window, 'dst', 'grid', 'dark', ('--size', '360x280'))
         check('17-in-folder-dark-details', in_folder_item, 'dst', 'list', 'dark')
         check('18-in-leave', in_leave)
+        check('19-in-details-background-after-folder', in_details_background, 'dst', 'list')
+        check('20-in-effect-not-allowed', in_effect_choice)
+        check('21-in-long-path', in_long_path)
+        check('22-source-list-follows-move-out', in_source_follows)
     finally:
         subprocess.run(['subst', f'{letter}:', '/d'], creationflags=subprocess.CREATE_NO_WINDOW)
     (WORK / 'dnd-results.json').write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding='utf-8')

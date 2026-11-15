@@ -187,6 +187,23 @@ def open_blank(a, stop):
     a.until('Double click on a blank part did not open the folder', lambda: a.snap()['path'].endswith('sub'))
 
 
+def padding(a, stop, view_name):
+    """A press in the padding above or below the icon and name, inside the cell, starts the box (it is not the item)."""
+    s = set_stop(a, stop)
+    x, y, w, h = s['row']
+    cols = s['cols']
+    cw = (w - 32) / cols
+    if stop == 2:   # small icons: a few pixels under the cell's top edge, right of the icon
+        start = (x + 16 + 65, y + 3)
+        end = (start[0] - 20, start[1] + 60)
+    else:           # medium icons: the cell's horizontal centre, a few pixels under its top edge
+        start = (x + 16 + cw / 2, y + 4)
+        end = (start[0] + 40, start[1] + 60)
+    s = drag(a, start, end)
+    assert s['band'], f'{view_name}: no box from the padding above the item'
+    release(a, *end)
+
+
 def inside():
     results = []
 
@@ -212,6 +229,8 @@ def inside():
     check('2-list', WORK / 'many', lambda a: grid(a, 1, 'list-light'))
     check('3-icons-medium', WORK / 'many', lambda a: grid(a, 3, 'icons-light'))
     check('4-icons-small', WORK / 'many', lambda a: grid(a, 2, 'small-icons-light'))
+    check('3b-padding-medium', WORK / 'many', lambda a: padding(a, 3, 'medium'))
+    check('4b-padding-small', WORK / 'many', lambda a: padding(a, 2, 'small'))
     check('5-icons-dark', WORK / 'many', lambda a: grid(a, 4, 'icons-large-dark'), theme='dark')
     check('6-persian', WORK / 'persian', persian)
     check('7-small-details', WORK / 'many', lambda a: small_window(a, 0))
