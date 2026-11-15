@@ -82,7 +82,7 @@ Neither console test reuses its leaf sandbox; both remove their files on exit.
 
 Run `tests/use/input_smoke.py` and `tests/use/search_smoke.py` once against the release
 executable, with `DFM_EXE` pointing at it and separate `DFM_USE_WORK` folders below the task.
-Both check gaming and use the private desktop. The input suite has 25 checks, including the mouse back and forward buttons (`14-mouse-navigation`) and Recent and Other Locations at 1280x800 light and 360x280 dark (`12-virtual-navigation*`: the sidebar row is found from the app's own row list, never at a fixed height, because the drive count changes the row's place); the search
+Both check gaming and use the private desktop. The input suite has 26 checks, including the mouse back and forward buttons (`14-mouse-navigation`) and Recent and Other Locations at the default 1080x720 light and 360x280 dark (`12-virtual-navigation*`: the sidebar row is found from the app's own row list, never at a fixed height, because the drive count changes the row's place); the search
 suite has 8, including list-row menus and search Trash/Undo. Clipboard checks preserve all
 formats in memory; when wrapping console tests, preserve the clipboard around the whole
 process as well so a failed assertion cannot leave test data behind.

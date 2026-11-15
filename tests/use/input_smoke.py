@@ -567,12 +567,13 @@ def inside():
 
     def sidebar_row(a, key):
         """Centre of a sidebar row, read from the app: its place depends on how many drives the PC lists (another window test may add one
-        with subst while this runs). In the 360 px sheet the list scrolls: a row below the sheet's visible part is wheeled into view."""
-        for _ in range(12):
-            rows = [r for r in a.snap()['sbrows'] if r['key'] == key]
+        with subst while this runs). A row below the visible part of the sidebar (the 360 px sheet ends at y=248) is wheeled into view."""
+        for _ in range(40):
+            s = a.snap()
+            rows = [r for r in s['sbrows'] if r['key'] == key]
             assert rows, f'No {key} row in the sidebar'
             x, y, w, h = rows[0]['r']
-            if not a.snap()['narrow'] or y + h / 2 < 240:
+            if y + h / 2 < (240 if s['narrow'] else 700):
                 return x + w / 2, y + h / 2
             a.msg(0x200, 0, a.point(100, 150))
             a.msg(0x20A, (0x10000-120) << 16)
