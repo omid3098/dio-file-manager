@@ -471,7 +471,7 @@ static void paint_none(cui_ctx *ui, cui_rect r, void *user) { (void)ui; (void)r;
 static void context_menu(void) {
     cui_ctx *ui = A.ui;
     cui_vec2 m = cui_mouse_pos(ui), vp = cui_viewport_size(ui);
-    float x0 = app_is_narrow() ? 0.0f : 240.0f, y0 = 46.0f;
+    float x0 = A.sidebar_px, y0 = 46.0f;
     bool in_header = A.view == VIEW_LIST && A.vis_n > 0 && m.y < y0 + 40.0f;
     bool open_here = cui_mouse_clicked(ui, CUI_MOUSE_RIGHT) && A.loc != LOC_OTHER && !G.delete_open && !G.conflict_open &&
                      !A.sidebar_open && m.x >= x0 && m.x < vp.x && m.y >= y0 && m.y < vp.y && !in_header;

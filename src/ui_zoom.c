@@ -26,7 +26,7 @@ static bool save_view(long value) {
     if (!settings_path(path, FS_PATH_MAX, L"view.txt") || !settings_path(tmp, FS_PATH_MAX, L"view.tmp")) return false;
     FILE *f = _wfopen(tmp, L"w");
     if (!f) return false;
-    bool ok = fprintf(f, "view-v2 %.3f %.3f\n", (float)(value % 1024) / 100.0f, (float)(value / 1024) / 100.0f) > 0;
+    bool ok = fprintf(f, "view-v2 %.3f %.3f %d\n", (float)(value % 1024) / 100.0f, (float)(value / 1024 % 1024) / 100.0f, (int)(value / 1048576)) > 0;
     if (fclose(f)) ok = false;
     if (ok) ok = MoveFileExW(tmp, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
     if (!ok) DeleteFileW(tmp);
@@ -64,7 +64,7 @@ static void queue_view(void) {
             return;
         }
     }
-    InterlockedExchange(&writer.pending, 1 + (LONG)(A.zv * 100.0f + 0.5f) + 1024 * (LONG)(A.last_icon_v * 100.0f + 0.5f));
+    InterlockedExchange(&writer.pending, 1 + (LONG)(A.zv * 100.0f + 0.5f) + 1024 * (LONG)(A.last_icon_v * 100.0f + 0.5f) + 1048576 * (LONG)A.sidebar_w);   /* the sidebar width rides along: view-v2 keeps its first two numbers for older builds */
     SetEvent(writer.wake);
 }
 
@@ -175,15 +175,17 @@ void ui_zoom_tick(void) {
 }
 
 void app_load_view(void) {
-    A.zv = (float)Z_MEDIUM; A.last_icon_v = (float)Z_MEDIUM;
+    A.zv = (float)Z_MEDIUM; A.last_icon_v = (float)Z_MEDIUM; A.sidebar_w = SIDEBAR_W_DEFAULT;
     wchar_t path[FS_PATH_MAX];
     if (settings_path(path, FS_PATH_MAX, L"view.txt")) {
         FILE *f = _wfopen(path, L"r");
         float zv, icon;
-        int stop, istop;
+        int stop, istop, sw = 0;
         if (f) {
-            if (fscanf(f, "view-v2 %f %f", &zv, &icon) == 2 && zv >= 0 && zv <= Z_COUNT - 1 && icon >= Z_SMALL && icon <= Z_COUNT - 1) {
+            int got = fscanf(f, "view-v2 %f %f %d", &zv, &icon, &sw);
+            if (got >= 2 && zv >= 0 && zv <= Z_COUNT - 1 && icon >= Z_SMALL && icon <= Z_COUNT - 1) {
                 A.zv = zv; A.last_icon_v = icon;
+                if (got == 3 && sw >= SIDEBAR_W_MIN && sw <= SIDEBAR_W_MAX) A.sidebar_w = sw;
             } else {
                 rewind(f);
                 if (fscanf(f, "view-v1 %d %d", &stop, &istop) == 2 && stop >= 0 && stop < Z_COUNT && istop >= Z_SMALL && istop < Z_COUNT) {
@@ -196,6 +198,14 @@ void app_load_view(void) {
     A.zoom = stop_of(A.zv);
     A.last_icon = stop_of(A.last_icon_v);
     A.view = A.zoom == Z_DETAILS ? VIEW_LIST : VIEW_GRID;
+}
+
+void app_set_sidebar_w(int w) {
+    if (w < SIDEBAR_W_MIN) w = SIDEBAR_W_MIN;
+    if (w > SIDEBAR_W_MAX) w = SIDEBAR_W_MAX;
+    if (w == A.sidebar_w) return;
+    A.sidebar_w = w;
+    queue_view();
 }
 
 void app_set_zoom(int stop) {

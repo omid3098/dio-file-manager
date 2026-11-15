@@ -3,6 +3,7 @@
 #include <shellapi.h>
 #include <objbase.h>
 #include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -102,7 +103,7 @@ static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
 /* ---- small helpers ---- */
 
-bool app_is_narrow(void) { return cui_viewport_size(A.ui).x < NARROW_BELOW; }
+bool app_is_narrow(void) { return A.sidebar_gone; }   /* the narrow chrome: the sidebar has slid out (it still shows, with wide chrome, while it slides) */
 
 const fs_entry *app_item(int i) { return &A.list->items[A.vis[i]]; }
 const char *app_item_name(int i) { return fs_name(A.list, A.vis[i]); }
@@ -584,6 +585,50 @@ static void content_body(void) {
     list_body();
 }
 
+/* The sidebar's width on screen. Docked it is the saved width, or less so the content keeps CONTENT_W_MIN. Crossing NARROW_BELOW slides it out
+ * to the left (or back in) over the glide time, 150 ms, easing out; a crossing back meanwhile turns round from where it is. Animations off:
+ * at once. A.sidebar_gone (the narrow chrome) holds only once it has slid out; a slide in shows the wide chrome from its first frame. */
+static void sidebar_step(float vw) {
+    static struct { bool init, want, moving; float from; double t0, dur; } s;
+    bool want = vw >= NARROW_BELOW;
+    float room = vw - CONTENT_W_MIN > 0 ? vw - CONTENT_W_MIN : 0;
+    float full = (float)A.sidebar_w < room ? (float)A.sidebar_w : room;
+    double now = cui_time(A.ui);
+    if (!s.init) { s.init = true; s.want = want; A.sidebar_px = want ? full : 0; }
+    if (want != s.want) {
+        s.want = want;
+        float from = A.sidebar_px < room ? A.sidebar_px : room;   /* a jump (Win+Left) never leaves the content under its minimum */
+        float to = want ? full : 0;
+        if (app_animations() && fabsf(to - from) > 0.5f) {
+            float part = fabsf(to - from) / (full > 1 ? full : 1);
+            s.moving = true; s.from = from; s.t0 = now;
+            s.dur = app_glide_seconds() * (part < 0.25f ? 0.25f : part > 1 ? 1 : part);
+        } else { s.moving = false; }
+    }
+    float to = s.want ? full : 0;
+    if (s.moving) {
+        double t = (now - s.t0) / s.dur;
+        if (t >= 1) s.moving = false;
+        else {
+            float e = 1.0f - (float)((1 - t) * (1 - t) * (1 - t));
+            A.sidebar_px = s.from + (to - s.from) * e;
+            if (A.sidebar_px > room) A.sidebar_px = room;
+            cui_request_redraw(A.ui);
+        }
+    }
+    if (!s.moving) A.sidebar_px = to;
+    A.sidebar_gone = !s.want && !s.moving;
+    A.sidebar_docked = s.want && !s.moving;
+}
+
+static void sidebar_column(float w) {
+    cui_ctx *ui = A.ui;
+    cui_column(ui, .width = CUI_PX(w), .height = CUI_FILL, .bg = CUI_COLOR_BACKGROUND) {
+        ui_sidebar_header();
+        ui_sidebar_places();
+    }
+}
+
 static void frame(void) {
     cui_ctx *ui = A.ui;
     A.dark = cui_get_theme_mode(ui) == CUI_THEME_DARK;
@@ -601,14 +646,23 @@ static void frame(void) {
     ui_zoom_tick();
     global_keys();
     cui_vec2 vp = cui_viewport_size(ui);
-    bool narrow = vp.x < NARROW_BELOW;
-    A.content_w = narrow ? vp.x : vp.x - 240.0f;
+    sidebar_step(vp.x);
+    bool narrow = A.sidebar_gone;
+    A.content_w = vp.x - A.sidebar_px;
     A.content_h = vp.y - HEADER_H - (narrow ? BAR_H : 0.0f);
     cui_row(ui, .width = CUI_FILL, .height = CUI_FILL, .bg = CUI_COLOR_BACKGROUND) {
-        if (!narrow) {
-            cui_column(ui, .width = CUI_PX(240), .height = CUI_FILL, .bg = CUI_COLOR_BACKGROUND) {
-                ui_sidebar_header();
-                ui_sidebar_places();
+        if (A.sidebar_docked) ui_sidebar_edge(vp.x, vp.y);   /* first: a press on the line is its, not the file view's band's */
+        if (A.sidebar_px > 0.0f) {
+            float w = A.sidebar_px;
+            if (A.sidebar_docked) sidebar_column(w);
+            else {   /* sliding: the sidebar keeps its width and is cut by the pane that grows or shrinks, its left part gone first */
+                float full = (float)A.sidebar_w < vp.x - CONTENT_W_MIN ? (float)A.sidebar_w : vp.x - CONTENT_W_MIN;
+                if (full < w) full = w;
+                cui_row(ui, .width = CUI_PX(w), .height = CUI_FILL, .clip = true, .bg = CUI_COLOR_BACKGROUND) {
+                    ui_sidebar_slide_begin(w, full, vp.y);
+                    sidebar_column(full);
+                    ui_sidebar_slide_end();
+                }
             }
         }
         cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .bg = CUI_COLOR_SURFACE, .border_color = CUI_COLOR_BORDER_SUBTLE) {
@@ -624,9 +678,10 @@ static void frame(void) {
             }
             if (narrow) ui_bottom_bar();
         }
+        if (A.sidebar_docked) ui_sidebar_edge_nodrag(vp.y);
     }
     if (narrow && A.sidebar_open) {
-        if (cui_sheet_begin(ui, "Dio File Manager", &A.sidebar_open, &(cui_sheet_opts){ .side = CUI_SIDE_LEFT, .size = 270 })) {
+        if (cui_sheet_begin(ui, "Dio File Manager", &A.sidebar_open, &(cui_sheet_opts){ .side = CUI_SIDE_LEFT, .size = fminf((float)A.sidebar_w, 0.85f * vp.x) })) {
             ui_sidebar_places();
             cui_sheet_end(ui);
         }
@@ -762,6 +817,7 @@ static void test_snapshot(const char *base) {
     act_test_snapshot(f);
     act_jobs_snapshot(f);
     ui_sidebar_snapshot(f);
+    fprintf(f, ",\"sidebar_px\":%.2f,\"sidebar_w\":%d,\"docked\":%d", A.sidebar_px, A.sidebar_w, A.sidebar_docked);
     ui_popup_snapshot(f);
     ui_default_fm_snapshot(f);
     ui_view_mode_snapshot(f);
@@ -782,7 +838,7 @@ static void window_frame(cui_ctx *ui, void *user) {
     QueryPerformanceCounter(&t1);
     QueryPerformanceFrequency(&hz);
     if (A.frame_log) {   /* test mode: one line per drawn frame, so checks can see motion and idleness */
-        fprintf((FILE *)A.frame_log, "%.4f %u %.4f %.2f %d %d %d %.2f %.2f %.3f\n", cui_time(A.ui), A.frame_no, A.zv, app_icon_size(), A.cols, app_zoom_busy() || ui_grid_gliding(),
+        fprintf((FILE *)A.frame_log, "%.4f %u %.4f %.2f %d %d %d %.2f %.2f %.3f\n", cui_time(A.ui), A.frame_no, A.zv, app_icon_size(), A.cols, app_zoom_busy() || ui_grid_gliding() || (!A.sidebar_docked && !A.sidebar_gone),
                 A.probe_idx, A.probe_x, A.probe_y, (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)hz.QuadPart);
         fflush((FILE *)A.frame_log);
         static int strip_n;
@@ -790,7 +846,7 @@ static void window_frame(cui_ctx *ui, void *user) {
         static int skipped;   /* DFM_TEST_STRIP_EVERY=n: keep every nth moving frame, so 14 pictures span a slowed motion */
         char every[16];
         int step = GetEnvironmentVariableA("DFM_TEST_STRIP_EVERY", every, sizeof every) ? atoi(every) : 1;
-        if (strip_n < 14 && GetEnvironmentVariableA("DFM_TEST_STRIP", dir, sizeof dir) && (ui_grid_gliding() || A.zv != zv_before)) {
+        if (strip_n < 14 && GetEnvironmentVariableA("DFM_TEST_STRIP", dir, sizeof dir) && (ui_grid_gliding() || A.zv != zv_before || (!A.sidebar_docked && !A.sidebar_gone))) {
             char file[FS_PATH_MAX + 32];
             snprintf(file, sizeof file, "%s\\arm", dir);   /* pictures start once the test creates this file */
             if (GetFileAttributesA(file) != INVALID_FILE_ATTRIBUTES && skipped++ % (step < 1 ? 1 : step) == 0) {

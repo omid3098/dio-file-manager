@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
+#include <cui_internal.h>
 #include "ui.h"
 #include "dlgtext.h"
 #include "watch.h"
@@ -45,7 +46,7 @@ static header_plan plan_header(void) {
     header_plan hp = { 0, 0, false, false };
     float vp = cui_viewport_size(A.ui).x;
     bool narrow = app_is_narrow();
-    float avail = narrow ? vp : vp - 240.0f;
+    float avail = vp - A.sidebar_px;   /* the content pane: the whole window once the sidebar is gone */
     bool job = act_jobs_active();
     hp.menu_here = hp.bottom = narrow;
     int steps = narrow ? 1 : 2;
@@ -118,6 +119,42 @@ void ui_sidebar_header(void) {
         main_menu(&hp);
     }
 }
+
+/* The line between the sidebar and the content: a 6 px strip over it. Drag moves the line, a double click makes the sidebar 240 px again.
+ * Called first inside the window's row (so the strip's position is the window's, and its press is taken before the file view's band selection looks at it). */
+void ui_sidebar_edge(float window_w, float window_h) {
+    cui_ctx *ui = A.ui;
+    static float grab;
+    static bool dragging;   /* a press that took the line to move it (a double click resets and moves nothing) */
+    cui_id id = cui_make_id(ui, "sidebar-edge");
+    cui_interact r = cui__interact(ui, id, CUI_IF_DRAG);
+    if (r.active && cui_mouse_clicked(ui, CUI_MOUSE_LEFT)) { grab = cui_mouse_pos(ui).x - A.sidebar_px; dragging = !r.double_clicked; }   /* where on the strip it was taken */
+    if (!cui_mouse_down(ui, CUI_MOUSE_LEFT)) dragging = false;
+    float room = window_w - CONTENT_W_MIN;
+    if (dragging && r.active) {
+        float w = cui_mouse_pos(ui).x - grab;
+        if (w > room) w = room;   /* the line stays under the pointer: the content keeps its minimum */
+        app_set_sidebar_w((int)floorf(w + 0.5f));
+    }
+    if (r.double_clicked) app_set_sidebar_w(SIDEBAR_W_DEFAULT);
+    if (r.hovered || r.active) cui__set_cursor(ui, CUI_CURSOR_RESIZE_EW);
+    float x = A.sidebar_px - 3.0f;
+    int h = cui__absolute(ui, id, x, 0, 6, window_h);
+    cui__mark_interactive(ui, h, CUI_IF_DRAG);
+    ui->nodes[h].flags |= CUI_NF_ON_TOP;
+}
+
+/* Where the strip is, for the window's hit test: a press on it never drags the window (called after the headers, so their controls keep their order). */
+void ui_sidebar_edge_nodrag(float window_h) { chrome_nodrag((cui_rect){ A.sidebar_px - 3.0f, 0, 6, window_h }); }
+
+void ui_sidebar_slide_begin(float shown, float full, float height) {
+    cui_ctx *ui = A.ui;
+    int a = cui__absolute(ui, cui_make_id(ui, "sidebar-slide"), shown - full, 0, full, height);
+    ui->nodes[a].dir = CUI_COLUMN;
+    cui__open(ui, a);
+}
+
+void ui_sidebar_slide_end(void) { cui__close(A.ui); }
 
 static bool place_row(const char *label, const char *icon, bool selected) {
     /* Each selected place is its own group, so its highlight appears in place instead of gliding from the one before. */

@@ -12,7 +12,11 @@ enum { Z_DETAILS, Z_LIST, Z_SMALL, Z_MEDIUM, Z_LARGE, Z_EXTRA, Z_COUNT };
 enum { HIST_MAX = 48 };
 #define HEADER_H 46.0f               /* both header rows: they are the top of the window */
 #define NARROW_BELOW 683.0f          /* GNOME Files 47 collapses at max-width 682sp: the sidebar leaves, Back, Forward and the view controls drop to a bottom bar */
-#define BAR_H 46.0f                  /* that bottom bar, with its top line */
+#define SIDEBAR_W_MIN 180            /* the sidebar's width, by dragging its edge; 240 by default and after a double click on the edge */
+#define SIDEBAR_W_MAX 400
+#define SIDEBAR_W_DEFAULT 240
+#define CONTENT_W_MIN 440.0f         /* the content pane keeps this much: a wider sidebar is drawn narrower */
+#define BAR_H 46.0f                 /* that bottom bar, with its top line */
 
 typedef struct app_t {
     cui_ctx *ui;
@@ -67,6 +71,9 @@ typedef struct app_t {
     double last_click_t;
     int last_click_idx;
     bool sidebar_open;               /* overlay in narrow windows */
+    int sidebar_w;                   /* the sidebar's saved width, 180..400 (settings file); the sheet uses it too */
+    float sidebar_px;                /* its width drawn now: sliding, or less than sidebar_w when the content would get under 440 px */
+    bool sidebar_gone, sidebar_docked;   /* gone: slid out below NARROW_BELOW (narrow chrome); docked: wide and at rest (its edge can be dragged) */
     bool reset_scroll;
     unsigned nav_gen;                /* counts listings the window opened by navigation or reload: a request made on one ends with it */
     int reveal1;                     /* an item to scroll into view, as index + 1 (0: none); the view takes it on its next frame */
@@ -120,6 +127,7 @@ void ui_node_opacity(float o);                        /* the open container's op
 void ui_overlay_set(void (*fn)(cui_ctx *ui, cui_rect view, cui_vec2 scroll));   /* paint over the file view's scroll area, this frame */
 void app_load_view(void);
 void app_flush_view(void);
+void app_set_sidebar_w(int w);              /* clamps to 180..400 and saves with the view */
 void ui_zoom_keys(void);
 void ui_zoom_tick(void);                   /* once per frame, before the layout */
 float app_zoom_wheel(void);
@@ -255,6 +263,11 @@ void menu_snapshot(FILE *f);                   /* test state: the highlighted me
 void ui_sidebar_header(void);
 void ui_sidebar_places(void);
 void drive_usage_text(const fs_drive *d, char *out, size_t cap);   /* ui_views.c: the sidebar tooltip of a drive */
+
+void ui_sidebar_slide_begin(float shown, float full, float height);   /* inside a clipped row `shown` wide: the sidebar's own `full` width, moved left so only `shown` of it shows */
+void ui_sidebar_slide_end(void);
+void ui_sidebar_edge_nodrag(float window_h);
+void ui_sidebar_edge(float window_w, float window_h);   /* the 6 px strip on the line between the sidebar and the content: drag to resize, double click to reset */
 void ui_default_fm_snapshot(FILE *f);       /* the main menu button and its switch, for real-input checks */
 void ui_view_mode_snapshot(FILE *f);       /* the grid/list toggles of the open view-options menu, for real-input checks */
 void app_toggle_default_fm(void);           /* main.c: the "Use as Default File Manager" switch */

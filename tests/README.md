@@ -345,3 +345,11 @@ is a drive of unknown size). Checks, light and dark: a bar under each sized driv
 row's right padding, to the eject button on a removable drive), its fill share equal to the used share, danger red only above 90%,
 no bar for the drive without a size; the same with the selected row, the hovered row, Other Locations open, and the 360 px sheet;
 the hover tooltip of each drive reads "199.5 GB of 238.2 GB used (84%)", and the drive without a size has none.
+
+## Sidebar checks
+
+`tests/use/sidebar_smoke.py` has 13 checks on the private desktop: the width by dragging the line (below 180, above 400), the saved
+width after a restart, the double-click reset, the content minimum, the 150 ms slide across 683 px both ways, a slowed slide that turns
+round part way, a Win+Left style jump, animations off, a 360x280 window, and pictures (whole windows in light and dark, frame strips
+of a slowed slide) under `<work>/pictures/`. It writes the saved width into its own `appdata` copy of `view.txt`; it never touches the
+clipboard. Set `DFM_EXE` and `DFM_USE_WORK` below the task folder and run it through `waitfor.py --heavy`.

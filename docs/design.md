@@ -31,7 +31,7 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 +------------------+---------------------------------------------------------------+
 ```
 
-- **Two panes.** The sidebar (240 px) and the content pane. Each has its own header row of 46 px,
+- **Two panes.** The sidebar (240 px by default; the user drags its edge, see "Sidebar width") and the content pane. Each has its own header row of 46 px,
   as in libadwaita's split view. There is no Windows title bar: the client area starts at the
   window's top edge and the header rows are the title bar, in our colours (`src/chrome_win.c`).
 - **Sidebar header:** the main menu button (`menu` icon) at its right end.
@@ -164,7 +164,20 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
 - **Unreadable folder:** a large muted icon, "Unable to access “Name”" and the reason, and a "Try Again" button under it
   (refresh icon; it asks for the listing again, as F5 does). A name too long for the pane is cut in the middle. No other
   empty state has a button.
-- **Narrow window (< 683 px, GNOME Files 47: max-width 682sp):** the sidebar leaves; a sidebar button appears at the left of the
+- **Sidebar width.** The line between the sidebar and the content takes a drag: a 6 px strip over it (3 px each side) with the
+  resize cursor (`CUI_CURSOR_RESIZE_EW`); the line follows the pointer. The width is 180 to 400 px and is saved in the settings file
+  (`view.txt`, third number of the `view-v2` line, which older builds ignore) and restored at start. A double click on the line makes it
+  240 px again. The content pane keeps at least 440 px: in a window where the saved width would leave it less, the sidebar is drawn
+  narrower (the window is 683 px wide at least when the sidebar shows, so 243 px of sidebar is always possible) and the saved
+  width does not change; while dragging, the line stops where the content reaches 440 px. A press on the strip never starts a
+  rubber band in the file view or drags the window. The narrow-window sheet uses the saved width, at most 85% of the window.
+- **Narrow window (< 683 px, GNOME Files 47: max-width 682sp):** the sidebar slides out to the left over 150 ms (ease-out) while the
+  content widens, and slides back in the same way when the window grows past 683 px (so a drag across the line shows a quick slide, not
+  a one-frame jump). A crossing back during the slide turns round from where the sidebar is, over the part of the 150 ms that is left.
+  A jump (Win+Left) starts from the width the content allows (440 px kept), so the content is never narrower than that on the way. The
+  header keeps its wide form (sidebar menu button, Back and Forward) until the slide out has ended, and takes its wide form
+  at the first frame of a slide in, so nothing jumps while the sidebar is still on screen. With Windows animations off it is at once.
+  When it has gone, a sidebar button appears at the left of the
   content header and opens it as an overlay. Back, Forward and view options move from the header into a bottom bar
   (46 px, header colours): history on the left, the view-options button (view icon and chevron) on the right. Back and Forward are never in a menu.
 

@@ -173,7 +173,7 @@ def inside():
         a.click(26, 23)   # the sidebar button opens the sheet
         time.sleep(.8)
         img = image(a)
-        bars = find_bars(img, x_probe=90, y_from=300, x_right=300)   # the sheet's labels start at x=76
+        bars = find_bars(img, x_probe=78, y_from=300, x_right=300)   # the sheet's labels start at x=76; the sheet is the sidebar's 240 px, so the 25% fill of the USB drive ends near x=100
         assert len(bars) == 5, f'{n}: the sheet shows {len(bars)} bars: {[b[0] for b in bars]}'
         assert all(abs(b[1] - 76) <= 1 for b in bars), f'{n}: bars start at {[b[1] for b in bars]}, the labels at 76'
         assert [b[4][0] - b[4][2] > 60 for b in bars] == [False, True, False, False, False], f'{n}: only the drive above 90% is danger red'
