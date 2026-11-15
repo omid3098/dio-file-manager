@@ -9,7 +9,7 @@ include(FetchContent)
 set(CUI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CUI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(CUI_TEXT_SHAPING ON CACHE BOOL "" FORCE)
-FetchContent_Declare(cui GIT_REPOSITORY https://github.com/yappologistic/CUI.git GIT_TAG 76a5f1f48fa7934288f71d91f0014c09209d083f)
+FetchContent_Declare(cui GIT_REPOSITORY https://github.com/yappologistic/CUI.git GIT_TAG 6e6b35326f655405822fcf863fac0d3bb35bb787)
 FetchContent_MakeAvailable(cui)
 
 file(GLOB DFM_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
