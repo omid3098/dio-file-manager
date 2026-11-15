@@ -222,14 +222,14 @@ def inside():
     # The real Recycle Bin is shared with other runs of this check and lists same-named items in no fixed order, so
     # the file gets a name no other run uses: the Trash selection then can only be this run's own item.
     restore_name = f'dio-views-v2-restore-{uuid.uuid4().hex[:12]}.txt'
-    def check(name, folder, fn, view='grid', prep=None, theme='light'):
+    def check(name, folder, fn, view='grid', prep=None, theme='light', extra=()):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
         app = None
         try:
             if prep:
                 prep()
-            app = App(name, folder, view, theme)
+            app = App(name, folder, view, theme, extra)
             fn(app)
             app.snap(name+'-passed')
             results.append({'check':name,'result':'passed'})
@@ -565,20 +565,42 @@ def inside():
         fresh('starred.txt')
         (WORK/'appdata/dio-file-manager/starred.txt').unlink(missing_ok=True)
 
-    def virtual_navigation(a):
-        a.click(90, 62)
+    def sidebar_row(a, key):
+        """Centre of a sidebar row, read from the app: its place depends on how many drives the PC lists (another window test may add one
+        with subst while this runs). In the 360 px sheet the list scrolls: a row below the sheet's visible part is wheeled into view."""
+        for _ in range(12):
+            rows = [r for r in a.snap()['sbrows'] if r['key'] == key]
+            assert rows, f'No {key} row in the sidebar'
+            x, y, w, h = rows[0]['r']
+            if not a.snap()['narrow'] or y + h / 2 < 240:
+                return x + w / 2, y + h / 2
+            a.msg(0x200, 0, a.point(100, 150))
+            a.msg(0x20A, (0x10000-120) << 16)
+            time.sleep(.1)
+        raise AssertionError(f'The {key} row never came into view')
+
+    def virtual_navigation(a, narrow=False):
+        def open_sheet():
+            if narrow:
+                a.click(26, 23)   # the sidebar button opens the sheet
+                a.until('The sidebar sheet did not open', lambda: a.snap()['overlay'])
+        open_sheet()
+        a.click(*sidebar_row(a, 'recent'))
         s = a.wait_ready()
         assert s['loc'] == 1 and s['state'] == 1, 'Recent did not load'
         a.snap('recent-opened')
-        a.click(90, 522)
+        open_sheet()
+        a.click(*sidebar_row(a, 'other'))
         assert a.snap('other-opened')['loc'] == 4, 'Other Locations did not open'
-        a.click(600, 112)
-        s = a.wait_ready()
-        assert s['loc'] == 0 and s['path'] == s['drive'], 'Other Locations drive did not open'
+        if not narrow:   # the drive cards sit at fixed places in the wide window only
+            a.click(600, 112)
+            s = a.wait_ready()
+            assert s['loc'] == 0 and s['path'] == s['drive'], 'Other Locations drive did not open'
 
     check('10-starred-restart', SAND, starred, prep=prepare_starred)
     check('11-trash-restore', SAND, trash_restore, prep=lambda: fresh(restore_name))
     check('12-virtual-navigation', WORK/'fixture', virtual_navigation)
+    check('12-virtual-navigation-360-dark', WORK/'fixture', lambda a: virtual_navigation(a, True), theme='dark', extra=('--size', '360x280'))
 
     check('9-rename', SAND, rename, prep=lambda: fresh('a.txt','b.txt'))
     check('9-new-folder', SAND, new_folder, prep=lambda: fresh('a.txt'))
