@@ -36,6 +36,7 @@ static struct {
     bool conflict_open, apply_all, job_pop_open;
     bool batch_ok, batch_failed;   /* since the header last had no job: one ended well / one failed (a cancelled one counts as neither) */
     cui_status job_mark;           /* the check or cross the header holds after the last job */
+    double ring_since;             /* when the busy ring first showed in this run of jobs; 0 while none runs */
     int mark_serial;               /* each mark starts its own CUI status spinner */
     cui_rect job_rect, conflict_buttons[3], delete_buttons[2];
     char dialog_text[700];   /* the text the last "Cannot move file to trash" dialog showed; for the test snapshot */
@@ -574,6 +575,7 @@ void act_job_button(void) {
         return;
     }
     G.job_mark = CUI_STATUS_IDLE;
+    if (G.ring_since == 0) G.ring_since = cui_time(ui);
     uint64_t done = 0, total = 0;
     int count = 0;
     for (file_job *j = G.jobs; j; j = j->next) {
@@ -666,11 +668,13 @@ void act_frame(void) {
     if (!G.jobs) {
         G.job_pop_open = false; cui_popover_close(ui, "jobpop");
         if (G.batch_ok || G.batch_failed) {
-            G.job_mark = G.batch_failed ? CUI_STATUS_ERROR : CUI_STATUS_SUCCESS;
+            /* a ring that showed for under a second ends without a mark: a rename or a small copy must not flash one */
+            if (G.ring_since > 0 && cui_time(ui) - G.ring_since >= 1.0) G.job_mark = G.batch_failed ? CUI_STATUS_ERROR : CUI_STATUS_SUCCESS;
             G.batch_ok = G.batch_failed = false;
             G.mark_serial++;
             cui_request_redraw(ui);
         }
+        G.ring_since = 0;
     }
     if (G.recent_thread) {
         cui_request_wakeup(ui, .05f);
