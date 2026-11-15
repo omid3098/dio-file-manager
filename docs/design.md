@@ -346,6 +346,23 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   select the file, and `explorer.exe /select,...` started directly by a program cannot be redirected without
   administrator rights.
 - Paste onto a name that exists asks: Replace, Skip or Keep Both, with "Apply to all".
+- Drag and drop (`src/ui_dnd.c`):
+  - Out: a press on an item's icon or name that moves past the system drag distance drags the selection; a press on an
+    unselected item selects only it first. The drag carries `CF_HDROP` with every path and "Preferred DropEffect"
+    (copy), the same two blocks Copy puts on the clipboard, so a browser's upload area, Explorer or another folder window
+    takes the files. The drag image is the first item's icon, with a round count on its corner for several. A press on a
+    blank part of an item (the selection box's area, see above) never drags.
+  - In: the window takes drops from every program, itself and its other windows included. What is under the pointer
+    decides the target, and it shows the same hover as a click would: a folder item, a sidebar place or drive row, Trash,
+    or else the open folder's blank part. Recent, Starred, a search, Other Locations and a folder that is still loading
+    take no drop; neither does a window with a dialog open.
+  - Effect, as in Explorer: the same drive moves, another drive copies, Shift forces a move, Ctrl a copy, both together are
+    refused. Dropping on Trash moves to the Recycle Bin. A folder dropped into itself or into one of its own folders is
+    refused, and so is a move into the folder every item already sits in; a refused target shows no hover.
+  - Every drop is an ordinary file job (the progress and the name conflict dialog with Replace, Skip and Keep Both).
+    A move drop leaves the clipboard alone. Dropping while a job runs adds another job.
+  - Dragging near the top or bottom edge of the list or grid (the left or right edge in List) scrolls it, up to 720 px a
+    second.
 
 ## Colours (Halo, from `tokens.json`)
 

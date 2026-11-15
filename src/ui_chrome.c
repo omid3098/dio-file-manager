@@ -335,6 +335,7 @@ void ui_sidebar_places(void) {
             top++;
             if (place_row(PLACE_LABEL[i], PLACE_ICON[i], app_at_place(i))) app_navigate(A.places[i]);
             row_rclick(cui_last_rect(ui), key, false);
+            dnd_row(A.places[i]);
         }
         if (!sidebar_is_hidden("trash")) {
             top++;
@@ -342,6 +343,7 @@ void ui_sidebar_places(void) {
             snprintf(tb, sizeof tb, "%d", A.trash_n);
             if (cui_nav_item(ui, "Trash", .icon = CUI_ICON_TRASH_2, .selected = A.loc == LOC_TRASH, .group = A.loc == LOC_TRASH ? "Trash" : "places", .badge = A.trash_n > 0 ? tb : NULL)) app_navigate("@3");
             row_rclick(cui_last_rect(ui), "trash", false);
+            dnd_row("@3");
         }
         for (int i = 0; i < sidebar_count(); i++) {   /* the folders the user added, in the order added; a missing one is dimmed but still opens */
             const char *p = sidebar_path(i);
@@ -374,6 +376,7 @@ void ui_sidebar_places(void) {
                 cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL) {
                     if (place_row(A.drives[i].name, CUI_ICON_SERVER, here)) app_navigate(A.drives[i].root);
                     row_rclick(cui_last_rect(ui), key, false);
+                    dnd_row(A.drives[i].root);
                     if (A.drives[i].total) {   /* how full the drive is: a thin bar under the label, in the Other Locations colours */
                         char tip[64];
                         drive_usage_text(&A.drives[i], tip, sizeof tip);

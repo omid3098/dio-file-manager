@@ -59,33 +59,50 @@ BOOL clip_open(HWND owner) {
         Sleep(1);
     }
 }
-DWORD clip_write(HWND owner, const char *const *paths, size_t count, int cut) {
+/* The two clipboard formats as memory blocks: also what a drag carries. A failure returns NULL with the error in *error. */
+HGLOBAL clip_make_hdrop(const char *const *paths, size_t count, DWORD *error) {
     size_t i, chars = 1, offset = 0;
-    wchar_t **wide;
-    HGLOBAL data = NULL, effect = NULL;
+    HGLOBAL data = NULL;
     DROPFILES *drop;
-    UINT format = RegisterClipboardFormatW(L"Preferred DropEffect");
-    DWORD error = ERROR_NOT_ENOUGH_MEMORY;
-    if (!count || !paths || !format) return ERROR_INVALID_PARAMETER;
-    wide = calloc(count, sizeof(*wide));
-    if (!wide) return error;
+    wchar_t **wide = calloc(count ? count : 1, sizeof(*wide));
+    *error = ERROR_NOT_ENOUGH_MEMORY;
+    if (!wide) return NULL;
     for (i = 0; i < count; ++i) {
         wide[i] = dfm_wide(paths[i]);
-        if (!wide[i]) { error = GetLastError(); goto done; }
+        if (!wide[i]) { *error = GetLastError(); goto done; }
         chars += wcslen(wide[i]) + 1;
     }
     data = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, sizeof(DROPFILES) + chars * sizeof(wchar_t));
-    effect = GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD));
-    if (!data || !effect) goto done;
-    drop = GlobalLock(data);
-    if (!drop) goto done;
+    drop = data ? GlobalLock(data) : NULL;
+    if (!drop) { if (data) GlobalFree(data); data = NULL; goto done; }
     drop->pFiles = sizeof(DROPFILES); drop->fWide = TRUE;
     for (i = 0; i < count; ++i) {
         size_t n = wcslen(wide[i]) + 1;
         memcpy((wchar_t *)(drop + 1) + offset, wide[i], n * sizeof(wchar_t)); offset += n;
     }
     GlobalUnlock(data);
-    { DWORD *p = GlobalLock(effect); if (!p) goto done; *p = cut ? DROPEFFECT_MOVE : DROPEFFECT_COPY; GlobalUnlock(effect); }
+    *error = 0;
+done:
+    for (i = 0; i < count; ++i) free(wide[i]);
+    free(wide);
+    return data;
+}
+HGLOBAL clip_make_effect(DWORD effect) {
+    HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD));
+    DWORD *p = h ? GlobalLock(h) : NULL;
+    if (!p) { if (h) GlobalFree(h); return NULL; }
+    *p = effect; GlobalUnlock(h);
+    return h;
+}
+DWORD clip_write(HWND owner, const char *const *paths, size_t count, int cut) {
+    HGLOBAL data, effect;
+    UINT format = RegisterClipboardFormatW(L"Preferred DropEffect");
+    DWORD error = ERROR_NOT_ENOUGH_MEMORY;
+    if (!count || !paths || !format) return ERROR_INVALID_PARAMETER;
+    data = clip_make_hdrop(paths, count, &error);
+    if (!data) return error;
+    effect = clip_make_effect(cut ? DROPEFFECT_MOVE : DROPEFFECT_COPY);
+    if (!effect) { GlobalFree(data); return ERROR_NOT_ENOUGH_MEMORY; }
     if (!clip_open(owner)) { error = GetLastError(); goto done; }
     if (!EmptyClipboard()) error = GetLastError();
     else if (!SetClipboardData(CF_HDROP, data)) error = GetLastError();
@@ -98,8 +115,7 @@ DWORD clip_write(HWND owner, const char *const *paths, size_t count, int cut) {
 done:
     if (data) GlobalFree(data);
     if (effect) GlobalFree(effect);
-    for (i = 0; i < count; ++i) free(wide[i]);
-    free(wide); return error;
+    return error;
 }
 DWORD clip_read(HWND owner, clip_files *f) {
     HDROP drop;

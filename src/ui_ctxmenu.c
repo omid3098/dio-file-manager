@@ -167,9 +167,36 @@ void ui_anchor_passthrough(cui_ctx *ui) {
 
 /* CUI 1.4.0 exposes callbacks only through create-and-run. Keep our screenshot
  * loop, but give its native modal resize loop the same frame callback. */
+static cui_app *win_app;
+
 void ui_window_callback(cui_app *app, void (*frame)(cui_ctx *, void *), void *user) {
+    win_app = app;
     app->frame_cb = frame;
     app->frame_user = user;
+}
+
+void ui_live_frame(void) { if (win_app) cui__app_live_frame(win_app); }
+
+void ui_press_release(void) {
+    cui_ctx *ui = A.ui;
+    ui->active = 0;
+    if (ui->mdown[0]) { ui->mdown[0] = false; ui->mreleased[0] = false; }
+    ui->mpressed[0] = false;
+}
+
+/* The scroll state of the named view: Details is CUI's data grid, which keeps its scrolling beside its own state. */
+static cui_scroll_state *view_scroll(const char *id) {
+    cui_id sid = cui_make_id(A.ui, id);
+    if (!strcmp(id, "list")) sid ^= 0x5C011u;
+    return cui_state(A.ui, sid, sizeof(cui_scroll_state));
+}
+
+float ui_scroll_pos(const char *id) { return view_scroll(id)->ty; }
+
+void ui_scroll_by(const char *id, float dx, float dy) {
+    cui_scroll_state *st = view_scroll(id);
+    st->ty = clampf(st->ty + dy, 0, CUI_MAX(0, st->content_h - st->view_h));
+    st->tx = clampf(st->tx + dx, 0, CUI_MAX(0, st->content_w - st->view_w));
 }
 
 bool ui_window_screenshot(cui_app *app, const char *path) {

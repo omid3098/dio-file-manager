@@ -55,6 +55,8 @@ static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     LRESULT chrome_result;
     if (m == WM_DFM_SIZES || m == WM_DFM_WATCH) { if (A.ui) cui_request_redraw(A.ui); return 0; }
     if (m == WM_DEVICECHANGE && watch_device_event(w, l)) return TRUE;   /* Windows asks to remove the drive: the watch lets go of the folder first */
+    if (m == WM_DFM_DRAG) { dnd_run(); return 0; }
+    if (m == WM_COPYDATA && test_mode && dnd_test_message((void *)l)) return TRUE;
     if (m == WM_NCMOUSELEAVE && test_mode) return 0;   /* same reason: the maximize button's hover comes from the driver */
     if (chrome_message(h, m, w, l, (intptr_t *)&chrome_result)) return chrome_result;
     if (m == WM_MOUSELEAVE && test_mode) return 0;
@@ -635,6 +637,7 @@ static void frame(void) {
     A.dark = cui_get_theme_mode(ui) == CUI_THEME_DARK;
     theme_apply(ui, A.dark);
     chrome_begin_frame();
+    dnd_frame_begin();
     ui_loading_frame_begin();
     menu_frame_begin();
     act_pre_frame();
@@ -688,6 +691,7 @@ static void frame(void) {
         }
     }
     typed_letters();
+    dnd_frame_end();
     field_keys = cui_wants_keyboard(ui) || path_key;
     ui_popup_tooltips(ui);
 }
@@ -816,6 +820,7 @@ static void test_snapshot(const char *base) {
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));
     json_text(f, A.drive_n ? A.drives[0].root : "");
     act_test_snapshot(f);
+    dnd_snapshot(f);
     act_jobs_snapshot(f);
     ui_sidebar_snapshot(f);
     fprintf(f, ",\"sidebar_px\":%.2f,\"sidebar_w\":%d,\"docked\":%d", A.sidebar_px, A.sidebar_w, A.sidebar_docked);
@@ -914,7 +919,7 @@ int main(void) {
         if (rq.kind == REQ_PLACE) o.loc = rq.loc;
         defaultfm_arrival(&rq);
     } else if (!o.path[0] && test_base[0]) { memset(&rq, 0, sizeof rq); rq.kind = REQ_HOME; defaultfm_arrival(&rq); }
-    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    OleInitialize(NULL);   /* the window drags files out and takes drops: OLE, which starts the COM apartment too */
     bool shot = o.shot[0] != 0;
     g_app = cui_app_create(&(cui_app_desc){ .title = "Dio File Manager", .width = o.w, .height = o.h, .min_width = 360, .min_height = 280,
                                             .hidden = true, .continuous = shot });   /* shown below, after the caption is gone */
@@ -934,6 +939,7 @@ int main(void) {
     memset(&A, 0, sizeof A);
     A.ui = cui_app_ui(g_app);
     A.hwnd = cui_app_native_window(g_app);
+    dnd_init(A.hwnd, test_mode);
     fsz_start(sizes_notify);
     watch_init(A.hwnd, watch_notify);
     if (test_mode && getenv("DFM_TEST_FSZ_DELAY_MS")) fsz_test_delay((unsigned)atoi(getenv("DFM_TEST_FSZ_DELAY_MS")));
@@ -993,6 +999,7 @@ int main(void) {
         if (shot && frames > 600) { rc = 3; break; }
     }
     fsz_stop();
+    dnd_shutdown();
     act_shutdown();
     ui_sidebar_shutdown();
     app_flush_view();

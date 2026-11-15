@@ -147,6 +147,10 @@ void app_sidebar_add(const char *path);    /* Add to Sidebar: adds the folder as
 bool app_at_place(int which);              /* is the sidebar place 0..6 (Home..Videos) the current folder */
 
 /* ui_actions.c */
+char **act_selected_paths(size_t *n);       /* the selection's real paths (items still copying left out); free with act_free_paths */
+void act_free_paths(char **p, size_t n);
+bool act_drop_files(char **paths, size_t n, const char *dest, bool move);   /* a job: copy or move into dest; dest NULL: into the Recycle Bin */
+bool act_drop_allowed(void);                /* no dialog holds the window */
 void act_jobs_snapshot(FILE *f);
 bool ui_dialog_begin(cui_ctx *ui, const char *title, bool *open, const char *description, bool persistent, bool no_close_button); /* every dialog: names shortened by dlg_short_name, long words broken to fit */
 void act_shutdown(void);
@@ -204,8 +208,26 @@ float ui_list_column_width(int column);            /* the details grid's width f
 void ui_list_scroll_to(const char *id, float y);   /* the details grid keeps its scroll under its own id xor a CUI constant, not under the id it is given */
 void ui_band_begin(void);                  /* inside the file view's scroll container, before its rows */
 void ui_band_cancel(void);
+void ui_live_frame(void);                  /* build and draw a frame now, from inside a modal loop (a drag over the window) */
+void ui_press_release(void);               /* the press that began a drag was taken by it: nothing is active, the button reads as up */
+float ui_scroll_pos(const char *id);       /* a view's scroll target: "grid", "list" (Details) or "columns" (List) */
+void ui_scroll_by(const char *id, float dx, float dy);   /* move a scroll area's target, clamped to its content */
 bool ui_band_dragging(void);
 float ui_body_text_w(const char *s);       /* the width cui_text gives s at the theme's body size */
+
+/* ui_dnd.c: files dragged out of the window and dropped into it (OLE) */
+#define WM_DFM_DRAG (WM_APP + 8)                 /* posted by the frame: start the drag of the selection (never inside the frame) */
+void dnd_init(void *hwnd, bool test_mode);       /* OLE is up: the window becomes a drop target */
+void dnd_shutdown(void);
+void dnd_frame_begin(void);                      /* start of every frame */
+void dnd_frame_end(void);                        /* end of the frame: a press that moved far enough asks for a drag; the drop target's hover fill */
+void dnd_content(cui_rect r);                    /* the pane the open folder's items are in (points), for the drop target */
+void dnd_row(const char *target);                /* after a sidebar row: where a drop on it goes (a folder path, or "@3" for the Recycle Bin) */
+void dnd_press(int vis_index);                   /* the left button went down on an item's icon or name: a move away from it drags the selection */
+bool dnd_active(void);                           /* a drag is over the window */
+void dnd_run(void);                              /* WM_DFM_DRAG: the drag itself (DoDragDrop) */
+bool dnd_test_message(void *copydata);           /* test mode: WM_COPYDATA commands (see tests/README.md); true when handled */
+void dnd_snapshot(FILE *f);
 
 /* ui_search.c: the Location column text of a search result */
 void search_location_text(int vis, char *out, size_t cap);
@@ -227,6 +249,7 @@ bool ui_thumb_lookup(const char *path, uint64_t mtime, int px, ui_thumb *out);
 void ui_thumb_end(void);
 
 /* theme.c */
+unsigned theme_accent(bool dark, unsigned *on_accent);
 void theme_apply(cui_ctx *ui, bool dark);
 unsigned theme_hairline(bool dark);        /* 0xRRGGBB of the pane hairline, also the window border */
 

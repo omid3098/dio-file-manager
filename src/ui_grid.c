@@ -497,12 +497,19 @@ static void select_click(int idx, int mods) {
     A.cursor = idx;
 }
 
+/* A press on the item's icon or name drags the selection: the same area ui_grid_content_at gives the selection box (the rest of the cell). */
+static bool on_grab(cui_ctx *ui, int idx, cui_rect r, cui_vec2 m) {
+    (void)ui;
+    return ui_grid_content_at(idx, r, m);
+}
+
 /* Hover, click, right click and tooltip for the item under the pointer; returns the item to open on a double click. */
 #define TIP_ID(idx) (0x7C100000u + (cui_id)(idx))
 
 static int item_input(int idx, bool on_item, bool clicked, cui_rect cell) {
     cui_ctx *ui = A.ui;
     if (on_item) A.hover = idx;
+    if (on_item && cui_mouse_clicked(ui, CUI_MOUSE_LEFT) && on_grab(ui, idx, cell, cui_mouse_pos(ui))) dnd_press(idx);
     if (clicked) {
         if (on_item) {
             double now = cui_time(ui);

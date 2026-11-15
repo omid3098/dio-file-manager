@@ -26,7 +26,7 @@ typedef struct file_job {
     ops_job *job;
     ops_state st;
     ops_kind kind;
-    char title[320], dir[FS_PATH_MAX], first[800];   /* the whole leaf: 255 UTF-16 units are at most 765 bytes */
+    char title[320], dir[FS_PATH_MAX], src[FS_PATH_MAX], first[800];   /* dir: the folder the job writes into; src: the folder the first source sat in */   /* the whole leaf: 255 UTF-16 units are at most 765 bytes */
     int n, id;
     DWORD clipboard_sequence;
     cui_rect cancel_rect;
@@ -157,8 +157,13 @@ static bool start_job(ops_kind kind, char **paths, size_t n, const char *dest, c
     j->n = (int)n;
     j->id = ++G.serial;
     snprintf(j->title, sizeof j->title, "%s", title);
-    snprintf(j->dir, sizeof j->dir, "%s", A.path);
-    if (n) name_of(paths[0], j->first, sizeof j->first);
+    snprintf(j->dir, sizeof j->dir, "%s", dest ? dest : A.path);
+    if (n) {
+        name_of(paths[0], j->first, sizeof j->first);
+        snprintf(j->src, sizeof j->src, "%s", paths[0]);
+        char *cut = strrchr(j->src, '\\');
+        if (cut) *cut = 0;
+    }
     file_job **tail = &G.jobs;
     while (*tail) tail = &(*tail)->next;
     *tail = j;
@@ -180,6 +185,7 @@ static void start_undo(void) {
    program has the clipboard, and that program can replace its contents meanwhile, so the check is made once the
    clipboard is open: nobody can change it from then until CloseClipboard. */
 static void clear_cut_clipboard(DWORD sequence) {
+    if (!sequence) return;   /* a dropped move cut nothing: the clipboard is not ours to empty */
     if (!clip_open(hwnd())) return;
     if (GetClipboardSequenceNumber() == sequence) EmptyClipboard();
     CloseClipboard();
@@ -190,6 +196,14 @@ static bool shows_receiving(const file_job *j) {
     size_t n = strlen(j->dir);
     if (_strnicmp(j->dir, A.path, n) != 0) return false;
     return A.path[n] == 0 || A.path[n] == '\\' || (n > 0 && j->dir[n - 1] == '\\');
+}
+
+/* Two folder paths are the same folder (case and a trailing backslash do not matter). */
+static bool same_dir(const char *a, const char *b) {
+    size_t la = strlen(a), lb = strlen(b);
+    while (la && a[la - 1] == '\\') la--;
+    while (lb && b[lb - 1] == '\\') lb--;
+    return la == lb && _strnicmp(a, b, la) == 0;
 }
 
 static void job_done(file_job *j) {
@@ -215,8 +229,10 @@ static void job_done(file_job *j) {
         else snprintf(t, sizeof t, trashed == 1 ? "%u item moved to Trash" : "%u items moved to Trash", trashed);
         G.undo_toast = cui_toast(A.ui, t, .action = "Undo", .show_timer = true, .duration = 8);
     }
-    if ((strcmp(j->dir, A.path) == 0 || ((kind == OPS_COPY || kind == OPS_MOVE) && A.loc == LOC_FOLDER && shows_receiving(j))) && A.loc != LOC_OTHER) {
-        if (A.searching && kind == OPS_TRASH) fsearch_refresh(); else app_reload();
+    /* a move (a drop on a folder, Recent, Starred or a search result too) takes its items from where the window may be showing them */
+    bool left_view = kind == OPS_MOVE && A.loc != LOC_OTHER && (A.loc != LOC_FOLDER || A.searching || same_dir(j->src, A.path));
+    if ((strcmp(j->dir, A.path) == 0 || ((kind == OPS_COPY || kind == OPS_MOVE) && A.loc == LOC_FOLDER && shows_receiving(j)) || left_view) && A.loc != LOC_OTHER) {
+        if (A.searching && (kind == OPS_TRASH || kind == OPS_MOVE)) fsearch_refresh(); else app_reload();
     }
     A.trash_check_t = -100;
 }
@@ -243,6 +259,22 @@ static void do_paste(void) {
     }
     clip_free(&f);
 }
+
+/* ---- drag and drop (ui_dnd.c decides; the work goes through the same jobs as paste) ---- */
+
+char **act_selected_paths(size_t *n) { return selected_paths(n); }
+void act_free_paths(char **p, size_t n) { free_paths(p, n); }
+
+/* Files dropped on the shown folder, a folder or a sidebar place: copy or move them into dest, or (dest NULL) into the Recycle Bin. */
+bool act_drop_files(char **paths, size_t n, const char *dest, bool move) {
+    if (!n) return false;
+    bool ok = dest ? start_job(move ? OPS_MOVE : OPS_COPY, paths, n, dest, NULL, move ? "Moving files" : "Copying files")
+                   : start_job(OPS_TRASH, paths, n, NULL, NULL, "Moving to Trash");
+    if (ok) { file_job *j = G.jobs; while (j->next) j = j->next; j->clipboard_sequence = 0; }
+    return ok;
+}
+
+bool act_drop_allowed(void) { return !act_modal_open() && !views_modal_open(); }
 
 static DWORD WINAPI remove_recent_proc(LPVOID unused) {
     (void)unused;

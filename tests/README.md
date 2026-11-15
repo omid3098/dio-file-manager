@@ -151,6 +151,18 @@ List, Small, Medium and Large icons start from the padding between icons, Ctrl+d
 a blank part selects the item, Persian names (a short one with a blank part, a long one that fills its column), and a
 360x280 window in Details and icons, and a double click on a folder's blank part opening it. Pictures of the whole window go to `final/` of `DFM_USE_WORK`.
 
+## Drag and drop
+
+`tests/use/dnd_smoke.py` (eighteen checks, about 8 minutes, real mouse messages on the private desktop, the clipboard untouched)
+checks a drag out and a drop in. Out: a press that barely moves starts nothing; a drag of one file, a folder, a long Persian name,
+a selection of two, 300 files and a Details row reports the data the drag would carry (every path, Preferred DropEffect copy). In: test-only
+`WM_COPYDATA` commands (`enter`, `over`, `drop`, `leave`) hand a real `IDataObject` of sandbox files to the window's own
+`IDropTarget` at client points and keys: the background, a folder item, a sidebar drive row (a `subst` letter), Trash, a same-drive
+move, a cross-drive copy, Shift and Ctrl, a folder onto itself and into its own subfolder (refused), the name conflict dialog, a drop
+while a copy runs, edge scroll in icons and Details, a 360x280 window in dark and light, and leaving the window. Pictures of the whole window
+(`drop-over-*.png`) go to `DFM_USE_WORK`. Needs a free drive letter. Not covered: a real drag between two programs (a browser upload,
+Explorer), which needs a real pointer; the first real use checks it.
+
 ## Concurrent jobs, Recent and eject
 
 `tests/use/jobs_smoke.py` imports the real-input driver from `input_smoke.py` and

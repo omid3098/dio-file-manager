@@ -20,6 +20,13 @@ unsigned theme_hairline(bool dark) {
     return ((unsigned)c.r << 16) | ((unsigned)c.g << 8) | c.b;
 }
 
+/* The accent and the text colour on it (0xRRGGBB), for what Windows draws for the window: the drag image's count. */
+unsigned theme_accent(bool dark, unsigned *on_accent) {
+    const palette *p = dark ? &DARK : &LIGHT;
+    if (on_accent) *on_accent = p->accent_fg;
+    return p->accent;
+}
+
 /* Written every frame: cui_set_theme and the system theme switch rebuild the stock colours. */
 void theme_apply(cui_ctx *ui, bool dark) {
     const palette *p = dark ? &DARK : &LIGHT;

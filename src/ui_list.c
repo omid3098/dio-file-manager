@@ -100,7 +100,9 @@ void ui_list_view(void) {
                 A.last_click_t = now;
             }
             bool row_hot = ctxmenu_row_hovered(ui);
-            if (r == first) A.first_rect = ctxmenu_row_rect(ui);
+            if (row_hot) A.hover = r;
+            cui_rect row_r = ctxmenu_row_rect(ui);
+            if (r == first) A.first_rect = row_r;
             if (row_hot && cui_mouse_clicked(ui, CUI_MOUSE_RIGHT)) { if (!A.sel[r]) app_select_only(r); A.cursor = r; A.ctx_item = true; }
             for (int c = 0; c < cs.n; c++) {
                 char buf[FS_PATH_MAX];
@@ -121,6 +123,8 @@ void ui_list_view(void) {
                             int s = r % SPAN_N;
                             name_span[s].row = r + 1; name_span[s].x0 = nr.x; name_span[s].x1 = nr.x + (full < nr.w ? full : nr.w);
                         }
+                        /* a press on the icon or the name drags the selection; the rest of the row is the selection box */
+                        if (row_hot && cui_mouse_clicked(ui, CUI_MOUSE_LEFT) && !star_hot_prev && ui_list_content_at(r, cui_mouse_pos(ui).x)) dnd_press(r);
                     }
                     break;
                 case C_LOC:
