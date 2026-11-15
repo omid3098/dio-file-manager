@@ -74,7 +74,7 @@ def find_bars(img, x_probe=60, y_from=380, x_right=240):
             else:
                 track_colour = fill
                 xr = end
-            xl = min(x for x in range(40 if x_probe < 80 else 70, x_probe) if far(row[x], fill) < 12 or far(row[x], track_colour) < 12) if True else 0
+            xl = min(x for x in range(40 if x_probe < 80 else 70, x_probe) if far(row[x], fill) < 12 or far(row[x], track_colour) < 12)
             bars.append((y, xl, xr, end if rest else None, fill, track_colour))
             y += 8
         else:
