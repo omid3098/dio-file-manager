@@ -95,6 +95,7 @@ void app_select_range(int from, int to);
 void app_select_all(void);
 void app_clear_selection(void);
 void app_count_selection(void);
+void app_watch_resume(void);   /* watch the open folder again (a refused eject closed the watch) and list it once */
 void app_reload_quiet(void);   /* relist the folder, keeping selection and scroll; used while a copy writes into it */
 void app_set_view(int view);
 void app_set_zoom(int stop);                /* jump to a stop (no glide) */

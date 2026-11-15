@@ -5,6 +5,7 @@
 #include <string.h>
 #include "ui.h"
 #include "dlgtext.h"
+#include "watch.h"
 
 static const char *const PLACE_LABEL[7] = { "Home", "Desktop", "Documents", "Downloads", "Music", "Pictures", "Videos" };
 static const char *const PLACE_ICON[7] = { CUI_ICON_HOUSE, CUI_ICON_MONITOR, CUI_ICON_FILE_TEXT, CUI_ICON_DOWNLOAD,
@@ -169,6 +170,7 @@ void ui_sidebar_places(void) {
             ui_sidebar_shutdown(); InterlockedExchange(&eject.done, 0);
             if (eject.error) {
                 cui_toast(ui, "Could not eject drive", .description = "The drive may be in use. Close its files and try again.", .tone = CUI_TONE_DANGER);
+                if (A.loc == LOC_FOLDER && !_strnicmp(A.path, eject.root, 3)) app_watch_resume();   /* the drive stays: follow the folder again */
             } else {
                 for (int i = 0; i < A.drive_n; i++) if (!strcmp(A.drives[i].root, eject.root)) {
                     memmove(&A.drives[i], &A.drives[i + 1], (A.drive_n - i - 1) * sizeof A.drives[0]); A.drive_n--; break;
@@ -215,6 +217,7 @@ void ui_sidebar_places(void) {
                         cui_canvas_result icon = cui_canvas(ui, "ejecticon", CUI_FILL, CUI_FILL, paint_eject, NULL, 0);
                         if ((clicked || icon.clicked) && !eject.thread) {
                             snprintf(eject.root, sizeof eject.root, "%s", A.drives[i].root);
+                            if (A.loc == LOC_FOLDER && !_strnicmp(A.path, eject.root, 3)) watch_close(true);   /* the open folder's watch must not hold the drive */
                             eject.thread = CreateThread(NULL, 0, eject_proc, NULL, 0, NULL);
                             if (!eject.thread) cui_toast(ui, "Could not eject drive", .tone = CUI_TONE_DANGER);
                         }

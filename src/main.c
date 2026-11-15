@@ -18,9 +18,12 @@
 #include "defaultfm.h"
 #include "foldersize.h"
 #include "resident.h"
+#include "watch.h"
 
 #define WM_DFM_SIZES (WM_APP + 7)   /* the folder-size engine has results: draw a frame */
+#define WM_DFM_WATCH (WM_APP + 8)   /* the folder watch settled a change: draw a frame, which lists the folder again */
 static void sizes_notify(void) { if (A.hwnd) PostMessageW((HWND)A.hwnd, WM_DFM_SIZES, 0, 0); }
+static void watch_notify(void) { if (A.hwnd) PostMessageW((HWND)A.hwnd, WM_DFM_WATCH, 0, 0); }
 
 app_t A;
 static cui_app *g_app;
@@ -48,7 +51,8 @@ static void nav_press(int dir) {
 
 static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     LRESULT chrome_result;
-    if (m == WM_DFM_SIZES) { if (A.ui) cui_request_redraw(A.ui); return 0; }
+    if (m == WM_DFM_SIZES || m == WM_DFM_WATCH) { if (A.ui) cui_request_redraw(A.ui); return 0; }
+    if (m == WM_DEVICECHANGE && watch_device_event(w, l)) return TRUE;   /* Windows asks to remove the drive: the watch lets go of the folder first */
     if (m == WM_NCMOUSELEAVE && test_mode) return 0;   /* same reason: the maximize button's hover comes from the driver */
     if (chrome_message(h, m, w, l, (intptr_t *)&chrome_result)) return chrome_result;
     if (m == WM_MOUSELEAVE && test_mode) return 0;
@@ -234,6 +238,7 @@ static void poll_list(void) {
 /* ---- navigation ---- */
 
 static void quiet_cleanup(void);
+static bool watch_wanted;   /* a change settled on disk: list the folder again, quietly, when the window can */
 static void load_entry(const char *entry) {
     ui_band_cancel();
     quiet_cleanup();
@@ -266,6 +271,15 @@ static void load_entry(const char *entry) {
         snprintf(A.path, sizeof A.path, "%s", entry);
         A.list = fs_list_start(A.path, A.sort_key, A.sort_desc);
     }
+    if (A.loc == LOC_FOLDER) watch_open(A.path); else watch_close(false);   /* the open folder follows the disk (poll_watch) */
+    watch_wanted = false;
+}
+
+/* Resume watching the open folder after something closed the watch (a refused eject) and read it once. */
+void app_watch_resume(void) {
+    if (A.loc != LOC_FOLDER) return;
+    watch_open(A.path);
+    watch_wanted = true;
 }
 
 static void push_history(const char *entry) {
@@ -314,6 +328,7 @@ void app_reload(void) {
 /* ---- a quiet reload: the folder shows new files while a copy runs, and the selection and scroll stay ---- */
 
 static fs_list *next_list;
+static unsigned long long swap_tick;   /* checks: when the last quiet listing replaced the old one */
 
 static void quiet_cleanup(void) { if (next_list) { fs_list_release(next_list); next_list = NULL; } }
 
@@ -333,7 +348,11 @@ static void poll_next(void) {
     const char *gate = test_mode ? getenv("DFM_TEST_HOLD_RELOAD") : NULL;
     if (gate && GetFileAttributesA(gate) != INVALID_FILE_ATTRIBUTES) { cui_request_wakeup(A.ui, 0.03f); return; }
     if (A.loc != LOC_FOLDER || A.searching || strcmp(next_list->path, A.path) != 0 || fs_list_state(next_list) != FS_DONE) {
-        quiet_cleanup(); return;
+        /* the folder cannot be read any more (deleted, drive gone): show what F5 would show */
+        bool gone = A.loc == LOC_FOLDER && !A.searching && !strcmp(next_list->path, A.path) && fs_list_state(next_list) == FS_FAILED;
+        quiet_cleanup();
+        if (gone) app_reload();
+        return;
     }
     const char **keep = malloc(((size_t)A.sel_n + 1) * sizeof *keep);
     const char *cur = A.cursor >= 0 && A.cursor < A.vis_n ? app_item_name(A.cursor) : NULL;
@@ -358,6 +377,19 @@ static void poll_next(void) {
     if (n) app_count_selection();
     free(keep);
     fs_list_release(old);
+    swap_tick = GetTickCount64();
+}
+
+/* The watch (watch.c) says another program changed the open folder: list it again quietly, once per settled burst. Never
+ * while a listing runs (the new listing is read after the old one, so a change made meanwhile is not lost), and not in
+ * search (Esc lists the folder again). */
+static void poll_watch(void) {
+    if (watch_take()) watch_wanted = true;
+    if (!watch_wanted) return;
+    if (A.loc != LOC_FOLDER || A.searching || !A.list || fs_list_state(A.list) == FS_FAILED) { watch_wanted = false; return; }
+    if (fs_list_state(A.list) != FS_DONE || !A.list_seen || next_list) { cui_request_wakeup(A.ui, 0.03f); return; }
+    watch_wanted = false;
+    app_reload_quiet();
 }
 
 /* All folder sizes are in: sort once more by them. The selection and the first visible row stay where they are, so
@@ -561,6 +593,7 @@ static void frame(void) {
     act_pre_frame();
     poll_list();
     poll_next();
+    poll_watch();
     sizes_frame();
     fsearch_frame();
     if (A.list && fs_list_state(A.list) == FS_LOADING) cui_request_wakeup(ui, 0.02f);
@@ -694,7 +727,7 @@ static void test_snapshot(const char *base) {
         if (comma) fputc(',', f);
         json_text(f, app_item_name(i)); comma = true;
     }
-    fprintf(f, "],\"listed\":%d,\"skel\":%d,\"incoming\":[", A.list ? A.list->count : 0, A.skel_frames);
+    fprintf(f, "],\"listed\":%d,\"skel\":%d,\"watch\":%d,\"watch_events\":%u,\"watch_ms\":%lld,\"incoming\":[", A.list ? A.list->count : 0, A.skel_frames, watch_is_open(), watch_test_events(), (long long)(swap_tick - watch_test_t0()));
     comma = false;
     for (int i = 0; i < A.vis_n; i++) if (app_item(i)->flags & FS_INCOMING) {
         if (comma) fputc(',', f);
@@ -842,6 +875,7 @@ int main(void) {
     A.ui = cui_app_ui(g_app);
     A.hwnd = cui_app_native_window(g_app);
     fsz_start(sizes_notify);
+    watch_init(A.hwnd, watch_notify);
     if (test_mode && getenv("DFM_TEST_FSZ_DELAY_MS")) fsz_test_delay((unsigned)atoi(getenv("DFM_TEST_FSZ_DELAY_MS")));
     ui_text_clipboard(A.ui);
     chrome_init(hwnd, o.w, o.h, 360, 280);

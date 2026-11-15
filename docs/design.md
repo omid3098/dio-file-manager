@@ -131,12 +131,15 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   بشه کافیه همون موقعی که وارد هر دایرکتوری می‌شیم ساب دایرکتوری‌های داخلش سایزشون به درستی دیده بشه». So:
   - Every time a folder is entered (opened, back, forward, parent, reload) each folder inside it is measured again. Until
     the new number arrives its cell shows the last known one (the pill says it is being measured), or "…" when there is none.
-  - Nothing is kept up to date while a folder stays open: no drive watcher, no timer, no re-walk after a change on disk.
-    With nothing being measured the engine does nothing (idle CPU below 0.1 % of one core, also while other programs write
-    to the drive). A folder changed on disk shows its new size the next time its parent is entered.
+  - The list of the open folder is live (see "Live folder" below); the sizes are not. A folder's size is measured when its
+    parent is entered, never again while the parent stays open: no drive watcher in the size engine, no timer, no re-walk
+    after a change on disk. A subfolder that appears while the folder is open is measured once, as it shows up; the other
+    subfolders keep the number they have. With nothing being measured the engine does nothing (idle CPU below 0.1 % of one
+    core, also while other programs write to the drive). A folder changed on disk shows its new size the next time its parent
+    is entered.
   - No waiting time keeps an old number: a folder changed on disk shows its new size as soon as its parent is entered
     again, also at once after it was left, and after a reload (F5, or the list made again when an operation ends). Only a folder
-    whose measurement began after the shown folder was entered (the quiet re-listing while a copy runs) is not walked again,
+    whose measurement began after the shown folder was entered (a quiet re-listing: a copy running, or another program changing the open folder) is not walked again,
     and a folder inside a walk that is still running waits for that
     walk: entering E:\ and, right after, E:\w costs one walk of E:\w, not two. A folder made after that walk read its
     parent is measured when the walk ends.
@@ -196,6 +199,17 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   one was cancelled nothing shows. The mark shows only when the ring was on screen for at least 1 s; a job that ends sooner (a
   rename, a new folder, a small copy) ends with no mark. Windows animations off show the mark at once, and it goes at once after the same hold. It asks for frames only while it shows.
 - Ctrl+1 grid, Ctrl+2 list; Ctrl+H hidden files; F5 reload; Ctrl+A select all.
+- **Live folder:** the open folder follows the disk, as in GNOME Files and Explorer: a file or folder another program adds,
+  removes, renames or changes shows up without F5. Only the open folder is watched (not its subfolders; not search,
+  Recent, Starred or Trash), on local, removable and network drives. A burst of changes is read once: about 200 ms after
+  the last change, and at most about every 500 ms while it goes on. The new listing is quiet: no loading pill, no
+  placeholders, no fade of the whole view; new items fade in as items do when a copy brings them, removed items go. The
+  selection (by name), the keyboard focus, the scroll, an open rename field and an open menu stay as they are. The growth of
+  a file this program is copying does not ask for a new listing. With nothing changing in the folder there is no timer
+  and no CPU use (below 0.1 % of one core, also while other folders on the drive change). The watch never holds a USB
+  drive: it lets go of the folder when Windows asks to remove the drive and when Eject Drive is pressed (a refused eject
+  watches the folder again), and when the folder is left. When the open folder is deleted, or its drive goes, the page for
+  a folder that cannot be read shows, as after F5. Folder sizes keep their own rule (above).
 - F2 renames in a small popover under the item ("Rename" field and button); Ctrl+Shift+N makes a
   folder through a popover ("New Folder" name field and Create).
 - Ctrl+C, Ctrl+X, Ctrl+V copy, cut and paste through the Windows clipboard, so files move between

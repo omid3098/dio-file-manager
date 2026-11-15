@@ -408,6 +408,8 @@ unsigned long fs_eject(const char *root) {
         fs_drive drives[26]; int n = fs_drives(drives, 26), i;
         for (i = 0; i < n; i++) if (!strcmp(root, drives[i].root)) break;
         if (i == n || drives[i].type != DRIVE_REMOVABLE) return ERROR_NOT_SUPPORTED;
+        const char *hold = getenv("DFM_TEST_EJECT_HOLD");   /* a check keeps the eject pending while this file exists, to look at the window meanwhile */
+        for (int w = 0; hold && w < 300 && GetFileAttributesA(hold) != INVALID_FILE_ATTRIBUTES; w++) Sleep(50);
         if (!test_eject_log) return ERROR_ACCESS_DENIED;
         FILE *f = fopen(test_eject_log, "a");
         if (!f) return ERROR_WRITE_FAULT;
