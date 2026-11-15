@@ -13,6 +13,7 @@
 #include "starred.h"
 #include "views.h"
 #include "recent.h"
+#include "shortcut.h"
 
 enum { POP_NONE = 0, POP_RENAME, POP_NEWDIR };
 
@@ -65,6 +66,12 @@ static struct {
     char reselect[1024];     /* a listed name: as long as the listing allows */
 
     bool ctx_item;                 /* the open context menu is the item menu */
+    shortcut_job *lnk_read;        /* the shortcut under the open item menu: where it points */
+    shortcut_job *lnk_check;       /* Open File Location was chosen: does the target exist */
+    int lnk_loc;                   /* where the window was when it was chosen: a late answer must not move it */
+    bool lnk_searching;
+    const char *lnk_last;          /* "opened" or "missing": the last answer, for the test state */
+    char lnk_where[FS_PATH_MAX];
 } G = { .undo_toast = -1 };
 
 /* ---- small helpers ---- */
@@ -294,6 +301,60 @@ static void open_with(void) {
     report(shell_open_with(hwnd(), p), "Could not open", p);
 }
 
+/* ---- Open File Location: the folder that holds what a shortcut points to ---- */
+
+/* The shortcut is read on a worker. The menu opens at once when the read is quick (up to 100 ms of waiting);
+ * a slower read adds the item to the open menu when it finishes. */
+static void lnk_menu_open(void) {
+    shortcut_release(G.lnk_read);
+    G.lnk_read = NULL;
+    int i = A.sel_n == 1 ? first_selected() : -1;
+    if (i < 0 || (app_item(i)->flags & FS_DIR) || _stricmp(fs_ext_of(app_item_name(i)), "lnk") != 0) return;
+    char p[FS_PATH_MAX];
+    app_path_of(i, p, sizeof p);
+    G.lnk_read = shortcut_read_start(p);
+    shortcut_wait(G.lnk_read, 100);
+}
+
+/* The item shows for exactly one .lnk that has a file path (not a Store app, a Control Panel item or a web address). */
+static bool lnk_item_shown(void) {
+    if (!G.lnk_read || !shortcut_done(G.lnk_read) || !shortcut_target(G.lnk_read)[0]) return false;
+    int i = A.sel_n == 1 ? first_selected() : -1;
+    char p[FS_PATH_MAX];
+    if (i < 0) return false;
+    app_path_of(i, p, sizeof p);
+    return !strcmp(p, shortcut_input(G.lnk_read));
+}
+
+static void open_file_location(void) {
+    if (!G.lnk_read || !shortcut_done(G.lnk_read) || !shortcut_target(G.lnk_read)[0]) return;
+    shortcut_release(G.lnk_check);
+    G.lnk_check = shortcut_check_start(shortcut_target(G.lnk_read));
+    G.lnk_loc = A.loc; G.lnk_searching = A.searching;
+    snprintf(G.lnk_where, sizeof G.lnk_where, "%s", A.path);
+    if (!G.lnk_check) cui_toast(A.ui, "Can't find the item this shortcut points to.", .tone = CUI_TONE_DANGER, .duration = 7);
+}
+
+/* Every frame: when the target answered, open its folder with it selected, or say it is gone. */
+static void lnk_poll(void) {
+    if (!G.lnk_check) return;
+    if (!shortcut_done(G.lnk_check)) { cui_request_wakeup(A.ui, 0.05f); return; }
+    shortcut_job *j = G.lnk_check;
+    G.lnk_check = NULL;
+    bool same_place = G.lnk_loc == A.loc && G.lnk_searching == A.searching && !strcmp(G.lnk_where, A.path);
+    if (!same_place) { shortcut_release(j); return; }   /* the user went elsewhere while an offline path was slow */
+    G.lnk_last = shortcut_exists(j) ? "opened" : "missing";
+    if (!shortcut_exists(j)) {
+        cui_toast(A.ui, "Can't find the item this shortcut points to.", .tone = CUI_TONE_DANGER, .duration = 7);
+    } else {
+        char folder[FS_PATH_MAX], leaf[FS_PATH_MAX];
+        shortcut_place(shortcut_input(j), folder, sizeof folder, leaf, sizeof leaf);
+        if (leaf[0]) act_reselect(leaf);
+        app_navigate(folder);
+    }
+    shortcut_release(j);
+}
+
 static void copy_path(void) {
     int i = first_selected();
     char p[FS_PATH_MAX];
@@ -373,6 +434,7 @@ static void menu_items(void) {
         bool one = A.sel_n == 1;
         if (cui_menu_item(ui, "Open", .icon = CUI_ICON_FOLDER_OPEN, .shortcut = "Enter")) open_selected();
         if (cui_menu_item(ui, "Open With\xE2\x80\xA6", .icon = CUI_ICON_EXTERNAL_LINK, .disabled = !one)) open_with();
+        if (lnk_item_shown() && cui_menu_item(ui, "Open File Location", .icon = CUI_ICON_ARROW_UP_RIGHT)) open_file_location();
         if (virt && cui_menu_item(ui, "Open Item Location", .icon = CUI_ICON_MAP_PIN, .disabled = !one)) views_open_location();
         cui_menu_separator(ui);
         if (!virt && cui_menu_item(ui, "Cut", .icon = CUI_ICON_SCISSORS, .shortcut = "Ctrl X")) do_copy(true);
@@ -410,7 +472,7 @@ static void context_menu(void) {
     bool in_header = A.view == VIEW_LIST && A.vis_n > 0 && m.y < y0 + 40.0f;
     bool open_here = cui_mouse_clicked(ui, CUI_MOUSE_RIGHT) && A.loc != LOC_OTHER && !G.delete_open && !G.conflict_open &&
                      !A.sidebar_open && m.x >= x0 && m.x < vp.x && m.y >= y0 && m.y < vp.y && !in_header;
-    if (open_here) G.ctx_item = A.ctx_item;
+    if (open_here) { G.ctx_item = A.ctx_item; if (G.ctx_item) lnk_menu_open(); }
     if (ctxmenu_begin(ui, "ctxmenu", open_here)) {
         menu_items();
         ctxmenu_end(ui);
@@ -691,6 +753,8 @@ void act_frame(void) {
         G.undo_toast = -1;
         start_undo();
     }
+    lnk_poll();
+    if (G.lnk_read && !shortcut_done(G.lnk_read) && ctxmenu_is_open(ui)) cui_request_wakeup(ui, 0.05f);   /* a slow read adds its item */
     if (G.undo_state == 1) cui_request_wakeup(ui, 0.05f);
     if (G.undo_state == 2) {
         WaitForSingleObject(G.undo_thread, INFINITE);
@@ -748,6 +812,8 @@ void act_shutdown(void) {
     while (G.jobs) { file_job *j = G.jobs; G.jobs = j->next; ops_free(j->job); free(j); }
     if (G.recent_thread) { WaitForSingleObject(G.recent_thread, INFINITE); CloseHandle(G.recent_thread); free_paths(G.recent_paths, G.recent_n); }
     if (G.undo_thread) { WaitForSingleObject(G.undo_thread, INFINITE); CloseHandle(G.undo_thread); }
+    shortcut_release(G.lnk_read); shortcut_release(G.lnk_check);   /* a worker still waiting on a network path ends with the process */
+    G.lnk_read = G.lnk_check = NULL;
 }
 
 void act_test_snapshot(FILE *f) {
@@ -758,7 +824,7 @@ void act_test_snapshot(FILE *f) {
     fprintf(f, ",\"job\":{\"active\":%d,\"popover\":%d,\"done\":%llu,\"total\":%llu},\"action_rects\":[",
             G.jobs != NULL, G.job_pop_open, (unsigned long long)done, (unsigned long long)total);
     for (int i = 0; i < 7; i++) fprintf(f, "%s[%.2f,%.2f,%.2f,%.2f]", i ? "," : "", rects[i].x, rects[i].y, rects[i].w, rects[i].h);
-    fprintf(f, "],\"dialog_text\":\"");
+    fprintf(f, "],\"lnk\":{\"item\":%d,\"last\":\"%s\"},\"dialog_text\":\"", lnk_item_shown(), G.lnk_last ? G.lnk_last : "");
     for (const char *c = G.dialog_text; *c; c++) { if (*c == '"' || *c == '\\') fputc('\\', f); fputc(*c, f); }
     fprintf(f, "\"");
 }
