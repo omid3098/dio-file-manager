@@ -68,6 +68,7 @@ typedef struct app_t {
     int last_click_idx;
     bool sidebar_open;               /* overlay in narrow windows */
     bool reset_scroll;
+    unsigned nav_gen;                /* counts listings the window opened by navigation or reload: a request made on one ends with it */
     int reveal1;                     /* an item to scroll into view, as index + 1 (0: none); the view takes it on its next frame */
     cui_rect first_rect;             /* first built grid row, for the input smoke test */
     bool ctx_item;                   /* the last right click was on an item */
@@ -189,6 +190,8 @@ void ui_view_options_surface(void);
 void ui_columns_begin(int *rows, int *first, int *last);
 void ui_columns_end(void);
 void ui_columns_reveal(int column);
+float ui_list_column_width(int column);            /* the details grid's width for a column, for the test state */
+void ui_list_scroll_to(const char *id, float y);   /* the details grid keeps its scroll under its own id xor a CUI constant, not under the id it is given */
 void ui_band_begin(void);                  /* inside the file view's scroll container, before its rows */
 void ui_band_cancel(void);
 bool ui_band_dragging(void);

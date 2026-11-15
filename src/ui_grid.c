@@ -589,16 +589,14 @@ void ui_grid_view(void) {
     A.thumb_settled = A.size_t <= 0 || now - A.size_t >= 0.2;   /* sharper thumbnails only once the size stays still */
     if (!A.thumb_settled) cui_request_wakeup(ui, (float)(0.2 - (now - A.size_t)) + 0.01f);
     glide_plan(ui, cols);
-    if (A.reset_scroll) { cui_scroll_to(ui, "grid", 0); A.reset_scroll = false; }
+    bool reset = A.reset_scroll;   /* a new listing starts at the top: the rows built last are not the ones in view */
+    if (reset) { cui_scroll_to(ui, "grid", 0); A.reset_scroll = false; }
     if (A.reveal1) {   /* an item chosen by a program: in view, centred when it is off screen */
         int idx = A.reveal1 - 1;
         A.reveal1 = 0;
-        if (A.zoom == Z_LIST) ui_columns_reveal(idx / (A.column_rows > 0 ? A.column_rows : 1));
-        else {
-            float view_h = A.content_h > 50 ? A.content_h : 400;
-            int row = idx / cols;
-            if (row < A.first_row || row >= A.last_row - 1) cui_scroll_to(ui, "grid", (float)row * A.cell_h - (view_h - A.cell_h) / 2);
-        }
+        float view_h = A.content_h > 50 ? A.content_h : 400;
+        int row = idx / cols;
+        if (reset || row < A.first_row || row >= A.last_row - 1) cui_scroll_to(ui, "grid", (float)row * A.cell_h - (view_h - A.cell_h) / 2);
     }
     G.collecting = G.on;
     A.probe_idx = -1;
@@ -641,6 +639,7 @@ void ui_column_view(void) {
     int rows, first, last, opened = -1;
     ui_columns_begin(&rows, &first, &last);
     A.column_rows = rows; A.cols = 1; A.cell_h = 32;
+    if (A.reveal1) { int idx = A.reveal1 - 1; A.reveal1 = 0; ui_columns_reveal(idx / rows); }   /* an item chosen by a program: its column in view */
     G.valid = false; G.on = false; G.collecting = false;
     A.first_row = first; A.last_row = last; A.hover = -1;
     ui_band_begin();

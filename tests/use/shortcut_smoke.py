@@ -16,6 +16,7 @@ os.environ.setdefault('DFM_USE_WORK', str(ROOT / '.agent-work/use-checks' / Path
 from input_smoke import App, WORK, SAND, U  # noqa: E402
 
 LINKS, FAR, SMALL = SAND/'links', SAND/'far', SAND/'small'
+SCROLLED, DEEP = SAND/'scrolled', SAND/'deep'   # a long shortcut folder, and a long folder its shortcuts point into
 FOLDERS = FAR/'folders'
 PERSIAN = 'گزارش بسیار طولانی با نام فارسی برای آزمایش باز کردن محل فایل هدف در پوشه.txt'
 START = Path(r'C:\ProgramData\Microsoft\Windows\Start Menu\Programs')
@@ -55,6 +56,11 @@ def prepare():
         (FAR/('f%03d.txt' % i)).write_text('x', encoding='utf-8')
         (FOLDERS/('d%03d' % i)).mkdir()
     (FAR/PERSIAN).write_text('x', encoding='utf-8')
+    SCROLLED.mkdir(); DEEP.mkdir()
+    for i in range(250):
+        (SCROLLED/('f%03d.txt' % i)).write_text('x', encoding='utf-8')
+        (DEEP/('f%03d.txt' % i)).write_text('x', encoding='utf-8')
+    make_links([(SCROLLED/'f100.lnk', DEEP/'f100.txt'), (SCROLLED/'a.lnk', DEEP/'f200.txt')])
     gone = SAND/'gone.txt'
     gone.write_text('x', encoding='utf-8')
     (LINKS/'plain.txt').write_text('x', encoding='utf-8')
@@ -121,12 +127,12 @@ def inside():
     results = []
     prepare()
 
-    def check(name, fn, view='grid', theme='light', folder=LINKS):
+    def check(name, fn, view='grid', theme='light', folder=LINKS, extra=()):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
         app = None
         try:
-            app = App(name, folder, view, theme)
+            app = App(name, folder, view, theme, extra)
             fn(app)
             app.snap(name + '-passed')
             results.append(dict(check=name, result='passed'))
@@ -267,6 +273,40 @@ def inside():
         choose(a, 2)
         a.until('List view did not open the target', lambda: a.snap()['selection'] == ['f099.txt'], 15)
 
+    def far_target(link, leaf, scroll_first):
+        """A far target (index 100 or 200 of 250) from a long, scrolled shortcut folder: it ends up selected and in view in the new listing."""
+        def run(a):
+            if scroll_first:   # the shortcut folder is scrolled down when the shortcut is chosen: the old rows must not decide
+                a.cell(0)
+                a.key(36)
+                for _ in range(14):
+                    a.key(40)
+                time.sleep(.6)
+                assert a.snap()['first'] > 0, a.snap()['first']
+            type_w = a.snap()['type_w']
+            if a.view == 'grid' and a.snap()['zoom'] == 1:   # the column view: the first cell is the shortcut
+                x, y, w, h = a.snap()['row']
+                a.rclick(x + 80, y + h/2)
+                s = a.snap()
+                assert s['selection'] == [link], s['selection']
+            else:
+                s = open_menu(a, link)
+            assert s['lnk']['item'] == 1
+            choose(a, 2)
+            a.until('Far target not selected', lambda: a.snap()['path'].lower() == str(DEEP).lower() and a.snap()['selection'] == [leaf], 15)
+            idx = names(a).index(leaf)
+            def in_view():
+                s = a.snap()
+                if a.view == 'grid' and s['zoom'] == 1:   # the column view: the target's column is among the built ones
+                    return s['first'] <= idx // s['column_rows'] < s['last']
+                return s['first'] * s['cols'] <= idx < (s['last'] + 1) * s['cols']
+            a.until('Far target not scrolled into view', in_view, 6)
+            time.sleep(.5)
+            s = a.snap('lnk-far-' + leaf)
+            assert in_view(), ('Far target left out of view', idx, s['first'], s['last'], s['cols'], s['column_rows'])
+            assert s['type_w'] == type_w, ('The Type column changed width', type_w, s['type_w'])
+        return run
+
     check('1-file-target', file_target)
     check('2-folder-target', folder_target)
     check('3-persian-target', persian_target)
@@ -282,6 +322,9 @@ def inside():
     check('13-small-window', small_window, folder=SMALL)
     check('14-list-view', list_view, 'list')
     check('15-dark-menu', lambda a: (open_menu(a, 'to-file.lnk', 'lnk-dark-menu'), None)[1], theme='dark')
+    check('16-far-target-icons', far_target('f100.lnk', 'f100.txt', True), folder=SCROLLED, extra=('--zoom', '3'))
+    check('17-far-target-columns', far_target('a.lnk', 'f200.txt', False), folder=SCROLLED, extra=('--zoom', '1'))
+    check('18-far-target-details', far_target('a.lnk', 'f200.txt', False), 'list', folder=SCROLLED, extra=('--zoom', '0'))
     (WORK/'shortcut-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 

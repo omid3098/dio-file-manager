@@ -295,6 +295,17 @@ void ui_columns_reveal(int column) {
     else if (x + 240 > st->tx + st->view_w) st->tx = x + 240 - st->view_w;
 }
 
+/* CUI's data grid scrolls a child state at its id xor 0x5C011: cui_scroll_to on the grid's own id writes into its column widths. */
+void ui_list_scroll_to(const char *id, float y) {
+    cui_scroll_state *st = cui_state(A.ui, cui_make_id(A.ui, id) ^ 0x5C011u, sizeof *st);
+    st->ty = y < 0 ? 0 : y;
+}
+
+float ui_list_column_width(int column) {
+    float *widths = cui_state(A.ui, cui_make_id(A.ui, "list"), 32 * sizeof(float));   /* the first member of CUI's grid state */
+    return widths[column];
+}
+
 /* The anchor and item rectangles are in document coordinates, including virtual rows. */
 static struct {
     bool pending, dragging, taken;   /* taken: the box owns the press (from the start on the background, from the first 4 px on an item's blank part) */

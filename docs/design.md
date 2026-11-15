@@ -224,7 +224,7 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   with the folder selected; a drive or share root opens itself). The shortcut file is only read, never resolved or
   rewritten, and both the read and the check that the target exists run on worker threads, so an offline network
   target costs the window at most about 100 ms. A target that is gone or unreachable shows the toast "Can't find the
-  item this shortcut points to." and nothing else. A shortcut with no file path (a Store app, a Control Panel item)
+  item this shortcut points to." and nothing else. An answer that arrives after the window left that listing (also away and back) or changed the search is dropped, and the selection waits for the listing it was made for only. A shortcut with no file path (a Store app, a Control Panel item)
   does not show the item.
   The menu opens at the pointer with its own width (as narrow in the list view and in an empty
   folder as in the grid), from any right click in the content pane, also below the last grid row.

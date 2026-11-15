@@ -68,11 +68,12 @@ static struct {
     bool ctx_item;                 /* the open context menu is the item menu */
     shortcut_job *lnk_read;        /* the shortcut under the open item menu: where it points */
     shortcut_job *lnk_check;       /* Open File Location was chosen: does the target exist */
-    int lnk_loc;                   /* where the window was when it was chosen: a late answer must not move it */
+    unsigned lnk_gen;              /* the listing it was chosen on: a late answer must not move the window from another one */
     bool lnk_searching;
+    char lnk_query[256];
     bool reselect_reveal;          /* the item to reselect also scrolls into view (Open File Location) */
+    unsigned reselect_gen;         /* ...and belongs to the listing of that navigation only */
     const char *lnk_last;          /* "opened" or "missing": the last answer, for the test state */
-    char lnk_where[FS_PATH_MAX];
 } G = { .undo_toast = -1 };
 
 /* ---- small helpers ---- */
@@ -102,7 +103,7 @@ static void toast_error(const char *title, DWORD code, const char *path) {
 }
 
 static bool files_view(void) { return A.loc != LOC_OTHER && A.loc != LOC_TRASH && A.list && fs_list_state(A.list) == FS_DONE; }
-void act_reselect(const char *name) { snprintf(G.reselect, sizeof G.reselect, "%s", name); }
+void act_reselect(const char *name) { snprintf(G.reselect, sizeof G.reselect, "%s", name); G.reselect_reveal = false; }
 static bool in_folder(void) { return A.loc == LOC_FOLDER && !A.searching && A.list && fs_list_state(A.list) == FS_DONE; }
 
 static int first_selected(void) {
@@ -331,8 +332,8 @@ static void open_file_location(void) {
     if (!G.lnk_read || !shortcut_done(G.lnk_read) || !shortcut_target(G.lnk_read)[0]) return;
     shortcut_release(G.lnk_check);
     G.lnk_check = shortcut_check_start(shortcut_target(G.lnk_read));
-    G.lnk_loc = A.loc; G.lnk_searching = A.searching;
-    snprintf(G.lnk_where, sizeof G.lnk_where, "%s", A.path);
+    G.lnk_gen = A.nav_gen; G.lnk_searching = A.searching;
+    snprintf(G.lnk_query, sizeof G.lnk_query, "%s", A.search);
     if (!G.lnk_check) cui_toast(A.ui, "Can't find the item this shortcut points to.", .tone = CUI_TONE_DANGER, .duration = 7);
 }
 
@@ -342,16 +343,17 @@ static void lnk_poll(void) {
     if (!shortcut_done(G.lnk_check)) { cui_request_wakeup(A.ui, 0.05f); return; }
     shortcut_job *j = G.lnk_check;
     G.lnk_check = NULL;
-    bool same_place = G.lnk_loc == A.loc && G.lnk_searching == A.searching && !strcmp(G.lnk_where, A.path);
-    if (!same_place) { shortcut_release(j); return; }   /* the user went elsewhere while an offline path was slow */
+    bool same_place = G.lnk_gen == A.nav_gen && G.lnk_searching == A.searching && !strcmp(G.lnk_query, A.search);
+    if (!same_place) { shortcut_release(j); return; }   /* the user went elsewhere, left and came back, or searched, while an offline path was slow */
     G.lnk_last = shortcut_exists(j) ? "opened" : "missing";
     if (!shortcut_exists(j)) {
         cui_toast(A.ui, "Can't find the item this shortcut points to.", .tone = CUI_TONE_DANGER, .duration = 7);
     } else {
         char folder[FS_PATH_MAX], leaf[FS_PATH_MAX];
         shortcut_place(shortcut_input(j), folder, sizeof folder, leaf, sizeof leaf);
-        if (leaf[0]) { act_reselect(leaf); G.reselect_reveal = true; }
+        unsigned gen = A.nav_gen;
         app_navigate(folder);
+        if (leaf[0] && A.nav_gen != gen) { act_reselect(leaf); G.reselect_reveal = true; G.reselect_gen = A.nav_gen; }   /* only when the folder opened: the pick waits for its listing */
     }
     shortcut_release(j);
 }
@@ -498,10 +500,10 @@ static void submit_popover(void) {
     if (G.pop == POP_RENAME) {
         if (strcmp(G.name, G.orig) != 0) {
             char *p = G.target;
-            if (start_job(OPS_RENAME, &p, 1, NULL, G.name, "Rename")) snprintf(G.reselect, sizeof G.reselect, "%s", G.name);
+            if (start_job(OPS_RENAME, &p, 1, NULL, G.name, "Rename")) act_reselect(G.name);
         }
     } else {
-        if (start_job(OPS_NEW_FOLDER, NULL, 0, G.target, G.name, "New Folder")) snprintf(G.reselect, sizeof G.reselect, "%s", G.name);
+        if (start_job(OPS_NEW_FOLDER, NULL, 0, G.target, G.name, "New Folder")) act_reselect(G.name);
     }
     cui_popover_close(A.ui, "actpop");
 }
@@ -799,6 +801,7 @@ void act_frame(void) {
 /* A finished listing may hold the item a rename or new folder just made. */
 void act_list_ready(void) {
     if (!G.reselect[0]) return;
+    if (G.reselect_reveal && G.reselect_gen != A.nav_gen) { G.reselect[0] = 0; G.reselect_reveal = false; return; }   /* its destination was left before it listed */
     for (int i = 0; i < A.vis_n; i++)
         if (!strcmp(app_item_name(i), G.reselect)) { app_select_only(i); A.cursor = i; if (G.reselect_reveal) A.reveal1 = i + 1; break; }
     G.reselect[0] = 0;

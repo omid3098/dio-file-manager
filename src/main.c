@@ -243,6 +243,7 @@ static void load_entry(const char *entry) {
     ui_band_cancel();
     quiet_cleanup();
     fsearch_end();
+    A.nav_gen++;
     if (A.list) { fs_list_release(A.list); A.list = NULL; }
     sizes_forget();
     A.last_click_idx = -1;
@@ -754,6 +755,7 @@ static void test_snapshot(const char *base) {
     }
     fprintf(f, "],\"fsz_open\":%d,\"sel_pending\":%d,\"pill\":", sizes_open(), A.sel_pending); json_text(f, ui_pill_text());
     fprintf(f, ",\"content_w\":%.2f,\"cell_h\":%.2f,\"probe\":%d,\"band\":%d,\"zv\":%.4f,\"icon_px\":%.2f,\"zoom\":%d,\"icon\":%d,\"column_rows\":%d,\"slider\":[%.2f,%.2f,%.2f,%.2f],\"query\":", A.content_w, A.cell_h, A.probe_idx, ui_band_dragging(), A.zv, app_icon_size(), A.zoom, A.last_icon, A.column_rows, A.zoom_rect.x, A.zoom_rect.y, A.zoom_rect.w, A.zoom_rect.h); json_text(f, A.search);
+    fprintf(f, ",\"type_w\":%.1f", A.view == VIEW_LIST ? ui_list_column_width(3) : 0.0f);   /* the Type column of the folder list */
     fprintf(f, ",\"documents\":"); json_text(f, A.places[2]);
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));
     json_text(f, A.drive_n ? A.drives[0].root : "");
