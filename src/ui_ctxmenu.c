@@ -18,7 +18,7 @@ static inline bool rect_has(cui_rect r, float x, float y) { return x >= r.x && x
 
 /* The clipboard hooks of CUI's text fields (rename, path, search: Ctrl+C, Ctrl+X, Ctrl+V). CUI's own hooks call
  * OpenClipboard once and give up when another program holds the clipboard, so a copy or paste was silently
- * dropped. These do the same work through clip_open, which retries for up to 300 ms. */
+ * dropped. These do the same work through clip_open, which retries for up to 1.5 s. */
 static void text_set_clip(void *user, const char *utf8) {
     (void)user;
     int n = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);

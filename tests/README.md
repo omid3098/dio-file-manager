@@ -94,7 +94,7 @@ Each standalone smoke script defaults to `<repo root>/.agent-work/use-checks/<sc
 
 ## Action checks
 
-`tests/use/actions_smoke.py` imports the input suite's helpers and has 12 checks (the first 7 are listed here; `11` and `12` prove that a toast and the selection label never cover each other, with a long Persian name and with 4 items, at 1280x800 light and 360x280 dark):
+`tests/use/actions_smoke.py` imports the input suite's helpers and has 13 checks (the first 7 are listed here; `11` and `12` prove that a toast and the selection label never cover each other, with a long Persian name and with 4 items, at 1280x800 light and 360x280 dark):
 Open With, Open in Terminal, Properties by menu and Alt+Enter, toast Undo,
 Replace/Keep Both/Skip, Shift+Delete cancel/confirm, and large-copy progress/cancel.
 It uses only its sandbox and preserves the clipboard during copy/paste checks.
@@ -280,9 +280,9 @@ block turns the switch off and compares the keys byte for byte (it imports the b
 difference). The keys stay registered for about 5 seconds, at most 10. It never starts the real Explorer:
 before each call it reads the class's command and does not call when it is not the launcher.
 
-The app itself retries `OpenClipboard` for up to 300 ms (`clip_open` in `src/clip.c`),
-because clipboard history, sync tools and other programs open the clipboard for a few
-milliseconds after every change and Windows refuses a second opener. The mutex above only
+The app itself retries `OpenClipboard` for up to 1.5 s (`CLIP_WAIT_MS` in `src/clip.c`),
+because clipboard history, sync tools and other programs open the clipboard after every change,
+mostly for a few milliseconds but sometimes for half a second, and Windows refuses a second opener. The mutex above only
 orders the checks; it cannot stop those outside programs. Before this retry, check
 `5-name-conflicts` failed ("No name conflict dialog") whenever such a program was busy: a loop
 that opens the clipboard for 20 ms every 25 ms failed it 3 of 3; with the retry it passed 6 of 6.
@@ -291,8 +291,13 @@ Text fields (the path, rename and search fields) copy and paste through the same
 in `src/ui_ctxmenu.c` replaces CUI's own clipboard hooks, which try once. When a move ends, the app empties the
 clipboard only if its sequence number is still the one the cut had, checked after the clipboard is open (a program
 that held it meanwhile may have written new data). `actions_smoke.py` checks 8 (a move ends while another program
-holds the clipboard and then writes text: the text stays; the order is a handshake, not timing: in test mode the app's first refused `OpenClipboard` sets the named event `<DFM_TEST_CLIP_HANDSHAKE>-blocked` and waits up to 5 s for `-released`, which the other program sets after it wrote and closed the clipboard, and only then do the 300 ms count; if `-released` does not come in 5 s the app sets `-timedout` and the check fails; the first two events must exist, so a release build and other checks are unaffected) and 9 (Ctrl+V in the path field while another program
+holds the clipboard and then writes text: the text stays; the order is a handshake, not timing: in test mode the app's first refused `OpenClipboard` sets the named event `<DFM_TEST_CLIP_HANDSHAKE>-blocked` and waits up to 5 s for `-released`, which the other program sets after it wrote and closed the clipboard, and only then does the 1.5 s wait count; if `-released` does not come in 5 s the app sets `-timedout` and the check fails; the first two events must exist, so a release build and other checks are unaffected) and 9 (Ctrl+V in the path field while another program
 still holds the clipboard) fail on the code before these changes.
+A program that holds the clipboard open for 450 ms in a loop (a stand-in for a slow clipboard manager) made
+`5-name-conflicts` and `14-mouse-navigation` fail ("No name conflict dialog", "Copy not running") 5 of 5 and 3 of 3 times with the
+300 ms retry, and they pass 5 of 5 and 5 of 5 with 1.5 s. `actions_smoke.py` check 13 (`13-clipboard-busy`) holds the clipboard open
+for 700 ms during Ctrl+C and again during Ctrl+V: the copy lands, the paste starts and the name conflict dialog opens. It posts the
+keys and does not wait for the window, because the app is meant to wait; `App.msg` gives up on a window after 500 ms.
 
 ## Header as title bar
 

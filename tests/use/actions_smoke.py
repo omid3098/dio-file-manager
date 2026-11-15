@@ -1,4 +1,4 @@
-"""Twelve action checks through Win32 input, on correct/hidden.py's desktop.
+"""Thirteen action checks through Win32 input, on correct/hidden.py's desktop.
 
 Brokered Open With and Terminal use an explicit stand-in: never activate an
 existing shell/terminal on the user's desktop. Properties uses the real sheet.
@@ -235,6 +235,18 @@ def put_text(text, hold=0):
         U.CloseClipboard()
 
 
+def hold_open(ready, seconds):
+    """Another program (a clipboard manager, a sync tool): has the clipboard open for `seconds` and changes nothing."""
+    from clipboard_guard import open_clipboard, U
+    open_clipboard(None)
+    try:
+        ready.set()
+        time.sleep(seconds)
+    finally:
+        U.CloseClipboard()
+        ready.set()
+
+
 def clipboard_state(hwnd):
     """(text or None, a file list is on the clipboard)"""
     from clipboard_guard import open_clipboard, U, K
@@ -340,6 +352,16 @@ def inside():
             for p in busy: p.wait()
 
     def terminal_fails(a):
+        """The menu is walked with the Down key, which skips a disabled Paste: files on the clipboard (the user's own
+        copy) enable Paste and moved the choice to New Folder. So the check runs with the clipboard emptied."""
+        from clipboard_guard import open_clipboard, U as clip
+        with preserved_clipboard(None):
+            open_clipboard(None)
+            try: clip.EmptyClipboard()
+            finally: clip.CloseClipboard()
+            terminal_fails_inside(a)
+
+    def terminal_fails_inside(a):
         """A terminal that cannot start, slowly (2 s), in a folder with a long Persian name, in a small dark window.
         The window answers while the item runs. Then nobody touches the window: the failure comes back from the worker
         into an idle window, and its toast must still be there (pink pixels of its error icon appear), and no terminal opens."""
@@ -527,6 +549,42 @@ def inside():
             s = a.wait_ready()
             assert s['path'].lower() == str(source).lower(), ('Pasted text did not reach the path field', s['path'])
 
+    def busy_clipboard(a):
+        """Ctrl+C and then Ctrl+V while another program has the clipboard open for 700 ms each time (the app waited only
+        300 ms and then did nothing): the copy lands, the paste starts, and the name conflict dialog opens."""
+        source, dest = SAND/'source', SAND/'destination'
+        source.mkdir(); dest.mkdir()
+        name = 'same name.txt'
+        (source/name).write_text('incoming', encoding='utf-8')
+        (dest/name).write_text('original', encoding='utf-8')
+        def key_while_held(key):
+            """The key goes by PostMessage and the check does not wait for the window: it is meant to wait for the other
+            program, and a.key's SendMessage gives up on it after 500 ms."""
+            errors, ready = [], threading.Event()
+            def other_program():
+                try: hold_open(ready, .7)
+                except BaseException as e: errors.append(e)
+            other = threading.Thread(target=other_program)
+            other.start()
+            try:
+                assert ready.wait(10) and not errors, ('The other program did not get the clipboard', errors)
+                a.keys((17,))
+                U.PostMessageW(a.hwnd, 0x100, key, 1); time.sleep(.06); U.PostMessageW(a.hwnd, 0x101, key, 0xC0000001)
+            finally:
+                other.join()
+            assert not errors, ('The other program failed', errors)
+            time.sleep(.2)   # the app finishes the key it waited for
+            a.keys(())
+        with preserved_clipboard(a.hwnd):
+            a.path(source); a.cell(0)
+            key_while_held(ord('C'))
+            assert clipboard_state(a.hwnd)[1], 'The copy did not reach the clipboard while another program held it'
+            a.path(dest)
+            key_while_held(ord('V'))
+            a.until('No name conflict dialog while another program held the clipboard', lambda: a.snap()['act'] & 8, 10)
+            click_rect(a, 4); finished(a)
+            assert (dest/name).read_text(encoding='utf-8') == 'incoming'
+
     def partial_trash(a):
         # Two files are trashed together; the second is locked against deletion. The first still reaches the Recycle Bin,
         # and the Undo toast must still be offered for it, next to the error.
@@ -633,6 +691,7 @@ def inside():
     check('8-cut-keeps-newer-clipboard', newer_clipboard)
     check('9-text-field-paste', text_paste)
     check('10-partial-trash-undo', partial_trash)
+    check('13-clipboard-busy', busy_clipboard)
     (WORK/'actions-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 

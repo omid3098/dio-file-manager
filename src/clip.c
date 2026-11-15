@@ -47,14 +47,16 @@ void clip_test_handshake(const char *base) {
     hs_base[0] = 0;
     if (base && base[0] && MultiByteToWideChar(CP_UTF8, 0, base, -1, hs_base, 120) == 0) hs_base[0] = 0;
 }
-/* Other programs (clipboard history, sync tools, another window) open the clipboard for a few
-   milliseconds after each change. Windows then refuses ours, so retry for up to 300 ms. */
+/* Other programs (clipboard history, sync tools, another window) open the clipboard after each change, mostly for a
+   few milliseconds, but a big copy or a busy program can hold it for half a second or more. Windows refuses our open
+   meanwhile, and a copy or paste that gives up does nothing the user can use. So retry for up to CLIP_WAIT_MS. */
+#define CLIP_WAIT_MS 1500
 BOOL clip_open(HWND owner) {
-    ULONGLONG end = GetTickCount64() + 300;
+    ULONGLONG end = GetTickCount64() + CLIP_WAIT_MS;
     for (;;) {
         if (OpenClipboard(owner)) return TRUE;
         if (GetLastError() != ERROR_ACCESS_DENIED) return FALSE;
-        if (hs_base[0] && hs_run()) end = GetTickCount64() + 300;   /* the 300 ms count from the other program's release */
+        if (hs_base[0] && hs_run()) end = GetTickCount64() + CLIP_WAIT_MS;   /* the wait counts from the other program's release */
         if (GetTickCount64() >= end) return FALSE;
         Sleep(1);
     }
