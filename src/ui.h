@@ -142,6 +142,8 @@ void app_path_of(int vis_index, char *out, size_t cap);
 bool app_is_narrow(void);
 void app_set_theme(int pref);              /* 0 system, 1 light, 2 dark */
 void app_set_search_open(bool open);
+bool app_sidebar_has(const char *path);    /* the folder already has a sidebar row (a visible place or drive, or an added folder) */
+void app_sidebar_add(const char *path);    /* Add to Sidebar: adds the folder as a row, or says it is there already */
 bool app_at_place(int which);              /* is the sidebar place 0..6 (Home..Videos) the current folder */
 
 /* ui_actions.c */
@@ -269,6 +271,7 @@ void ui_sidebar_slide_end(void);
 void ui_sidebar_edge_nodrag(float window_h);
 bool ui_sidebar_edge_held(void);                         /* the strip holds the press now (the file view's band must not start) */
 void ui_sidebar_edge(float window_w, float window_h);   /* the 6 px strip on the line between the sidebar and the content: drag to resize, double click to reset */
+void ui_sidebar_rows_snapshot(FILE *f);   /* test state: the sidebar rows by key and the row menu */
 void ui_default_fm_snapshot(FILE *f);       /* the main menu button and its switch, for real-input checks */
 void ui_view_mode_snapshot(FILE *f);       /* the grid/list toggles of the open view-options menu, for real-input checks */
 void app_toggle_default_fm(void);           /* main.c: the "Use as Default File Manager" switch */

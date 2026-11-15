@@ -65,6 +65,19 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   The bars change with the drive list, which is read at start and each time Other Locations opens.
   Trash shows an item-count badge when nonempty. CUI has no empty-bin icon,
   so the icon stays the same when the bin is empty or full.
+  **Adding and removing rows** (GNOME Files' bookmarks). Add: right-click a folder, in a folder, Recent, Starred or search
+  results, and choose "Add to Sidebar" (only for one folder, and not when the sidebar already has a row for it); Ctrl+D adds the
+  open folder (not in Recent, Starred, Trash, Other Locations, search results or while a text field has the keyboard).
+  An added folder is a row with a folder icon and the folder's name (a long name is cut in the middle to fit one line, the whole
+  path is its tooltip), after Trash and before the drives' hairline, in the order added, with no duplicates (a visible place or
+  drive counts); a toast says "Added to Sidebar" or "Already in the Sidebar". Remove: right-click any row except Other
+  Locations and choose "Remove from Sidebar" (default places and drives too). While any default row is hidden, the same menu
+  ends with "Show Hidden Places", which brings all of them back; Other Locations and the empty space of the pane offer only
+  that item then, so a sidebar emptied down to Other Locations can always be restored. The hairline is drawn only while a row
+  is above it. The rows are kept in `%APPDATA%\dio-file-manager\sidebar.txt` (`hide <key>` and `add <path>` lines, written
+  at once and replaced as a whole), kept across restarts. An added folder that is gone (or on a missing drive) is dimmed to 50%
+  and still clickable: the click gives the usual "That folder does not exist" toast; a network folder is never asked about, so
+  it never dims. At most 200 added folders. Not in the sidebar: dragging a folder to add it, reordering, renaming a row.
 - **Grid view (default):** cells about 112 px wide; a 64 px icon above the name; the name centred,
   up to two lines (GNOME Files 47 has three: lines 3, wrap word-char, ellipsize middle; three lines make the
   reflow motion check fail, see NAME_LINES in ui_grid.c), the ellipsis in the middle of the last line, so a longer name

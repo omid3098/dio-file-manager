@@ -11,6 +11,7 @@
 #include "trash.h"
 #include "shell.h"
 #include "starred.h"
+#include "sidebar.h"
 #include "views.h"
 #include "recent.h"
 #include "shortcut.h"
@@ -420,6 +421,7 @@ void act_keys(void) {
     if (cui_shortcut(ui, 0, CUI_KEY_DELETE)) do_trash();
     if (cui_shortcut(ui, CUI_MOD_SHIFT, CUI_KEY_DELETE)) ask_delete_forever();
     if (cui_shortcut(ui, CUI_MOD_ALT, CUI_KEY_ENTER)) properties(A.sel_n > 0);
+    if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_D) && !cui_wants_keyboard(ui) && A.loc == LOC_FOLDER && !A.searching) app_sidebar_add(A.path);   /* GNOME's Add to Bookmarks */
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_Z) && G.undo_toast >= 0) { cui_toast_dismiss(ui, G.undo_toast); G.undo_toast = -1; start_undo(); }
 }
 
@@ -448,6 +450,11 @@ static void menu_items(void) {
         if (A.loc == LOC_RECENT && cui_menu_item(ui, "Remove from Recent", .icon = CUI_ICON_X)) remove_recent();
         cui_menu_separator(ui);
         if (cui_menu_item(ui, app_selection_all_starred() ? "Unstar" : "Star", .icon = CUI_ICON_STAR)) app_star_toggle_selection();
+        if (one && (app_item(first_selected())->flags & FS_DIR)) {
+            char fp[FS_PATH_MAX];
+            app_path_of(first_selected(), fp, sizeof fp);
+            if (!app_sidebar_has(fp) && cui_menu_item(ui, "Add to Sidebar", .icon = CUI_ICON_BOOKMARK)) app_sidebar_add(fp);
+        }
         if (cui_menu_item(ui, "Copy Path", .icon = CUI_ICON_LINK, .disabled = !one)) copy_path();
         if (cui_menu_item(ui, "Properties", .icon = CUI_ICON_INFO, .shortcut = "Alt Enter", .disabled = !one)) properties(true);
     } else if (virt) {

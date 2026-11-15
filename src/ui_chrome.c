@@ -7,6 +7,7 @@
 #include "ui.h"
 #include "dlgtext.h"
 #include "watch.h"
+#include "sidebar.h"
 
 static const char *const PLACE_LABEL[7] = { "Home", "Desktop", "Documents", "Downloads", "Music", "Pictures", "Videos" };
 static const char *const PLACE_ICON[7] = { CUI_ICON_HOUSE, CUI_ICON_MONITOR, CUI_ICON_FILE_TEXT, CUI_ICON_DOWNLOAD,
@@ -20,6 +21,74 @@ static bool same_path(const char *a, const char *b) {
 }
 
 bool app_at_place(int which) { return A.loc == LOC_FOLDER && A.places[which][0] && same_path(A.path, A.places[which]); }
+
+/* ---- removing and adding sidebar rows ---- */
+
+static void drive_key(const fs_drive *d, char out[8]) { snprintf(out, 8, "drive:%c", toupper((unsigned char)d->root[0])); }
+static void place_key(int i, char out[8]) { snprintf(out, 8, "place%d", i); }
+
+bool app_sidebar_has(const char *path) {
+    if (sidebar_has(path)) return true;
+    char k[8];
+    for (int i = 0; i < 7; i++) { place_key(i, k); if (A.places[i][0] && !sidebar_is_hidden(k) && same_path(path, A.places[i])) return true; }
+    for (int i = 0; i < A.drive_n; i++) { drive_key(&A.drives[i], k); if (!sidebar_is_hidden(k) && same_path(path, A.drives[i].root)) return true; }
+    return false;
+}
+
+void app_sidebar_add(const char *path) {
+    if (app_sidebar_has(path)) { cui_toast(A.ui, "Already in the Sidebar"); return; }
+    if (sidebar_add(path)) cui_toast(A.ui, "Added to Sidebar");
+    else cui_toast(A.ui, sidebar_has(path) ? "Could not save the sidebar" : "The sidebar is full", .tone = CUI_TONE_DANGER);
+}
+
+/* The right-click menu of a row: what it removes ("" for none), and whether it was opened this frame. */
+static struct { bool open_here, hit; char key[FS_PATH_MAX]; bool added; } sbm;
+
+static bool in_rect(cui_rect r, cui_vec2 m) { return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h; }
+
+/* Test state: every sidebar row of the last frame by its key, and the rows of the open row menu. */
+static struct { char key[260]; cui_rect r; bool dim; } srow[96];
+static int srow_n;
+static cui_rect smenu_remove, smenu_show;
+
+void ui_sidebar_rows_snapshot(FILE *f) {
+    fprintf(f, ",\"sbrows\":[");
+    for (int i = 0; i < srow_n; i++) {
+        fprintf(f, "%s{\"key\":\"", i ? "," : "");
+        for (const char *p = srow[i].key; *p; p++) { if (*p == '"' || *p == '\\') fputc('\\', f); fputc(*p, f); }
+        fprintf(f, "\",\"dim\":%d,\"r\":[%.2f,%.2f,%.2f,%.2f]}", srow[i].dim, srow[i].r.x, srow[i].r.y, srow[i].r.w, srow[i].r.h);
+    }
+    fprintf(f, "],\"sbmenu\":{\"remove\":[%.2f,%.2f,%.2f,%.2f],\"show\":[%.2f,%.2f,%.2f,%.2f]}", smenu_remove.x, smenu_remove.y, smenu_remove.w, smenu_remove.h,
+            smenu_show.x, smenu_show.y, smenu_show.w, smenu_show.h);
+}
+
+static bool sb_right_click(cui_rect r) {
+    return cui_mouse_clicked(A.ui, CUI_MOUSE_RIGHT) && !act_modal_open() && !ui_popup_open_any(A.ui) && in_rect(r, cui_mouse_pos(A.ui));
+}
+
+/* After a row: a right click on it opens the menu for it. A row with no key (Other Locations) only offers Show Hidden Places. */
+static void row_rclick(cui_rect r, const char *key, bool added) {
+    if (srow_n < 96) { snprintf(srow[srow_n].key, sizeof srow[0].key, "%s", key[0] ? key : "other"); srow[srow_n].dim = false; srow[srow_n++].r = r; }
+    if (!sb_right_click(r)) return;
+    sbm.hit = true;
+    sbm.added = added;
+    snprintf(sbm.key, sizeof sbm.key, "%s", key);
+    sbm.open_here = key[0] || sidebar_any_hidden();
+}
+
+static void row_menu(void) {
+    cui_ctx *ui = A.ui;
+    memset(&smenu_remove, 0, sizeof smenu_remove); memset(&smenu_show, 0, sizeof smenu_show);
+    if (!ctxmenu_begin(ui, "sbmenu", sbm.open_here)) return;
+    if (sbm.key[0] && cui_menu_item(ui, "Remove from Sidebar", .icon = CUI_ICON_X)) {
+        if (!(sbm.added ? sidebar_remove(sbm.key) : sidebar_hide(sbm.key))) cui_toast(ui, "Could not save the sidebar", .tone = CUI_TONE_DANGER);
+    }
+    if (sidebar_any_hidden() && cui_menu_item(ui, "Show Hidden Places", .icon = CUI_ICON_EYE)) {
+        if (!sidebar_show_hidden()) cui_toast(ui, "Could not save the sidebar", .tone = CUI_TONE_DANGER);
+    }
+    smenu_remove = cui_get_rect(ui, cui_make_id(ui, "Remove from Sidebar")); smenu_show = cui_get_rect(ui, cui_make_id(ui, "Show Hidden Places"));
+    ctxmenu_end(ui);
+}
 
 /* ---- the header's width budget ----
  * The three window buttons never leave the window. In a wide window the path bar gives way first (down to PATH_PREF), then search
@@ -228,25 +297,68 @@ void ui_sidebar_places(void) {
         }
     }
     memset(eject.buttons, 0, sizeof eject.buttons);
+    cui_rect pane = cui_get_rect(ui, cui_make_id(ui, "places"));   /* last frame's */
+    float name_w = (pane.w > 0 ? pane.w : 240.0f) - 70.0f;   /* the label's room: the pane less its padding, the row's, the icon and the gap */
+    char key[8];
+    int top = 0;
+    sbm.hit = sbm.open_here = false;
+    srow_n = 0;
     cui_column(ui, .id = "places", .width = CUI_FILL, .height = CUI_FILL, .pad_x = 8, .pad_bottom = 8, .gap = 2, .scroll_y = true) {
-        if (place_row("Recent", CUI_ICON_CLOCK, A.loc == LOC_RECENT)) app_navigate("@1");
-        if (place_row("Starred", CUI_ICON_STAR, A.loc == LOC_STARRED)) app_navigate("@2");
-        for (int i = 0; i < 7; i++) {
-            if (!A.places[i][0]) continue;
-            if (place_row(PLACE_LABEL[i], PLACE_ICON[i], app_at_place(i))) app_navigate(A.places[i]);
+        if (!sidebar_is_hidden("recent")) {
+            top++;
+            if (place_row("Recent", CUI_ICON_CLOCK, A.loc == LOC_RECENT)) app_navigate("@1");
+            row_rclick(cui_last_rect(ui), "recent", false);
         }
-        char tb[16];
-        snprintf(tb, sizeof tb, "%d", A.trash_n);
-        if (cui_nav_item(ui, "Trash", .icon = CUI_ICON_TRASH_2, .selected = A.loc == LOC_TRASH, .group = A.loc == LOC_TRASH ? "Trash" : "places", .badge = A.trash_n > 0 ? tb : NULL)) app_navigate("@3");
-        cui_gap(ui, 6);
-        cui_separator(ui);
-        cui_gap(ui, 6);
+        if (!sidebar_is_hidden("starred")) {
+            top++;
+            if (place_row("Starred", CUI_ICON_STAR, A.loc == LOC_STARRED)) app_navigate("@2");
+            row_rclick(cui_last_rect(ui), "starred", false);
+        }
+        for (int i = 0; i < 7; i++) {
+            place_key(i, key);
+            if (!A.places[i][0] || sidebar_is_hidden(key)) continue;
+            top++;
+            if (place_row(PLACE_LABEL[i], PLACE_ICON[i], app_at_place(i))) app_navigate(A.places[i]);
+            row_rclick(cui_last_rect(ui), key, false);
+        }
+        if (!sidebar_is_hidden("trash")) {
+            top++;
+            char tb[16];
+            snprintf(tb, sizeof tb, "%d", A.trash_n);
+            if (cui_nav_item(ui, "Trash", .icon = CUI_ICON_TRASH_2, .selected = A.loc == LOC_TRASH, .group = A.loc == LOC_TRASH ? "Trash" : "places", .badge = A.trash_n > 0 ? tb : NULL)) app_navigate("@3");
+            row_rclick(cui_last_rect(ui), "trash", false);
+        }
+        for (int i = 0; i < sidebar_count(); i++) {   /* the folders the user added, in the order added; a missing one is dimmed but still opens */
+            const char *p = sidebar_path(i);
+            char leaf[FS_PATH_MAX], label[UI_NAME_BYTES];
+            bool gone = sidebar_gone(i);
+            top++;
+            sidebar_leaf(p, leaf, sizeof leaf);
+            ui_fit_name(leaf, name_w, 14.0f, label);
+            cui_push_id_int(ui, 1000 + i);
+            cui_row(ui, .width = CUI_FILL, .gap = 0) {
+                if (gone) ui_node_opacity(0.5f);
+                if (place_row(label, CUI_ICON_FOLDER, A.loc == LOC_FOLDER && same_path(A.path, p))) app_navigate(p);
+                cui_tooltip(ui, p);
+                row_rclick(cui_last_rect(ui), p, true);
+                if (srow_n) srow[srow_n - 1].dim = gone;
+            }
+            cui_pop_id(ui);
+        }
+        if (top) {
+            cui_gap(ui, 6);
+            cui_separator(ui);
+            cui_gap(ui, 6);
+        }
         for (int i = 0; i < A.drive_n; i++) {
             bool here = A.loc == LOC_FOLDER && same_path(A.path, A.drives[i].root);
+            drive_key(&A.drives[i], key);
+            if (sidebar_is_hidden(key)) continue;
             cui_push_id_int(ui, i);
             cui_row(ui, .width = CUI_FILL, .gap = 0) {
                 cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL) {
                     if (place_row(A.drives[i].name, CUI_ICON_SERVER, here)) app_navigate(A.drives[i].root);
+                    row_rclick(cui_last_rect(ui), key, false);
                     if (A.drives[i].total) {   /* how full the drive is: a thin bar under the label, in the Other Locations colours */
                         char tip[64];
                         drive_usage_text(&A.drives[i], tip, sizeof tip);
@@ -275,7 +387,10 @@ void ui_sidebar_places(void) {
             cui_pop_id(ui);
         }
         if (place_row("Other Locations", CUI_ICON_PLUS, A.loc == LOC_OTHER)) app_navigate("@4");
+        row_rclick(cui_last_rect(ui), "", false);
     }
+    if (!sbm.hit && sidebar_any_hidden() && sb_right_click(pane)) { sbm.hit = sbm.open_here = true; sbm.key[0] = 0; }   /* empty space in the pane */
+    row_menu();
 }
 
 /* ---- content header ---- */

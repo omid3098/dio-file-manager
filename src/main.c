@@ -12,6 +12,7 @@
 #include "ui.h"
 #include "shell.h"
 #include "starred.h"
+#include "sidebar.h"
 #include "recent.h"
 #include "ops.h"
 #include "dlgtext.h"
@@ -818,6 +819,7 @@ static void test_snapshot(const char *base) {
     act_jobs_snapshot(f);
     ui_sidebar_snapshot(f);
     fprintf(f, ",\"sidebar_px\":%.2f,\"sidebar_w\":%d,\"docked\":%d", A.sidebar_px, A.sidebar_w, A.sidebar_docked);
+    ui_sidebar_rows_snapshot(f);
     ui_popup_snapshot(f);
     ui_default_fm_snapshot(f);
     ui_view_mode_snapshot(f);
@@ -944,6 +946,7 @@ int main(void) {
     A.sort_key = FS_SORT_NAME;
     A.trash_check_t = -100;
     starred_load();
+    sidebar_load();
     for (int i = 0; i < 7; i++) fs_known(i, A.places[i], sizeof A.places[i]);
     A.drive_n = fs_drives(A.drives, 26);
     theme_load_fonts(A.ui);
