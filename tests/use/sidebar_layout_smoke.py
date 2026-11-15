@@ -1,5 +1,5 @@
 """The sidebar's width (drag its edge, double click resets, saved) and its slide away below 683 px, with real Win32 input on a private desktop.
-Run from the repo: python tests/use/sidebar_smoke.py   (DFM_EXE, DFM_USE_WORK as for the other use suites)
+Run from the repo: python tests/use/sidebar_layout_smoke.py   (DFM_EXE, DFM_USE_WORK as for the other use suites)
 The app's own state dump gives the sidebar width drawn now (sidebar_px), the saved width (sidebar_w) and the frame log of the slide.
 Pictures: <work>/pictures/ (whole windows, light and dark, and a frame strip of a slowed slide).
 """
