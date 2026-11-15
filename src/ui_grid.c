@@ -590,6 +590,16 @@ void ui_grid_view(void) {
     if (!A.thumb_settled) cui_request_wakeup(ui, (float)(0.2 - (now - A.size_t)) + 0.01f);
     glide_plan(ui, cols);
     if (A.reset_scroll) { cui_scroll_to(ui, "grid", 0); A.reset_scroll = false; }
+    if (A.reveal1) {   /* an item chosen by a program: in view, centred when it is off screen */
+        int idx = A.reveal1 - 1;
+        A.reveal1 = 0;
+        if (A.zoom == Z_LIST) ui_columns_reveal(idx / (A.column_rows > 0 ? A.column_rows : 1));
+        else {
+            float view_h = A.content_h > 50 ? A.content_h : 400;
+            int row = idx / cols;
+            if (row < A.first_row || row >= A.last_row - 1) cui_scroll_to(ui, "grid", (float)row * A.cell_h - (view_h - A.cell_h) / 2);
+        }
+    }
     G.collecting = G.on;
     A.probe_idx = -1;
     ui_thumb_begin();

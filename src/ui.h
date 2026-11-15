@@ -68,6 +68,7 @@ typedef struct app_t {
     int last_click_idx;
     bool sidebar_open;               /* overlay in narrow windows */
     bool reset_scroll;
+    int reveal1;                     /* an item to scroll into view, as index + 1 (0: none); the view takes it on its next frame */
     cui_rect first_rect;             /* first built grid row, for the input smoke test */
     bool ctx_item;                   /* the last right click was on an item */
     void *hwnd;                      /* the native window, for shell calls */

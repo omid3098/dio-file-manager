@@ -70,6 +70,7 @@ static struct {
     shortcut_job *lnk_check;       /* Open File Location was chosen: does the target exist */
     int lnk_loc;                   /* where the window was when it was chosen: a late answer must not move it */
     bool lnk_searching;
+    bool reselect_reveal;          /* the item to reselect also scrolls into view (Open File Location) */
     const char *lnk_last;          /* "opened" or "missing": the last answer, for the test state */
     char lnk_where[FS_PATH_MAX];
 } G = { .undo_toast = -1 };
@@ -349,7 +350,7 @@ static void lnk_poll(void) {
     } else {
         char folder[FS_PATH_MAX], leaf[FS_PATH_MAX];
         shortcut_place(shortcut_input(j), folder, sizeof folder, leaf, sizeof leaf);
-        if (leaf[0]) act_reselect(leaf);
+        if (leaf[0]) { act_reselect(leaf); G.reselect_reveal = true; }
         app_navigate(folder);
     }
     shortcut_release(j);
@@ -799,8 +800,9 @@ void act_frame(void) {
 void act_list_ready(void) {
     if (!G.reselect[0]) return;
     for (int i = 0; i < A.vis_n; i++)
-        if (!strcmp(app_item_name(i), G.reselect)) { app_select_only(i); A.cursor = i; break; }
+        if (!strcmp(app_item_name(i), G.reselect)) { app_select_only(i); A.cursor = i; if (G.reselect_reveal) A.reveal1 = i + 1; break; }
     G.reselect[0] = 0;
+    G.reselect_reveal = false;
 }
 
 int act_state(void) {

@@ -76,6 +76,12 @@ void ui_list_view(void) {
     int first, last, star_click = -1;
     star_hot_prev = star_hot_now; star_hot_now = false;
     if (A.reset_scroll) { cui_scroll_to(ui, "list", 0); A.reset_scroll = false; }
+    if (A.reveal1) {   /* an item chosen by a program: in view, centred when it is off screen */
+        int idx = A.reveal1 - 1;
+        A.reveal1 = 0;
+        float view_h = A.content_h > 50 ? A.content_h : 400;
+        if (idx < A.first_row || idx >= A.last_row - 1) cui_scroll_to(ui, "list", (float)idx * 36.0f - (view_h - 40.0f - 36.0f) / 2);
+    }
     if (cui_data_grid_begin(ui, "list", cs.cols, cs.n, A.vis_n, &first, &last, .row_height = 36, .selected = A.sel,
                             .hide_checkboxes = true, .sort = &sort, .cursor = &A.cursor, .anchor = &A.anchor)) {
         A.first_row = first; A.last_row = last;
