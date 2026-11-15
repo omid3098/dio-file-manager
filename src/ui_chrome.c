@@ -681,12 +681,12 @@ const char *ui_pill_text(void) { return pill_buf; }
 static float toast_lift;       /* the pill's rise above its resting place, eased */
 static float pill_r[4], toast_r[4];
 
-/* The height of the stack of toasts that are not on their way out, as CUI lays it out opened. */
+/* The height of the stack of toasts, as CUI lays it out opened. A toast on its way out still counts until CUI removes it, so the
+ * pill never slides under one that is still fading. */
 static float toast_stack_h(void) {
     cui_ctx *ui = A.ui;
     float h = 0; int n = 0;
     for (int i = 0; i < ui->toast_count; i++) {
-        if (ui->toasts[i].dismissed) continue;
         h += ui->toasts[i].height + (n ? TOAST_GAP : 0.0f);
         n++;
     }
@@ -727,7 +727,7 @@ static float pill_text_w(const char *s) {
 
 /* The label is one line and never wider than the pane: a long name gives way at whole characters until the whole label fits, the words
  * after the name never. (A narrow window used to push a long name's label past the window edge, its ending cut off.) */
-static float pill_room(void) { return A.content_w - 2 * PILL_PAD - 30.0f; }   /* 30: the row's padding and border */
+static float pill_room(void) { return fminf(A.content_w - 2 * PILL_PAD, 520.0f) - 30.0f; }   /* the pane less its margins, at most the row's 520; 30: its padding and border */
 
 static void pill_fit_leaf(const char *path, const char *tail, char *out, size_t cap) {
     dlg_quoted_leaf(path, tail, out, cap);
@@ -783,7 +783,7 @@ void ui_status_pill(void) {
     if (!buf[0]) { pill_r[0] = pill_r[1] = pill_r[2] = pill_r[3] = 0; return; }
     cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_END, .justify = CUI_JUSTIFY_END, .pad = PILL_PAD) {
         cui_row(ui, .bg = CUI_COLOR_SURFACE_RAISED, .radius = 14, .border = 1, .border_color = CUI_COLOR_BORDER,
-                .elevation = CUI_ELEVATION_FLOATING, .pad_x = 14, .pad_y = 8, .max_width = fminf(520.0f, pill_room() + 30.0f)) {
+                .elevation = CUI_ELEVATION_FLOATING, .pad_x = 14, .pad_y = 8, .max_width = pill_room() + 30.0f) {
             cui_text(ui, buf, .nowrap = true);
         }
         if (toast_lift > 0.5f) cui_gap(ui, toast_lift);
@@ -791,7 +791,7 @@ void ui_status_pill(void) {
          * content pane's bottom-right corner, PILL_PAD in and the lift up. */
         cui_theme *th = cui_theme_get(ui);
         float tw = pill_text_w(buf), line = cui_measure_text(ui, CUI_FONT_BODY, th->text_body * th->font_scale, buf, (int)strlen(buf)).height;
-        float w = fminf(tw + 30.0f, fminf(520.0f, pill_room() + 30.0f)), h = line + 18.0f;
+        float w = fminf(tw + 30.0f, pill_room() + 30.0f), h = line + 18.0f;
         pill_r[0] = ui->vw - PILL_PAD - w; pill_r[2] = w; pill_r[3] = h;
         pill_r[1] = ui->vh - below - PILL_PAD - (toast_lift > 0.5f ? toast_lift : 0.0f) - h;
     }
