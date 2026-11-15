@@ -418,20 +418,35 @@ def inside():
         a.cell(0); a.key(46)
         a.until('Delete kept the file', lambda: not target.exists())
         finished(a)
-        def state(label, pill, hover=False):
+        t0 = time.monotonic()
+        def pointer():
+            """Rests the pointer on the toast: CUI then never ages it, so a busy computer cannot take it away mid-check, and it opens CUI's stack."""
+            tx, ty, tw, th = a.snap()['toast_rect']
+            a.msg(0x200, 0, a.point(tx + tw / 2, ty + th / 2))
+        def steady():
+            """The label's rise and the toast's entrance have ended: both rectangles stay put (a busy computer draws them late)."""
+            last, end = None, time.monotonic() + 10
+            while time.monotonic() < end:
+                s = a.snap(); now = s['toast_rect'] + s['pill_rect']
+                if last and max(abs(x - y) for x, y in zip(now, last)) < .2: return
+                last = now; time.sleep(.3)
+        if not before:
+            a.until('The Undo toast never showed', lambda: a.snap()['toast_rect'][3] > 0, 10)
+            pointer()   # a toast under the pointer stays: the check may take longer than its 8 seconds
+        def state(label, pill):
             def settled():
                 s = a.snap()
                 return s['pill'].startswith(pill) and (before or s['pill_rect'][2] > 0)
             a.until(f'The label never showed {pill!r}', settled, 5)
-            if hover and not before:   # the pointer on the toast opens CUI's stack: the label must still be clear of it
-                tx, ty, tw, th = a.snap()['toast_rect']
-                a.msg(0x200, 0, a.point(tx + tw / 2, ty + th / 2))
-            time.sleep(.6)   # the label's rise and the toast's own entrance have ended
+            if before: time.sleep(.6)
+            else:
+                pointer()   # the label must be clear of the toast and of the stack the pointer opens
+                steady()
             s = a.snap(f'toast-label-{tag}-{label}')
             if before:
                 return
             tx, ty, tw, th = s['toast_rect']; px, py, pw, ph = s['pill_rect']
-            assert th > 0, f'{label}: the Undo toast is gone, the check proves nothing ({s["toast_rect"]})'
+            assert th > 0, f'{label}: the Undo toast is gone {time.monotonic()-t0:.1f}s after Delete, the check proves nothing ({s["toast_rect"]})'
             assert pw > 0 and s['pill'].startswith(pill), f'{label}: label {s["pill"]!r}'
             assert px >= 0 and px + pw <= s['vw'] and py >= 0, f'{label}: the label leaves the window {s["pill_rect"]} in {s["vw"]}x{s["vh"]}'
             apart = py + ph <= ty or px + pw <= tx or tx + tw <= px or ty + th <= py
@@ -443,7 +458,6 @@ def inside():
         state('one', f'“{TOAST_FILES[1][:8]}')   # the label shortens a long name at a whole character
         a.key(ord('A'), (17,))
         state('four', '4 items selected')
-        state('four-hover', '4 items selected', hover=True)
 
     def conflicts(a):
         source, dest = SAND/'source', SAND/'destination'
