@@ -168,7 +168,7 @@ void act_rename(void);
 void act_new_folder(void);
 void act_open_terminal(void);               /* starts the terminal on a worker: the window never waits for a process start */
 #define WM_DFM_TERMINAL (WM_APP + 20)       /* posted by that worker when the start failed (lParam: the job): the window shows the toast */
-void act_terminal_failed(void *job);        /* the window's thread, for WM_DFM_TERMINAL: show the toast, free the job */
+void act_terminal_failed(void *job);        /* the window's thread, for WM_DFM_TERMINAL: queue the failure; the next frame shows the toast */
 bool act_modal_open(void);
 int act_state(void);                        /* bit 0 popover, 1 job, 2 delete dialog, 3 conflict dialog, 4 undo */
 void act_test_snapshot(FILE *f);             /* observation only, for real-input checks */

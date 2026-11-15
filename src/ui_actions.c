@@ -436,7 +436,8 @@ void act_new_folder(void) {
 
 /* Starting a process can take a second or more on a busy computer (security scans, a slow disk or network folder).
  * It runs on a worker, so the window answers the whole time; only a failure comes back, as a message. */
-typedef struct { char path[FS_PATH_MAX]; HRESULT hr; HWND window; } terminal_job;
+typedef struct terminal_job { char path[FS_PATH_MAX]; HRESULT hr; HWND window; struct terminal_job *next; } terminal_job;
+static terminal_job *terminal_failed;   /* failures the window has received, shown by the next frame (window thread only) */
 
 static DWORD WINAPI terminal_worker(void *p) {
     terminal_job *j = p;
@@ -445,10 +446,21 @@ static DWORD WINAPI terminal_worker(void *p) {
     return 0;
 }
 
+/* The message only queues the failure and asks for a frame: a toast made outside a frame is timed from the frame
+ * before it, so one that comes after a long idle time could be gone before it is drawn. */
 void act_terminal_failed(void *job) {
     terminal_job *j = job;
-    report(j->hr, "Could not open the terminal", j->path);
-    free(j);
+    j->next = terminal_failed; terminal_failed = j;
+    if (A.ui) cui_request_redraw(A.ui);
+}
+
+static void terminal_report_failures(void) {
+    while (terminal_failed) {
+        terminal_job *j = terminal_failed;
+        terminal_failed = j->next;
+        report(j->hr, "Could not open the terminal", j->path);
+        free(j);
+    }
 }
 
 void act_open_terminal(void) {
@@ -774,6 +786,7 @@ void act_jobs_snapshot(FILE *f) {
 /* Runs every frame, inside the content stack: it owns the anchor of the popovers. */
 void act_frame(void) {
     cui_ctx *ui = A.ui;
+    terminal_report_failures();
     file_job **link = &G.jobs;
     while (*link) {
         file_job *j = *link;

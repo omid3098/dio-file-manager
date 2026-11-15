@@ -314,20 +314,32 @@ def inside():
             for p in busy: p.wait()
 
     def terminal_fails(a):
-        """A terminal that cannot start, in a folder with a long Persian name, in a small dark window: the error comes
-        back from the worker as a toast, the window answers the whole time, and no terminal opens."""
+        """A terminal that cannot start, slowly (2 s), in a folder with a long Persian name, in a small dark window.
+        The window answers while the item runs. Then nobody touches the window: the failure comes back from the worker
+        into an idle window, and its toast must still be there (pink pixels of its error icon appear), and no terminal opens."""
         folder = SAND/'-'.join(['پوشهٔ بسیار طولانی برای آزمایش گشودن پایانه']*3)
         folder.mkdir()
         a.theme = 'dark'; a.restart()
         assert a.path(folder)['state'] != 0
         dpi = U.GetDpiForWindow(a.hwnd)/96
+        U.SetWindowPos(a.hwnd, None, 0, 0, int(360*dpi), int(280*dpi), 0x16)
+        def pink(label):
+            from PIL import Image
+            a.snap(label)
+            with Image.open(WORK/(label+'.png')) as image:
+                rgb = image.convert('RGB')
+                return sum(1 for r, g, b in rgb.getdata() if r > 200 and r-g > 80 and r-b > 70)   # the pink of the error icon and its title
+        before = pink('2c-terminal-fails-before')
+        a.rclick(180, 150)
         with Probe(a.hwnd) as probe:
-            menu(a, 4, False)
-            time.sleep(.8)   # the worker's failure comes back as a message
-            U.SetWindowPos(a.hwnd, None, 0, 0, int(360*dpi), int(280*dpi), 0x16)
-            time.sleep(.6)
-            a.snap('2c-terminal-fails-toast')
+            assert a.snap()['ctx'], 'Context menu did not open'
+            for _ in range(4):
+                a.key(40)
+            a.key(13)
         assert probe.longest < .25, f'The window did not answer for {probe.longest*1000:.0f} ms'
+        time.sleep(3.5)   # idle: the worker fails after 2 s, and nothing else wakes the window
+        after = pink('2c-terminal-fails-toast')
+        assert after > before + 15, f'No error toast after the failed start (pink pixels {before} -> {after})'
         assert not [r for r in windows() if r[1].startswith('DFM shell stand-in')], 'A terminal opened'
 
     def properties(a):
@@ -530,10 +542,12 @@ def inside():
         os.environ.pop('DFM_TEST_TERMINAL_DELAY_MS', None)
     working = os.environ['DFM_TEST_TERMINAL']
     os.environ['DFM_TEST_TERMINAL'] = 'C:/no-such-folder/no-terminal.exe'   # the process cannot start
+    os.environ['DFM_TEST_TERMINAL_DELAY_MS'] = '2000'
     try:
         check('2c-terminal-fails', terminal_fails)
     finally:
         os.environ['DFM_TEST_TERMINAL'] = working
+        os.environ.pop('DFM_TEST_TERMINAL_DELAY_MS', None)
     check('3-properties', properties)
     check('4-toast-undo', toast)
     check('5-name-conflicts', conflicts)
