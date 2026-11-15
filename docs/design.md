@@ -205,7 +205,7 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   the last change, and at most about every 500 ms while it goes on. The new listing is quiet: no loading pill, no
   placeholders, no fade of the whole view; new items fade in as items do when a copy brings them, removed items go. The
   selection (by name), the keyboard focus, the scroll, an open rename field and an open menu stay as they are. The growth of
-  a file this program is copying does not ask for a new listing. With nothing changing in the folder there is no timer
+  a file this program is copying does not ask for a new listing, and neither does a subfolder's own modified time moving because something inside it changed (the Modified cell of a subfolder shows the time it had when the folder was read). With nothing changing in the folder there is no timer
   and no CPU use (below 0.1 % of one core, also while other folders on the drive change). The watch never holds a USB
   drive: it lets go of the folder when Windows asks to remove the drive and when Eject Drive is pressed (a refused eject
   watches the folder again), and when the folder is left. When the open folder is deleted, or its drive goes, the page for

@@ -228,8 +228,13 @@ def inside():
 
     def idle_cpu(a, d, name):
         other = WORK / 'idle-other'
+        t_wait = time.monotonic()
         other.mkdir(exist_ok=True)
-        time.sleep(1.0)
+        quiet_since, last_n = time.monotonic(), -1
+        while time.monotonic() - quiet_since < 1.5 and time.monotonic() - t_wait < 15:   # let the start-up frames (fonts, icons) finish first
+            n = len(frames(a))
+            if n != last_n: last_n, quiet_since = n, time.monotonic()
+            time.sleep(.1)
         n1 = len(frames(a)); c0 = cpu_seconds(a.proc.pid); t0 = time.monotonic()
         while time.monotonic() - t0 < 8:   # other folders change while this one stays open
             (other / 'x.txt').write_text(str(time.monotonic()))

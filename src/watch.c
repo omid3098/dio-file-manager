@@ -57,13 +57,30 @@ static bool copy_growth(const FILE_NOTIFY_INFORMATION *n) {
     return false;
 }
 
+/* A folder's own "modified" time moves when something inside it changes; NTFS reports that late, in the folder that holds
+ * it. It does not change what the list shows (names, kinds and the sizes of folders are measured on entry), so a batch of
+ * only such events does not ask for a new reading. */
+static bool folder_touch(const watch *w, const FILE_NOTIFY_INFORMATION *n) {
+    if (n->Action != FILE_ACTION_MODIFIED) return false;
+    size_t dl = wcslen(w->wpath), nl = n->FileNameLength / sizeof(wchar_t);
+    if (dl + nl + 2 >= FS_PATH_MAX + 4 || nl == 0) return false;
+    wchar_t full[FS_PATH_MAX + 8];
+    wcscpy_s(full, FS_PATH_MAX + 8, w->wpath);
+    if (full[dl - 1] != L'\\') full[dl++] = L'\\';
+    memcpy(full + dl, n->FileName, nl * sizeof(wchar_t));
+    full[dl + nl] = 0;
+    DWORD at = GetFileAttributesW(full);
+    return at != INVALID_FILE_ATTRIBUTES && (at & FILE_ATTRIBUTE_DIRECTORY) && !(at & FILE_ATTRIBUTE_REPARSE_POINT);
+}
+
 /* Does this batch hold a change that matters? An empty batch means Windows lost events (the buffer overflowed). */
-static bool relevant(const BYTE *buf, DWORD got) {
+static bool relevant(const watch *w, const BYTE *buf, DWORD got) {
     if (!got) return true;
     const BYTE *p = buf;
+    int probes = 0;
     for (;;) {
         const FILE_NOTIFY_INFORMATION *n = (const FILE_NOTIFY_INFORMATION *)p;
-        if (!copy_growth(n)) return true;
+        if (!copy_growth(n) && (++probes > 64 || !folder_touch(w, n))) return true;   /* a huge batch is not looked through */
         if (!n->NextEntryOffset) return false;
         p += n->NextEntryOffset;
     }
@@ -112,7 +129,7 @@ static unsigned __stdcall watch_thread(void *arg) {
                 memcpy(copy, buf, got);
                 ResetEvent(ev);
                 armed = ReadDirectoryChangesW(w->dir, buf, BUF_BYTES, FALSE, filter, NULL, &ov, NULL) != 0;   /* re-armed before the batch is read */
-                if (relevant(copy, got)) { ULONGLONG now = GetTickCount64(); if (!burst) { burst = true; t0 = now; burst_t0 = (LONGLONG)now; } last = now; }
+                if (relevant(w, copy, got)) { ULONGLONG now = GetTickCount64(); if (!burst) { burst = true; t0 = now; burst_t0 = (LONGLONG)now; } last = now; }
             } else {
                 /* the folder went away (deleted, or its drive left): let the window read it, which shows what is wrong, and stop */
                 fire(w);
