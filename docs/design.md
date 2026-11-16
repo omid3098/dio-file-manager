@@ -438,6 +438,11 @@ message delay of the window below 50 ms.
   the bottom bar, and the main menu
   button sits in the content header, left of the window buttons. The menu scrolls when the window is
   too short for it. About 32 px of empty header stay for dragging while the path bar is above 144 px.
+- **A long path never leaves the path bar.** The bar is given exactly the width `plan_header` budgets, in every header layout, so it never 
+  runs under search, view options or the window buttons (GNOME Files and Explorer do the same). When the segments do not fit, the oldest ones 
+  collapse first, from the left, into one "..." button right after the Home or drive icon; it opens a menu of the hidden folders, and each opens 
+  that folder. The current folder is the last to shrink, and when its name alone is too long it is cut with an ellipsis at its end. 
+  The typing field (Ctrl+L) has the same width.
 - **Window buttons** sit at the right end of the content header, 12 px after the view-options
   button: minimize, maximize or restore, close. Each is a 24 px circle with a 16 px glyph, as in
   libadwaita. The circle is always there: the foreground colour at 10% at rest, 15% on hover, 20%

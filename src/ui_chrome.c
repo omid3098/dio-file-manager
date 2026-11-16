@@ -571,7 +571,7 @@ void ui_content_header(void) {
         } else {
         const char *segs[32];
         for (int i = 0; i < n; i++) segs[i] = seg_label[i];
-        cui_path_bar_result pr = cui_path_bar(ui, "pathbar", segs, n, .icon = home_first ? CUI_ICON_HOUSE : NULL,
+        cui_path_bar_result pr = cui_path_bar(ui, "pathbar", segs, n, .icon = home_first ? CUI_ICON_HOUSE : NULL, .width = CUI_PX(hp.path_w),
                                               .menus = A.loc == LOC_FOLDER, .no_edit = A.loc != LOC_FOLDER, .text = A.path);
         cui_rect bar = cui_last_rect(ui);   /* CUI reports the bar's full width, also the part its row cuts off */
         if (bar.w > hp.path_w) bar.w = hp.path_w;
