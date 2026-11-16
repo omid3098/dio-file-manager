@@ -64,12 +64,12 @@ Picture thumbnails.
 
 ## Install and start
 
-For Windows 11 (x64). There are four ways.
+For Windows (x64), tested on Windows 11 and not yet on Windows 10. There are four ways.
 
 **With your coding agent.** Paste this into Claude Code, Codex or another coding agent. It takes under a minute:
 
 ```text
-Install Dio File Manager on this Windows 11 PC and make it my default file manager. In PowerShell, run:
+Install Dio File Manager on this Windows PC and make it my default file manager. In PowerShell, run:
 
 irm https://github.com/omid3098/dio-file-manager/releases/latest/download/install.ps1 | iex
 
