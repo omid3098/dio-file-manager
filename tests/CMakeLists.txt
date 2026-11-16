@@ -21,6 +21,8 @@ target_compile_options(dfm-foldersize-tests PRIVATE /W4 /WX /utf-8)
 add_test(NAME dfm-foldersize COMMAND dfm-foldersize-tests)
 
 set(DFM_TEST_WORK "${CMAKE_SOURCE_DIR}/.agent-work/console" CACHE PATH "Console check sandbox parent")
+# The checks make their own folders inside it; a fresh clone or a CI runner does not have it yet.
+file(MAKE_DIRECTORY "${DFM_TEST_WORK}")
 file(TO_NATIVE_PATH "${DFM_TEST_WORK}" DFM_TEST_NATIVE)
 string(REPLACE "\\" "\\\\" DFM_TEST_NATIVE "${DFM_TEST_NATIVE}")
 foreach(check_target dfm-ops-tests dfm-thumbs-tests dfm-foldersize-tests)
