@@ -442,20 +442,28 @@ def inside():
             time.sleep(.15)
         print(json.dumps({'held_resize_frames':frames}),flush=True)
 
-    def popup(a, key, mods, text):
-        a.key(key, mods)
+    def popup_typed(a, text):
         a.until('Popover did not open', lambda: a.snap()['act'] & 1)
         time.sleep(.5)  # the field takes focus and selects its text on its second frame
         for ch in text:
             a.msg(0x102, ord(ch))
             time.sleep(.01)
+
+    def popup(a, key, mods, text):
+        a.key(key, mods)
+        popup_typed(a, text)
         a.key(13)
+
+    def popup_closed(a):
+        # The folder or the new name is made by the job; the popover must also go away (it once stayed open, now showing "A file with that name already exists").
+        a.until('The popover stayed open after Enter or Create', lambda: not a.snap()['act'] & 1)
 
     def rename(a):
         a.cell(0)
         assert a.snap()['selection'] == ['a.txt'], 'Select a.txt'
         popup(a, 113, (), 'zz')
         a.until('Rename did not happen', lambda: (SAND/'zz.txt').exists())
+        popup_closed(a)
         assert not (SAND/'a.txt').exists() and (SAND/'b.txt').exists(), 'Only a.txt is renamed, extension kept'
         a.until('New name not selected', lambda: a.snap()['selection'] == ['zz.txt'])
         a.snap('rename-done')
@@ -464,6 +472,46 @@ def inside():
         popup(a, ord('N'), (17,16), 'Docs')
         a.until('Folder not made', lambda: (SAND/'Docs').is_dir())
         a.until('New folder not selected', lambda: a.snap()['selection'] == ['Docs'])
+        popup_closed(a)
+
+    def new_folder_menu(a):
+        # The background menu's New Folder (first item), a long Persian name, Enter.
+        name = 'گزارش‌های مالی سال ۱۴۰۴ برای جلسهٔ هیئت مدیره'
+        a.rclick(700, 420)
+        a.until('The background menu did not open', lambda: a.snap()['ctx'], 3)
+        a.key(0x28)
+        a.key(13)
+        popup_typed(a, name)
+        a.key(13)
+        a.until('Folder not made', lambda: (SAND/name).is_dir())
+        a.until('New folder not selected', lambda: a.snap()['selection'] == [name])
+        popup_closed(a)
+
+    def new_folder_create(a):
+        # The Create button, clicked.
+        a.key(ord('N'), (17,16))
+        popup_typed(a, 'Docs')
+        x, y, w, h = a.snap()['action_rects'][7]
+        assert w > 0, 'The popover has no Create button'
+        a.click(x + w/2, y + h/2)
+        a.until('Folder not made', lambda: (SAND/'Docs').is_dir())
+        popup_closed(a)
+
+    def new_folder_refused(a):
+        # A name that exists and an empty name: Enter makes nothing and the popover stays for a better name; Esc then closes it.
+        a.key(ord('N'), (17,16))
+        popup_typed(a, 'a.txt')
+        a.key(13)
+        time.sleep(.5)
+        assert a.snap()['act'] & 1, 'The popover closed on a name that exists'
+        assert sorted(p.name for p in SAND.iterdir()) == ['a.txt'], 'A folder was made for a name that exists'
+        for _ in range(8): a.key(8)
+        a.key(13)
+        time.sleep(.5)
+        assert a.snap()['act'] & 1, 'The popover closed on an empty name'
+        assert sorted(p.name for p in SAND.iterdir()) == ['a.txt'], 'A folder was made for an empty name'
+        a.key(27)
+        popup_closed(a)
 
     def copy_paste(a):
         with preserved_clipboard(a.hwnd):
@@ -611,6 +659,9 @@ def inside():
 
     check('9-rename', SAND, rename, prep=lambda: fresh('a.txt','b.txt'))
     check('9-new-folder', SAND, new_folder, prep=lambda: fresh('a.txt'))
+    check('9-new-folder-menu', SAND, new_folder_menu, prep=lambda: fresh('a.txt'))
+    check('9-new-folder-create', SAND, new_folder_create, prep=lambda: fresh('a.txt'))
+    check('9-new-folder-refused', SAND, new_folder_refused, prep=lambda: fresh('a.txt'))
     check('9-copy-paste', SAND, copy_paste, prep=lambda: fresh('a.txt'))
     check('9-clipboard-restore', SAND, clipboard_restore, prep=lambda: fresh('a.txt'))
     check('9-trash-undo', SAND, trash_undo, prep=lambda: fresh('a.txt','b.txt'))

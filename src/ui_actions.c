@@ -40,7 +40,7 @@ static struct {
     cui_status job_mark;           /* the check or cross the header holds after the last job */
     double ring_since;             /* when the busy ring first showed in this run of jobs; 0 while none runs */
     int mark_serial;               /* each mark starts its own CUI status spinner */
-    cui_rect job_rect, conflict_buttons[3], delete_buttons[2];
+    cui_rect job_rect, conflict_buttons[3], delete_buttons[2], pop_create;
     char dialog_text[700];   /* the text the last "Cannot move file to trash" dialog showed; for the test snapshot */
     HANDLE recent_thread;
     char **recent_paths;
@@ -584,7 +584,6 @@ static void submit_popover(void) {
     } else {
         if (start_job(OPS_NEW_FOLDER, NULL, 0, G.target, G.name, "New Folder")) act_reselect(G.name);
     }
-    cui_popover_close(A.ui, "actpop");
 }
 
 static void name_popover(void) {
@@ -594,6 +593,7 @@ static void name_popover(void) {
         cui_popover_open(ui, "actpop");
     }
     if (G.pop == POP_NONE) return;
+    bool close = false;   /* closed after the popover ends: inside it the id "actpop" names another popup, so a close there does nothing */
     if (cui_popover_begin(ui, "actpop", &(cui_popover_opts){ .placement = CUI_PLACE_BOTTOM, .width = 320, .pad = 14, .gap = 6 })) {
         bool rename = G.pop == POP_RENAME;
         cui_column(ui, .width = CUI_FILL, .gap = 10) {
@@ -607,13 +607,15 @@ static void name_popover(void) {
             bool unchanged = rename && !strcmp(G.name, G.orig);
             bool ok = !err && !unchanged;
             cui_row(ui, .width = CUI_FILL, .gap = 8, .justify = CUI_JUSTIFY_END) {
-                if (cui_button(ui, "Cancel", .size = CUI_SIZE_SM)) cui_popover_close(ui, "actpop");
-                if (cui_button(ui, rename ? "Rename" : "Create", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_PRIMARY, .disabled = !ok)) submit_popover();
+                if (cui_button(ui, "Cancel", .size = CUI_SIZE_SM)) close = true;
+                if (cui_button(ui, rename ? "Rename" : "Create", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_PRIMARY, .disabled = !ok)) { submit_popover(); close = true; }
+                G.pop_create = cui_last_rect(ui);
             }
-            if ((f & CUI_SUBMITTED) && ok) submit_popover();
-            else if ((f & CUI_SUBMITTED) && unchanged) cui_popover_close(ui, "actpop");
+            if ((f & CUI_SUBMITTED) && ok) { submit_popover(); close = true; }
+            else if ((f & CUI_SUBMITTED) && unchanged) close = true;
         }
         cui_popover_end(ui);
+        if (close) cui_popover_close(ui, "actpop");
         G.pop_frames++;
         cui_request_wakeup(ui, 0.0f);
     }
@@ -905,10 +907,10 @@ void act_test_snapshot(FILE *f) {
     cui_rect cancel = G.jobs ? G.jobs->cancel_rect : (cui_rect){0};
     uint64_t done = 0, total = 0;
     for (file_job *j = G.jobs; j; j = j->next) { done += j->st.bytes_done; total += j->st.bytes_total; }
-    cui_rect rects[] = { G.job_rect, cancel, G.conflict_buttons[0], G.conflict_buttons[1], G.conflict_buttons[2], G.delete_buttons[0], G.delete_buttons[1] };
+    cui_rect rects[] = { G.job_rect, cancel, G.conflict_buttons[0], G.conflict_buttons[1], G.conflict_buttons[2], G.delete_buttons[0], G.delete_buttons[1], G.pop_create };
     fprintf(f, ",\"job\":{\"active\":%d,\"popover\":%d,\"done\":%llu,\"total\":%llu},\"action_rects\":[",
             G.jobs != NULL, G.job_pop_open, (unsigned long long)done, (unsigned long long)total);
-    for (int i = 0; i < 7; i++) fprintf(f, "%s[%.2f,%.2f,%.2f,%.2f]", i ? "," : "", rects[i].x, rects[i].y, rects[i].w, rects[i].h);
+    for (int i = 0; i < 8; i++) fprintf(f, "%s[%.2f,%.2f,%.2f,%.2f]", i ? "," : "", rects[i].x, rects[i].y, rects[i].w, rects[i].h);
     fprintf(f, "],\"lnk\":{\"item\":%d,\"last\":\"%s\"},\"dialog_text\":\"", lnk_item_shown(), G.lnk_last ? G.lnk_last : "");
     for (const char *c = G.dialog_text; *c; c++) { if (*c == '"' || *c == '\\') fputc('\\', f); fputc(*c, f); }
     fprintf(f, "\"");
