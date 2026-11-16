@@ -1,0 +1,42 @@
+# Builds the app on Windows, runs the console tests and attaches the exe and install.ps1 to the version's release.
+# Runs when a version tag (v0.1.1, ...) is pushed; run it by hand to rebuild an existing tag's files.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to build, for example v0.1.1
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Build
+        run: |
+          cmake -S . -B build -A x64
+          cmake --build build --config MinSizeRel -j 4
+
+      - name: Test
+        run: ctest --test-dir build -C MinSizeRel --output-on-failure
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = 'build/MinSizeRel/dio-file-manager.exe', 'install.ps1'
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -eq 0) { gh release upload $env:TAG @files --clobber }
+          else { gh release create $env:TAG @files --title "Dio File Manager $($env:TAG.TrimStart('v'))" --notes-file .github/release-notes.md }
