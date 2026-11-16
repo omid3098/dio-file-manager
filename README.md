@@ -1,6 +1,6 @@
 # Dio File Manager
 
-A small file manager for Windows, written in C and modelled on GNOME Files (Nautilus).
+A fast, light and smooth file manager for Windows, written in C and modelled on GNOME Files (Nautilus).
 It is a single executable of under 800 KB.
 
 ![The main window in the dark theme, in grid view: a sidebar with the drives and their fill bars, and a folder of files](docs/media/grid-dark.png)
@@ -64,9 +64,25 @@ Picture thumbnails.
 
 ## Install and start
 
-There is no download yet; you build it from source. Developed and tested on Windows 11 (x64).
+For Windows 11 (x64). There are three ways.
 
-You need:
+**With your coding agent.** Paste this into Claude Code, Codex or another coding agent. It takes under two minutes:
+
+```text
+Install Dio File Manager on this Windows 11 PC and make it my default file manager. Use PowerShell.
+
+1. Download https://github.com/omid3098/dio-file-manager/releases/latest/download/dio-file-manager.exe to %LOCALAPPDATA%\Programs\Dio File Manager\dio-file-manager.exe. If a copy there is running, rename it to dio-file-manager.old.exe first.
+2. Add a Start menu shortcut named Dio File Manager that points to it.
+3. Run it with --default-fm on, then with --default-fm status, each like this:
+   $p = Start-Process $exe '--default-fm on' -PassThru; $p.WaitForExit(); $p.ExitCode
+   Not with -Wait: "on" leaves a small Win+E helper running, and -Wait would wait for it. Exit code 0 means folders and Win+E now open it.
+
+Do not start the app itself. When you are done, tell me to press Win+E. To give everything back to Explorer later, run it with --default-fm off.
+```
+
+**By hand.** Download `dio-file-manager.exe` from the [latest release](https://github.com/omid3098/dio-file-manager/releases/latest), put it in a folder of your own and run it. The file is not signed, so Windows may warn you the first time.
+
+**From source.** You need:
 
 - Visual Studio 2022 or its Build Tools, with the "Desktop development with C++" workload (the MSVC compiler)
 - CMake 3.14 or newer
@@ -105,6 +121,7 @@ To update while a window is open, rename the running `dio-file-manager.exe` to `
 - `--path DIR` starts in a folder.
 - `--view grid` or `--view list` picks the view; `--theme light` or `--theme dark` picks the theme.
 - `--shot OUT.png` draws the window into a picture file without showing it. It also takes `--size WxH` and `--select NAME`.
+- `--default-fm on` makes it the program Windows opens folders with, Win+E included; `--default-fm off` gives that back to Explorer, and `--default-fm status` exits with 0 while it is on.
 
 ## Development
 
