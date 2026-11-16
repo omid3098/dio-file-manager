@@ -64,21 +64,19 @@ Picture thumbnails.
 
 ## Install and start
 
-For Windows 11 (x64). There are three ways.
+For Windows 11 (x64). There are four ways.
 
-**With your coding agent.** Paste this into Claude Code, Codex or another coding agent. It takes under two minutes:
+**With your coding agent.** Paste this into Claude Code, Codex or another coding agent. It takes under a minute:
 
 ```text
-Install Dio File Manager on this Windows 11 PC and make it my default file manager. Use PowerShell.
+Install Dio File Manager on this Windows 11 PC and make it my default file manager. In PowerShell, run:
 
-1. Download https://github.com/omid3098/dio-file-manager/releases/latest/download/dio-file-manager.exe to %LOCALAPPDATA%\Programs\Dio File Manager\dio-file-manager.exe. If a copy there is running, rename it to dio-file-manager.old.exe first.
-2. Add a Start menu shortcut named Dio File Manager that points to it.
-3. Run it with --default-fm on, then with --default-fm status, each like this:
-   $p = Start-Process $exe '--default-fm on' -PassThru; $p.WaitForExit(); $p.ExitCode
-   Not with -Wait: "on" leaves a small Win+E helper running, and -Wait would wait for it. Exit code 0 means folders and Win+E now open it.
+irm https://github.com/omid3098/dio-file-manager/releases/latest/download/install.ps1 | iex
 
-Do not start the app itself. When you are done, tell me to press Win+E. To give everything back to Explorer later, run it with --default-fm off.
+Then tell me to press Win+E.
 ```
+
+**Yourself, in PowerShell.** Run the same line. It installs or updates the app for your user only, adds it to the Start menu and makes it the program Windows opens folders with, Win+E included. [install.ps1](install.ps1) is the script it runs. To give folders back to Explorer, run `dio-file-manager.exe --default-fm off` from `%LOCALAPPDATA%\Programs\Dio File Manager`.
 
 **By hand.** Download `dio-file-manager.exe` from the [latest release](https://github.com/omid3098/dio-file-manager/releases/latest), put it in a folder of your own and run it. The file is not signed, so Windows may warn you the first time.
 
