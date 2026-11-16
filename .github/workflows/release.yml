@@ -26,7 +26,8 @@ jobs:
 
       - name: Build
         run: |
-          cmake -S . -B build -A x64
+          # The console checks recycle files: keep their sandbox on C:, whose Recycle Bin works on the runner (D: deletes for good).
+          cmake -S . -B build -A x64 -DDFM_TEST_WORK=C:/dfm-checks/console
           cmake --build build --config MinSizeRel -j 4
 
       - name: Test
