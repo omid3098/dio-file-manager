@@ -12,14 +12,15 @@
 <style>
   :root {
     color-scheme: dark;
-    --bg: #161a24;
+    --bg: #232838;
     --surface: #10131c;
-    --line: #262b38;
+    --line: #343b50;
     --text: #e8ebf3;
     --muted: #a3abbe;
     --accent: #8b9cff;
     --on-accent: #0a0d1a;
-    --mat: #3b4684;
+    --button: #3b4684;
+    --on-button: #e8ebf3;
   }
   @media (prefers-color-scheme: light) {
     :root {
@@ -31,7 +32,8 @@
       --muted: #535b6e;
       --accent: #4352c8;
       --on-accent: #ffffff;
-      --mat: #dde2fb;
+      --button: #4352c8;
+      --on-button: #ffffff;
     }
   }
   * { box-sizing: border-box; }
@@ -58,7 +60,7 @@
   .button {
     display: inline-flex; align-items: center; gap: 8px;
     padding: 12px 20px; border-radius: 8px;
-    background: var(--accent); color: var(--on-accent);
+    background: var(--button); color: var(--on-button);
     font-weight: 600; text-decoration: none;
   }
   .button:hover { filter: brightness(1.08); }
@@ -66,8 +68,6 @@
 
   .shot { display: block; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--surface); }
   .shot img { display: block; width: 100%; height: auto; }
-  .hero .mat { padding: 16px; border-radius: 16px; background: var(--mat); }
-  .hero .mat .shot { border: 0; }
 
   .row { display: grid; grid-template-columns: 1fr 352px; gap: 48px; align-items: center; margin-bottom: 96px; }
   .row.flip { grid-template-columns: 352px 1fr; }
@@ -86,11 +86,11 @@
     header .wrap { height: 64px; }
     .hero, .row, .row.flip { grid-template-columns: 1fr; gap: 24px; }
     .row.flip .shot { order: 0; }
-    .hero { padding: 8px 0 64px; }
-    .hero .mat { order: -1; padding: 8px; border-radius: 16px; }
-    .hero .mat .shot { border-radius: 8px; }
+    .hero { padding: 0 0 128px; }
+    .hero .mat { order: -1; margin: 0 -16px; }
+    .hero .mat .shot { border-radius: 0; border-left: 0; border-right: 0; }
     .row { margin-bottom: 64px; }
-    h1 { font-size: 28px; }
+    h1 { font-size: 24px; }
     .lead, .row p { max-width: none; }
     .trio { grid-template-columns: 1fr; gap: 16px; margin-bottom: 64px; }
   }
@@ -108,9 +108,9 @@
   <section class="hero">
     <div>
       <h1>A small, fast file manager for Windows</h1>
-      <p class="lead">Modelled on GNOME Files and written in C. One program of under 800&nbsp;KB.</p>
+      <p class="lead">Modelled on GNOME Files. Written in C, under 800&nbsp;KB.</p>
       <a class="button" href="https://github.com/omid3098/dio-file-manager#install-and-start">Get the source on GitHub</a>
-      <p class="note">No installer yet: you build it from source. Windows 11, x64.</p>
+      <p class="note">No installer yet: build it from source. Windows 11.</p>
     </div>
     <div class="mat">
       <a class="shot" href="media/zoom.webp">
