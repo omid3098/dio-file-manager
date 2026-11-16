@@ -456,7 +456,7 @@ def inside():
 
     def popup_closed(a):
         # The folder or the new name is made by the job; the popover must also go away (it once stayed open, now showing "A file with that name already exists").
-        a.until('The popover stayed open after Enter or Create', lambda: not a.snap()['act'] & 1)
+        a.until('The popover stayed open after Enter, Create or Cancel', lambda: not a.snap()['act'] & 1)
 
     def rename(a):
         a.cell(0)
@@ -496,6 +496,30 @@ def inside():
         a.click(x + w/2, y + h/2)
         a.until('Folder not made', lambda: (SAND/'Docs').is_dir())
         popup_closed(a)
+
+    def new_folder_cancel(a):
+        # The Cancel button, clicked: the popover goes away and no folder is made.
+        a.key(ord('N'), (17,16))
+        popup_typed(a, 'Docs')
+        x, y, w, h = a.snap()['action_rects'][8]
+        assert w > 0, 'The popover has no Cancel button'
+        a.click(x + w/2, y + h/2)
+        popup_closed(a)
+        time.sleep(.5)   # a wrongly started job would show up by now
+        assert sorted(p.name for p in SAND.iterdir()) == ['a.txt'], 'Cancel made a folder'
+
+    def rename_confirm(a):
+        # The Rename button, clicked, instead of Enter.
+        a.cell(0)
+        assert a.snap()['selection'] == ['a.txt'], 'Select a.txt'
+        a.key(113)
+        popup_typed(a, 'zz')
+        x, y, w, h = a.snap()['action_rects'][7]
+        assert w > 0, 'The popover has no Rename button'
+        a.click(x + w/2, y + h/2)
+        a.until('Rename did not happen', lambda: (SAND/'zz.txt').exists())
+        popup_closed(a)
+        assert not (SAND/'a.txt').exists() and (SAND/'b.txt').exists(), 'Only a.txt is renamed, extension kept'
 
     def new_folder_refused(a):
         # A name that exists and an empty name: Enter makes nothing and the popover stays for a better name; Esc then closes it.
@@ -661,6 +685,8 @@ def inside():
     check('9-new-folder', SAND, new_folder, prep=lambda: fresh('a.txt'))
     check('9-new-folder-menu', SAND, new_folder_menu, prep=lambda: fresh('a.txt'))
     check('9-new-folder-create', SAND, new_folder_create, prep=lambda: fresh('a.txt'))
+    check('9-new-folder-cancel', SAND, new_folder_cancel, prep=lambda: fresh('a.txt'))
+    check('9-rename-confirm', SAND, rename_confirm, prep=lambda: fresh('a.txt','b.txt'))
     check('9-new-folder-refused', SAND, new_folder_refused, prep=lambda: fresh('a.txt'))
     check('9-copy-paste', SAND, copy_paste, prep=lambda: fresh('a.txt'))
     check('9-clipboard-restore', SAND, clipboard_restore, prep=lambda: fresh('a.txt'))

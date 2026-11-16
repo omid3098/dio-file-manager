@@ -40,7 +40,7 @@ static struct {
     cui_status job_mark;           /* the check or cross the header holds after the last job */
     double ring_since;             /* when the busy ring first showed in this run of jobs; 0 while none runs */
     int mark_serial;               /* each mark starts its own CUI status spinner */
-    cui_rect job_rect, conflict_buttons[3], delete_buttons[2], pop_create;
+    cui_rect job_rect, conflict_buttons[3], delete_buttons[2], pop_create, pop_cancel;
     char dialog_text[700];   /* the text the last "Cannot move file to trash" dialog showed; for the test snapshot */
     HANDLE recent_thread;
     char **recent_paths;
@@ -608,6 +608,7 @@ static void name_popover(void) {
             bool ok = !err && !unchanged;
             cui_row(ui, .width = CUI_FILL, .gap = 8, .justify = CUI_JUSTIFY_END) {
                 if (cui_button(ui, "Cancel", .size = CUI_SIZE_SM)) close = true;
+                G.pop_cancel = cui_last_rect(ui);
                 if (cui_button(ui, rename ? "Rename" : "Create", .size = CUI_SIZE_SM, .variant = CUI_BUTTON_PRIMARY, .disabled = !ok)) { submit_popover(); close = true; }
                 G.pop_create = cui_last_rect(ui);
             }
@@ -907,10 +908,10 @@ void act_test_snapshot(FILE *f) {
     cui_rect cancel = G.jobs ? G.jobs->cancel_rect : (cui_rect){0};
     uint64_t done = 0, total = 0;
     for (file_job *j = G.jobs; j; j = j->next) { done += j->st.bytes_done; total += j->st.bytes_total; }
-    cui_rect rects[] = { G.job_rect, cancel, G.conflict_buttons[0], G.conflict_buttons[1], G.conflict_buttons[2], G.delete_buttons[0], G.delete_buttons[1], G.pop_create };
+    cui_rect rects[] = { G.job_rect, cancel, G.conflict_buttons[0], G.conflict_buttons[1], G.conflict_buttons[2], G.delete_buttons[0], G.delete_buttons[1], G.pop_create, G.pop_cancel };
     fprintf(f, ",\"job\":{\"active\":%d,\"popover\":%d,\"done\":%llu,\"total\":%llu},\"action_rects\":[",
             G.jobs != NULL, G.job_pop_open, (unsigned long long)done, (unsigned long long)total);
-    for (int i = 0; i < 8; i++) fprintf(f, "%s[%.2f,%.2f,%.2f,%.2f]", i ? "," : "", rects[i].x, rects[i].y, rects[i].w, rects[i].h);
+    for (int i = 0; i < 9; i++) fprintf(f, "%s[%.2f,%.2f,%.2f,%.2f]", i ? "," : "", rects[i].x, rects[i].y, rects[i].w, rects[i].h);
     fprintf(f, "],\"lnk\":{\"item\":%d,\"last\":\"%s\"},\"dialog_text\":\"", lnk_item_shown(), G.lnk_last ? G.lnk_last : "");
     for (const char *c = G.dialog_text; *c; c++) { if (*c == '"' || *c == '\\') fputc('\\', f); fputc(*c, f); }
     fprintf(f, "\"");
