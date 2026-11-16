@@ -3,29 +3,49 @@
 A small file manager for Windows, written in C and modelled on GNOME Files (Nautilus).
 It is a single executable of under 800 KB.
 
-![The main window in grid view: a sidebar with the drives and their fill bars, and a folder of files](docs/media/grid-light.png)
+![The main window in the dark theme, in grid view: a sidebar with the drives and their fill bars, and a folder of files](docs/media/grid-dark.png)
 
 ## What it looks like
 
-![Selecting files by dragging a box over them](docs/media/select-box.gif)
+![Opening the view menu and dragging the zoom slider: the grid grows to large icons, shrinks to the list with the size of each folder, and grows back to a medium grid](docs/media/zoom.webp)
 
-Dragging a box over files selects them, and the count appears at the bottom.
+The view menu's zoom slider moves from large icons to the list view and back in one continuous drag.
 
-![The list view with the size of every folder](docs/media/list-sizes.png)
+![Dragging the window's corner: the grid reflows while the window narrows, the sidebar slides away, and it slides back when the window grows again](docs/media/resize.webp)
+
+Making the window narrower reflows the grid as you drag; the sidebar slides away when there is no room for it and back when there is.
+
+![Dragging a box over three files, cutting them, opening a folder, pasting, and going back](docs/media/everyday.webp)
+
+Everyday work: a box selects three files, Ctrl+X and Ctrl+V move them into another folder, and Back returns.
+
+![Typing "report" in the search field, then choosing Open File Location on a shortcut in the results](docs/media/search.webp)
+
+Search looks in the folder and everything below it. Open File Location on a shortcut jumps to the file it points to.
+
+![The list view with the size of every folder](docs/media/list-sizes-dark.png)
 
 The list view shows the size of each folder, measured in the background.
 
-![The right-click menu of a shortcut, with Open File Location](docs/media/shortcut-menu.png)
+![The right-click menu of a shortcut, with Open File Location](docs/media/shortcut-menu-dark.png)
 
 A right-click menu on a shortcut; Open File Location jumps to the file it points to.
 
-![The sidebar's Remove from Sidebar menu, with two folders added to the sidebar](docs/media/sidebar-menu.png)
+![The sidebar's Remove from Sidebar menu, with two folders added to the sidebar](docs/media/sidebar-menu-dark.png)
 
 Any folder can be added to the sidebar and removed from it again with a right click.
 
-![The dark theme showing a folder of pictures with thumbnails](docs/media/dark-photos.png)
+![A folder of pictures with thumbnails](docs/media/photos-dark.png)
 
-The dark theme, with picture thumbnails. The window follows the Windows light or dark setting.
+Picture thumbnails.
+
+**Light theme.** The window follows the Windows light or dark setting. The same views in the light theme:
+
+![The main window in the light theme, in grid view](docs/media/grid-light.png)
+
+![The list view in the light theme, with the size of every folder](docs/media/list-sizes-light.png)
+
+![A folder of pictures with thumbnails in the light theme](docs/media/photos-light.png)
 
 ## What it does
 
