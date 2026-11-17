@@ -514,7 +514,7 @@ static void view_options_menu(cui_placement where) {
         }
         view_mode_rect = cui_get_rect(ui, cui_make_id(ui, "viewmode"));
     }
-    if (!app_tree_on()) {   /* the icon size means nothing for the tree */
+    if (!ui_tree_shown()) {   /* the icon size means nothing for the tree */
         float value = A.zv;   /* continuous: the ticks only mark the six stops */
         if (cui_slider(ui, "View size", &value, 0, Z_COUNT - 1, .width = CUI_FILL)) { app_set_tree(false); app_set_zoomv(value, false); }
         A.zoom_rect = cui_last_rect(ui);

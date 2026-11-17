@@ -145,7 +145,6 @@ static void subs_frame(void) {
     }
     for (int i = 0; i < sub_n; i++)
         if (S[i].l && fs_list_state(S[i].l) != FS_LOADING) extract(&S[i]);
-    for (int i = 0; i < sub_n; i++) if (S[i].l) { cui_request_wakeup(A.ui, 0.03f); break; }   /* a finished listing must repaint */
 }
 
 /* Start the listings of the biggest folders that are big enough to show their children. Called after the layout, largest first. */
@@ -224,7 +223,7 @@ static void nest_layout(titem *t, const sub *s) {
     for (int i = 0; i < keep; i++) { v[m] = (double)rows[i].size; tmp[m] = (nrect){ .node = rows[i].node, .size = rows[i].size }; m++; }
     for (int k = 0; k < 2; k++) {   /* the small items, then the unlisted remainder, sorted in among the others */
         uint64_t sz = k ? rem : small;
-        if (!sz || m >= NEST_MAX) continue;
+        if (!sz || m >= NEST_MAX + 1) continue;   /* the arrays hold one more than the kept items and the small block: room for the remainder */
         int at = m;
         while (at > 0 && v[at - 1] < (double)sz) { v[at] = v[at - 1]; tmp[at] = tmp[at - 1]; at--; }
         v[at] = (double)sz; tmp[at] = (nrect){ .node = k ? -2 : -1, .size = sz, .small_n = k ? 0 : small_n }; m++;
@@ -449,6 +448,7 @@ void ui_tree_view(void) {
     if (c.rect.w < 2 || c.rect.h < 2) { A.hover = -1; return; }
     compute(c.rect.w, c.rect.h);
     subs_request();
+    for (int i = 0; i < sub_n; i++) if (S[i].l) { cui_request_wakeup(A.ui, 0.03f); break; }   /* a finished listing must repaint, also one started just now */
     cui_vec2 mp = cui_mouse_pos(ui), m = { mp.x - c.rect.x, mp.y - c.rect.y };
     int hit = c.hovered ? hit_at(m) : -1;
     int vis = hit >= 0 && T[hit].kind == TK_ITEM ? T[hit].vis : -1;

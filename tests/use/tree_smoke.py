@@ -173,6 +173,18 @@ def inside():
             return len(files(h)) == 1
         a.until('Ctrl+H again did not hide the hidden file in the nested blocks', one, 15)
 
+    def many_with_remainder(a):
+        """64 visible files and one hidden file as big as all of them: the nested blocks are full (kept items, small items), and the
+        unlisted half is still laid out as empty space, so the visible files fill about half of the rectangle."""
+        s = a.settled()
+        t = a.t(s)
+        many = next(i for i in t['items'] if i['n'] == 'many')
+        nr = many['nr']
+        assert any(r[5] == -2 for r in nr), f'the unlisted remainder is missing from {len(nr)} nested rectangles'
+        listed = sum(r[2] * r[3] for r in nr if r[5] != -2)
+        whole = sum(r[2] * r[3] for r in nr)
+        assert 0.4 < listed / whole < 0.6, f'the listed files fill {listed / whole:.2f} of the folder, not half'
+
     def select_open(a):
         a.settled()
         x, y, i = a.center('video.mp4')
@@ -283,6 +295,13 @@ def inside():
     (hid / 'hid' / 'hid.bin').write_bytes(b'\0' * 9_000_000)
     subprocess.run(['attrib', '+h', str(hid / 'hid' / 'hid.bin')], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
     check('2b-hidden-share-and-ctrl-h', hidden_share, path=hid)
+    many = WORK / 'tree3'
+    (many / 'many').mkdir(parents=True, exist_ok=True)
+    for i in range(64):
+        (many / 'many' / f'f{i:02d}.bin').write_bytes(bytes(1000))
+    (many / 'many' / 'hidden.bin').write_bytes(bytes(64000))
+    subprocess.run(['attrib', '+h', str(many / 'many' / 'hidden.bin')], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+    check('2c-many-files-keep-the-remainder', many_with_remainder, path=many)
     check('3-select-open-keys', select_open)
     check('4-double-click-opens-then-back', open_by_double)
     check('5-ctrl-3-and-leave', keys_and_leave)
