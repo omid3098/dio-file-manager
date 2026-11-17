@@ -860,7 +860,10 @@ void act_frame(void) {
     }
     /* the anchor of the popovers: a hairline just under the row of the selected item */
     float below = 0;
-    if (A.cursor >= 0) {
+    cui_rect tr;
+    bool in_tree = ui_tree_shown();
+    if (in_tree) below = ui_tree_anchor(A.cursor, &tr) ? tr.y + (tr.h < 28.0f ? tr.h : 28.0f) : 40.0f;   /* just under the name of the rectangle */
+    else if (A.cursor >= 0) {
         int row = A.view == VIEW_GRID && A.cols > 0 ? A.cursor / A.cols : A.cursor + 1;
         float rh = A.view == VIEW_GRID ? A.cell_h : 36.0f;
         if (A.zoom == Z_LIST && A.column_rows > 0) below = 16 + (float)(A.cursor % A.column_rows + 1) * rh;
@@ -871,12 +874,13 @@ void act_frame(void) {
     }
     /* under the item itself: its cell in the grid, the name column in the list */
     float left = 8, aw = 360;
-    if (A.view == VIEW_GRID && A.cols > 0 && A.first_rect.w > 64) {
+    if (in_tree) { if (ui_tree_anchor(A.cursor, &tr)) { left = tr.x; aw = tr.w < 360.0f ? tr.w : 360.0f; } }
+    else if (A.view == VIEW_GRID && A.cols > 0 && A.first_rect.w > 64) {
         aw = (A.first_rect.w - 32) / (float)A.cols;
         left = 16 + (float)(A.cursor >= 0 ? A.cursor % A.cols : 0) * aw;
     }
     /* Anchor to the whole list row so the popup can flip above it near the bottom. */
-    float ah = A.view == VIEW_LIST && A.cursor >= 0 ? 36.0f : 1.0f;
+    float ah = !in_tree && A.view == VIEW_LIST && A.cursor >= 0 ? 36.0f : 1.0f;
     float top = ah > 1 && below >= ah ? below - ah : below;
     cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .pad_top = top, .pad_left = left) {
         cui_canvas(ui, "popanchor", CUI_PX(aw), CUI_PX(ah), paint_none, NULL, 0);

@@ -13,7 +13,7 @@
 #define PAD 10.0f
 #define HEAD_H 30.0f
 #define TOP_MAX 600            /* rectangles at the first level; the rest join "N small items" */
-#define SMALL_AREA 1100.0f     /* a rectangle below this many square points is not drawn on its own */
+#define SMALL_AREA 2400.0f     /* a rectangle below this many square points is not drawn on its own */
 #define NEST_MIN_W 120.0f      /* a folder this big shows its children inside */
 #define NEST_MIN_H 70.0f
 #define NEST_HEAD 20.0f
@@ -109,7 +109,12 @@ static void extract(sub *s) {
         s->nodes = calloc((size_t)(nf + nd) + 1, sizeof *s->nodes);
         if (s->nodes) {
             for (int i = 0; i < nf; i++) s->nodes[s->n++] = top[i];
-            for (int i = 0; i < nd; i++) s->nodes[s->n++] = top[KEEP_FILES + i];
+            for (int i = 0; i < nd; i++) {
+                s->nodes[s->n++] = top[KEEP_FILES + i];
+                char p[FS_PATH_MAX + 300];
+                join(s->path, top[KEEP_FILES + i].name, p, sizeof p);
+                fsz_want(p);   /* the cache keeps this size while it is shown (and measures it again if it was dropped) */
+            }
         }
     }
     free(top);
@@ -319,7 +324,15 @@ static void label(cui_ctx *ui, cui_rect b, const char *name, const char *meta, f
     cui_push_clip(ui, b);
     ui_fit_name(name, maxw, nsize, out);
     text_at(ui, b.x + 6, b.y + 3, nsize, fg, out);
-    if (meta && b.h >= 38) { ui_fit_name(meta, maxw, nsize - 1, out); text_at(ui, b.x + 6, b.y + 3 + nsize + 3, nsize - 1, sec, out); }
+    if (meta && b.h >= 38) {   /* the percent and the size whole, else the percent alone, else nothing: never cut in the middle */
+        float ms = nsize - 1;
+        char pc[32];
+        snprintf(pc, sizeof pc, "%s", meta);
+        char *dot = strstr(pc, " \xC2\xB7 ");
+        if (dot) *dot = 0;
+        const char *show = ui_body_text_w(meta) * ms / 14.0f <= maxw ? meta : ui_body_text_w(pc) * ms / 14.0f <= maxw ? pc : NULL;
+        if (show) text_at(ui, b.x + 6, b.y + 3 + nsize + 3, ms, sec, show);
+    }
     cui_pop_clip(ui);
 }
 
@@ -485,6 +498,12 @@ void ui_tree_keys(void) {
         }
     }
     if (best >= 0) { app_select_only(T[best].vis); A.cursor = T[best].vis; }
+}
+
+bool ui_tree_anchor(int vis, cui_rect *r) {
+    for (int i = 0; i < T_n; i++)
+        if (T[i].kind == TK_ITEM && T[i].vis == vis) { *r = (cui_rect){ T[i].r.x, T[i].r.y, T[i].r.w, T[i].r.h }; return true; }
+    return false;
 }
 
 void app_set_tree(bool on) {

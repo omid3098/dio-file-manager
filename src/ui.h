@@ -347,6 +347,7 @@ bool app_tree_on(void);
 void app_set_tree(bool on);
 void ui_tree_view(void);
 void ui_tree_keys(void);
+bool ui_tree_anchor(int vis, cui_rect *r);  /* the rectangle of a list item in the content area, for the rename popover */
 void ui_tree_after_frame(void);
 void ui_tree_snapshot(FILE *f);
 
