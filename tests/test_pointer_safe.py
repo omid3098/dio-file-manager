@@ -47,10 +47,13 @@ def violations(source, name='<source>'):
     """Every place in the Python source that can start a system move or size loop or touch the pointer."""
     tree = ast.parse(source)
     found = []
-    definitions = set()   # integer constants that only define a name, such as a message number assigned to its name
+    definitions = set()   # the press number assigned to a name made for it; any other name could hide a use of it
     for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            definitions.update(id(n) for n in ast.walk(node.value) if isinstance(n, ast.Constant))
+        # Only plain constants on the right side: a literal inside a call is still a use.
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+            pairs = zip(target.elts, value.elts) if isinstance(target, ast.Tuple) and isinstance(value, ast.Tuple)                 and len(target.elts) == len(value.elts) else [(target, value)]
+            definitions.update(id(v) for t, v in pairs if isinstance(t, ast.Name) and t.id in PRESS_NAMES and isinstance(v, ast.Constant))
     safe_press = set()    # the press operand of a call whose next operand is a safe frame part
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
@@ -107,12 +110,13 @@ class PointerSafeTest(unittest.TestCase):
         for call in (f'U.{j("SetCursor", "Pos")}(1, 2)', f'U.{j("Send", "Input")}(1, 2, 3)', f'U.{j("mouse", "_event")}(0, 0, 0, 0, 0)',
                      f'U.{j("Clip", "Cursor")}(None)', f"getattr(U, '{j('SetCursor', 'Pos')}')", 'U.DragDetect(h, 1)',
                      f'send(a, 0x112, {j("SC", "_SIZE")}, 0)', 'send(a, 0x112, 61448, 0)', 'send(a, 0x112, 61456, 0)',
-                     'send(a, 161, 2, 0)', 'send(a, WM_NCPRESS, HTCAPTION, 0)'):
+                     'send(a, 161, 2, 0)', 'send(a, WM_NCPRESS, HTCAPTION, 0)', 'ok = U.PostMessageW(h, 161, 17, 0)',
+                     'ok = (U.PostMessageW(h, 161, 17, 0), 1)', 'x = [send(a, 0x112, 61456, 0)]', 'msg = 161', 'A, B = 1, 161'):
             self.assertTrue(violations(call), call)
 
     def test_what_stays_allowed(self):
         for source in ('send(a, WM_NCPRESS, HTMAXBUTTON, 0)', 'U.PostMessageW(h, 161, 9, 0)', 'send(a, 0x112, 0xF030, 0)',
-                       'send(a, 0x112, 0xF120, 0)', 'send(a, WM_NCLBUTTONDBLCLK, HTCAPTION, 0)', 'WM_NCPRESS = 161'):
+                       'send(a, 0x112, 0xF120, 0)', 'send(a, WM_NCLBUTTONDBLCLK, HTCAPTION, 0)', 'WM_NCPRESS = 161', 'A, WM_NCPRESS, B = 1, 161, 2'):
             self.assertEqual(violations(source), [], source)
 
 
