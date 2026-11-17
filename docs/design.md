@@ -453,6 +453,35 @@ Dio's interface font is Segoe UI Variable Text. Load it from `C:\Windows\Fonts` 
 Persian and Arabic file names need CUI's `CUI_TEXT_SHAPING` and a font with those letters:
 Vazirmatn when it is installed (Dio's Persian font), else Segoe UI. Body text 14 px.
 
+## Disk tree
+
+Omid's idea (2026-11-17): a treemap in the file manager, like tobi/disktree, where any folder shows what share of it each
+file or folder takes, and the view goes down level by level to the disk. Open it with Ctrl+3 or the third toggle (Grid, List,
+Disk Tree) in the view-options menu; Ctrl+1 and Ctrl+2, the other two toggles and the size slider leave it. It is a view of the
+open folder, not a mode kept across a restart, and it is off in Recent, Trash, search results and other places. It is a toggle
+and not a menu row because the menu popup holds 420 px and one more row made it scroll over the size slider.
+
+What it shows. The folder's children as a squarified treemap (`src/treemap.c`: areas in the ratio of the sizes, no overlap,
+tested alone in `tests/test_treemap.c`; `src/ui_tree.c`: the view). A folder is a block with its name, share and size in the
+header, and its biggest children are drawn inside it, one level deep. Files are colored by kind. On a drive root a hatched
+"Free space" block and a "System and unreadable" block make the areas add up to the drive, with a line above ("184.9 GB of
+238.2 GB used"). Many small items become one "N small items" block. A click selects a first-level rectangle (arrow keys, F2,
+the context menu and Delete work as in the list); Enter or a double click goes in, Back comes out, so the tree goes down to
+the disk one folder at a time. Sizes come from the folder-size engine, so they arrive while it measures and the blocks grow in.
+
+Limits. Sizes are logical sizes, not size on disk. Only first-level rectangles can be selected; nested ones are context.
+A folder of about 100,000 similar small files shows one small-items block. A very thin leftover rectangle is a real
+proportion but can look like a scrollbar. Hidden files count only while Ctrl+H shows them, as in the list. OneDrive check:
+`C:\Users\Omid\OneDrive` holds one file and no online-only placeholder, so nothing special is done for cloud files.
+
+Budgets, each checked by `tests/use/tree_budget.py` on real folders (a user folder, `C:\`): the window answers every message
+in under 50 ms while measuring (measured 14 to 33 ms; one run showed 115 ms and four later runs did not repeat it); idle CPU
+below 0.1 % of one core once the engine is quiet (0.0 to 0.08 %); the first rectangles in under a second (0.3 s); exe 670,720
+bytes. Working set: a user folder peaks at 149 MB, a 100,000-file folder at 116 MB, `C:\` at 181 to 185 MB. The last is over
+the 175 MB figure above, but the Details view of `C:\` on a build without the tree peaks at 185 to 187 MB: the excess is the
+folder-size engine's cache and older than the tree (followed up). Folders the cache dropped are measured again when the tree
+asks for them, which on `C:\` can end up to 22 s after the first sizes.
+
 ## Size budget
 
 The release exe is at most 800 KB (CUI's own hello app is about 250 KB). The build fails over it.

@@ -408,3 +408,12 @@ The pointer belongs to the whole window station, not to one desktop. Windows' ow
 fails if any file in `tests/use/` uses one of them. `input_smoke.py` `live_resize` and `chrome_smoke.py` `drag` therefore test
 live sizing and moving with `WM_ENTERSIZEMOVE`, `SetWindowPos` steps and `WM_EXITSIZEMOVE`, and fail if `GUI_INMOVESIZE` is ever
 set. Not provable that way: that Windows' modal loop itself runs for this window.
+
+## Disk tree
+
+`tests/test_treemap.c` (CTest target `dfm-treemap-tests`) checks the layout alone: areas by size, the rectangles cover the area,
+no overlap, inside the area, no items, one item, equal sizes, 3,001 items. `tests/use/tree_smoke.py` runs 12 checks on the
+private desktop (tiling, nested children, Persian names, select / open / back, Ctrl+1/2/3, arrow keys, rename box, tooltip,
+leaving while measuring, empty and denied folders, a path over 260 characters). `tests/use/tree_budget.py PATH...` measures the
+budgets of `docs/design.md` "Disk tree" on real folders (message delay, idle CPU, working set, time to the first rectangles);
+`DFM_TB_VIEW=list` measures the Details view of the same folder as the baseline.
