@@ -272,7 +272,8 @@ static LONG run_once(agent_job *j, wchar_t *cmd) {   /* one process from start t
     }
     if (j->jobobj) AssignProcessToJobObject(j->jobobj, pi.hProcess);
     j->proc = pi.hProcess;
-    ResumeThread(pi.hThread);
+    if (j->cancel || j->timeout) TerminateProcess(pi.hProcess, 1);   /* stopped meanwhile (also before the second try): it never runs */
+    else ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
     CloseHandle(in_r); in_r = NULL;
     CloseHandle(out_w); out_w = NULL;
@@ -319,7 +320,7 @@ static DWORD WINAPI job_main(LPVOID p) {
     LONG end = run_once(j, j->cmd);
     /* A Claude Code from before --safe-mode refuses the flag ("unknown option") and answers nothing: once more without it,
        with the hooks off by the setting instead (MCP servers stay off through --strict-mcp-config). */
-    if (end == AGENT_FAILED && j->cmd2 && j->out && !j->cancel && !j->timeout && strstr(j->out, "unknown option") && strstr(j->out, "--safe-mode")) {
+    if (end == AGENT_FAILED && j->cmd2 && j->out && !j->cancel && !j->timeout && strstr(j->out, "unknown option '--safe-mode'")) {
         j->n = 0; j->out[0] = 0;
         end = run_once(j, j->cmd2);
     }
