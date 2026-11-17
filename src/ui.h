@@ -164,6 +164,23 @@ void act_dismiss_popups(void);              /* a side-button press closed the po
 void act_job_button(void);                  /* header: running-job ring and its popover */
 void act_frame(void);                       /* inside the content stack: popovers, dialogs, job polling */
 void act_list_ready(void);
+void act_rename_edit(const char *old_name, const char *suggestion);   /* the rename box opens on a suggested name (a click on a grey name) */
+/* ui_ghost.c: agent names */
+void ui_ghost_frame(void);                  /* inside the content stack: the bar, the picker, runs, accept, undo */
+void ui_ghost_keys(void);                   /* Ctrl+Shift+R, Tab, Esc, Ctrl+Z */
+void ui_ghost_suggest(void);                /* Suggest names for the selection (opens the picker the first time) */
+bool ui_ghost_active(void);                 /* suggestions are on screen (the grid cells are a line taller) */
+const char *ui_ghost_for(const char *name); /* the grey name under this one, or NULL */
+bool ui_ghost_hit(const char *name, cui_rect r);   /* a paint routine drew the grey name in r: a click on it edits it */
+void ui_ghost_menu_label(char *out, size_t cap);
+void ui_ghost_f2(const char *path, const char *name);   /* F2 on one file: may start a suggestion */
+const char *ui_ghost_f2_text(const char *path, bool *busy);
+bool ui_ghost_bar_at(float x, float y);     /* the pointer is on the bar */
+bool ui_ghost_took_undo(void);            /* this frame's Ctrl+Z went to the rename undo: the Trash undo stays out */
+bool ui_ghost_f2_tab(void);                 /* the F2 box: a Tab took the suggestion */
+bool ui_ghost_grab_tab(void);               /* the window procedure asks on each Tab press: true = Ghost names takes it (CUI would turn it into a focus move) */
+void ui_ghost_snapshot(FILE *f);
+void ui_ghost_shutdown(void);
 void act_rename(void);
 void act_new_folder(void);
 void act_open_terminal(void);               /* starts the terminal on a worker: the window never waits for a process start */

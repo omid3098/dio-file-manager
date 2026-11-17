@@ -428,6 +428,22 @@ void act_rename(void) {
     const char *dot = strrchr(nm, '.');
     if (!(app_item(i)->flags & FS_DIR) && dot && dot != nm) stem = (int)(dot - nm);
     begin_popover(POP_RENAME, nm, p, 0, stem);
+    ui_ghost_f2(p, nm);   /* only when an agent is chosen and the name looks machine-made; never opens the picker */
+}
+
+/* A click on a grey suggestion: the rename box opens on that name for the file under it. */
+void act_rename_edit(const char *old_name, const char *suggestion) {
+    if (!in_folder()) return;
+    for (int i = 0; i < A.vis_n; i++) if (!_stricmp(app_item_name(i), old_name)) {
+        char p[FS_PATH_MAX];
+        app_path_of(i, p, sizeof p);
+        int len = (int)strlen(suggestion), stem = len;
+        const char *dot = strrchr(suggestion, '.');
+        if (!(app_item(i)->flags & FS_DIR) && dot && dot != suggestion) stem = (int)(dot - suggestion);
+        begin_popover(POP_RENAME, old_name, p, 0, stem);
+        snprintf(G.name, sizeof G.name, "%s", suggestion);
+        return;
+    }
 }
 
 void act_new_folder(void) {
@@ -486,6 +502,7 @@ bool act_modal_open(void) {
 void act_keys(void) {
     cui_ctx *ui = A.ui;
     if (act_modal_open()) return;
+    ui_ghost_keys();
     if (cui_key_pressed(ui, CUI_KEY_F2)) act_rename();
     if (cui_shortcut(ui, CUI_MOD_CTRL | CUI_MOD_SHIFT, CUI_KEY_N)) act_new_folder();
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_C)) do_copy(false);
@@ -495,7 +512,7 @@ void act_keys(void) {
     if (cui_shortcut(ui, CUI_MOD_SHIFT, CUI_KEY_DELETE)) ask_delete_forever();
     if (cui_shortcut(ui, CUI_MOD_ALT, CUI_KEY_ENTER)) properties(A.sel_n > 0);
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_D) && !cui_wants_keyboard(ui) && A.loc == LOC_FOLDER && !A.searching) app_sidebar_add(A.path);   /* GNOME's Add to Bookmarks */
-    if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_Z) && G.undo_toast >= 0) { cui_toast_dismiss(ui, G.undo_toast); G.undo_toast = -1; start_undo(); }
+    if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_Z) && G.undo_toast >= 0 && !ui_ghost_took_undo()) { cui_toast_dismiss(ui, G.undo_toast); G.undo_toast = -1; start_undo(); }
 }
 
 /* Call at the start of each frame: a new right click has no item until a view claims it. */
@@ -520,6 +537,11 @@ static void menu_items(void) {
         if (cui_menu_item(ui, "Copy", .icon = CUI_ICON_COPY, .shortcut = "Ctrl C")) do_copy(false);
         cui_menu_separator(ui);
         if (!virt && cui_menu_item(ui, "Rename\xE2\x80\xA6", .icon = CUI_ICON_PENCIL, .shortcut = "F2", .disabled = !one)) act_rename();
+        if (!virt) {
+            char sl[96];
+            ui_ghost_menu_label(sl, sizeof sl);
+            if (cui_menu_item(ui, sl, .icon = CUI_ICON_SPARKLES, .shortcut = "Ctrl Shift R")) ui_ghost_suggest();
+        }
         if (A.loc != LOC_RECENT && cui_menu_item(ui, "Move to Trash", .icon = CUI_ICON_TRASH_2, .shortcut = "Delete")) do_trash();
         if (A.loc == LOC_RECENT && cui_menu_item(ui, "Remove from Recent", .icon = CUI_ICON_X)) remove_recent();
         cui_menu_separator(ui);
@@ -610,6 +632,21 @@ static void name_popover(void) {
             }
             const char *err = name_problem();
             int f = cui_input(ui, "popname", G.name, sizeof G.name, .width = CUI_FILL, .autofocus = true, .error = err);
+            if (rename && !strcmp(G.name, G.orig)) {   /* the agent's suggestion, greyed out under the field; Tab takes it, typing ignores it */
+                bool busy;
+                const char *gs = ui_ghost_f2_text(G.target, &busy);
+                if (gs) {
+                    char l[340];
+                    snprintf(l, sizeof l, "%s   Tab", gs);
+                    cui_text(ui, l, .nowrap = true, .width = CUI_FILL, .color = CUI_COLOR_TEXT_MUTED);
+                    if (ui_ghost_f2_tab()) {
+                        snprintf(G.name, sizeof G.name, "%s", gs);
+                        const char *dot = strrchr(G.name, '.');
+                        int *s = cui_state(ui, cui_make_id(ui, "popname"), 2 * sizeof(int));
+                        s[0] = dot && dot != G.name ? (int)(dot - G.name) : (int)strlen(G.name); s[1] = 0;
+                    }
+                } else if (busy) cui_text(ui, "Looking for a better name\xE2\x80\xA6", .nowrap = true, .width = CUI_FILL, .color = CUI_COLOR_TEXT_MUTED);
+            }
             cui_pop_id(ui);
             bool unchanged = rename && !strcmp(G.name, G.orig);
             bool ok = !err && !unchanged;
@@ -910,6 +947,7 @@ void act_shutdown(void) {
     for (file_job *j = G.jobs; j; j = j->next) ops_cancel(j->job);
     while (G.jobs) { file_job *j = G.jobs; G.jobs = j->next; ops_free(j->job); free(j); }
     if (G.recent_thread) { WaitForSingleObject(G.recent_thread, INFINITE); CloseHandle(G.recent_thread); free_paths(G.recent_paths, G.recent_n); }
+    ui_ghost_shutdown();
     if (G.undo_thread) { WaitForSingleObject(G.undo_thread, INFINITE); CloseHandle(G.undo_thread); }
     shortcut_release(G.lnk_read); shortcut_release(G.lnk_check);   /* a worker still waiting on a network path ends with the process */
     G.lnk_read = G.lnk_check = NULL;

@@ -57,7 +57,7 @@ def add_by_menu(a, index):
     a.cell(index)
     a.rclick(*a.cell_xy(index))
     a.until('the item menu did not open', lambda: a.snap()['ctx'], 3)
-    for _ in range(8):
+    for _ in range(9):   # one more since "Suggest names" sits before Move to Trash
         a.key(0x28)
     a.key(13)
     a.until('the item menu did not close', lambda: not a.snap()['ctx'], 3)

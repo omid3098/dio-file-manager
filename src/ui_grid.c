@@ -13,7 +13,7 @@ enum { NAME_LINES = 2 };   /* GNOME Files 47: lines = 3; with 3 the taller cell 
 /* The size is continuous: icon, tile width, label width and spacing follow the slider value. */
 static float icon_size(void) { return app_icon_size(); }
 static float min_cell_w(void) { return A.zoom == Z_SMALL ? 240 : icon_size() + 48; }
-static float cell_height(void) { return A.zoom == Z_SMALL ? icon_size() + 16 : icon_size() + 12 + 8 + NAME_LINES * LINE_H + 10; }
+static float cell_height(void) { return A.zoom == Z_SMALL ? icon_size() + 16 + (ui_ghost_active() ? 12 : 0) : icon_size() + 12 + 8 + NAME_LINES * LINE_H + 10 + (ui_ghost_active() ? LINE_H : 0); }
 
 /* ---- name layout: GNOME Files 47's grid label (nautilus-grid-cell.ui: wrap-mode word-char, ellipsize middle, lines 3;
  * here NAME_LINES). Every line but the last is whole; a name that needs more keeps its start and its end on its last line, so the
@@ -399,6 +399,27 @@ static void glide_plan(cui_ctx *ui, int cols) {
     if (G.on) cui_request_redraw(ui);
 }
 
+/* The grey suggestion under a name: the muted colour, one line, shortened in the middle; a click on it edits it. */
+static void ghost_line(cui_ctx *ui, const char *gh, float x, float y, float width, bool centred) {
+    char t[UI_NAME_BYTES];
+    int len = (int)strlen(gh), n = fit_prefix(ui, gh, len, width);
+    snprintf(t, sizeof t, "%s", gh);
+    if (n < len) {   /* too long: the start, an ellipsis, then the extension, so the kind of file stays readable */
+        const char *dot = strrchr(gh, '.');
+        int el = dot && dot != gh && len - (int)(dot - gh) <= 8 ? len - (int)(dot - gh) : 0;
+        n = fit_prefix(ui, gh, len - el, width - text_w(ui, "\xE2\x80\xA6", 3) - (el ? text_w(ui, gh + len - el, el) : 0));
+        if (n > (int)sizeof t - 16) n = (int)sizeof t - 16;
+        memcpy(t, gh, (size_t)n); memcpy(t + n, "\xE2\x80\xA6", 3);
+        memcpy(t + n + 3, gh + len - el, (size_t)el); t[n + 3 + el] = 0;
+    }
+    float w = text_w(ui, t, (int)strlen(t));
+    cui_vec2 p = { centred ? x - w * 0.5f : x, y + 1 };
+    char d[UI_NAME_BYTES + 4];   /* a left-to-right mark first: a Persian name keeps its extension on the right, as the real names do */
+    snprintf(d, sizeof d, "\xE2\x80\x8E%s", t);
+    cui_draw_text(ui, CUI_FONT_BODY, 12.0f, p, cui_alpha(cui_color_of(ui, CUI_COLOR_FOREGROUND), 0.45f), d, -1);
+    ui_ghost_hit(gh, (cui_rect){ p.x - 2, y, w + 4, LINE_H });
+}
+
 static void paint_compact(cui_ctx *ui, cui_rect r, const row_data *d) {
     int i = d->idx;
     float icon = icon_size(), cy = r.y + r.h * 0.5f;
@@ -423,7 +444,9 @@ static void paint_compact(cui_ctx *ui, cui_rect r, const row_data *d) {
     bool lfx = G.label_cut > .001f;
     if (lfx) ui_push_alpha(1 - G.label_cut);
     ui_set_dim(e->flags & FS_INCOMING);
-    cui_draw_text(ui, CUI_FONT_BODY, NAME_SIZE, (cui_vec2){ r.x + icon + 20, cy - 7 }, ui_dimmed(ui, CUI_COLOR_FOREGROUND), name, -1);
+    const char *gh = ui_ghost_for(full);
+    cui_draw_text(ui, CUI_FONT_BODY, NAME_SIZE, (cui_vec2){ r.x + icon + 20, cy - (gh ? 15 : 7) }, ui_dimmed(ui, CUI_COLOR_FOREGROUND), name, -1);
+    if (gh) ghost_line(ui, gh, r.x + icon + 20, cy + 2, width, false);
     ui_set_dim(false);
     if (lfx) ui_pop_alpha();
 }
@@ -481,6 +504,8 @@ static void paint_row(cui_ctx *ui, cui_rect r, void *user) {
                               (e->flags & FS_INCOMING) ? cui_alpha(cui_color_of(ui, CUI_COLOR_FOREGROUND), 0.5f) : cui_color_of(ui, CUI_COLOR_FOREGROUND), nl.line[k], -1);
             }
         }
+        const char *gh = ui_ghost_for(name);
+        if (gh) ghost_line(ui, gh, cx, ty + nl.n * LINE_H, cw - 10, true);
         if (lfx) ui_pop_alpha();
     } while (0);
 }
@@ -522,7 +547,7 @@ static int item_input(int idx, bool on_item, bool clicked, cui_rect cell) {
                 A.last_click_idx = idx;
                 A.last_click_t = now;
             }
-        } else if (!(cui_key_mods(ui) & (CUI_MOD_SHIFT | CUI_MOD_CTRL))) {
+        } else if (!(cui_key_mods(ui) & (CUI_MOD_SHIFT | CUI_MOD_CTRL)) && !ui_ghost_bar_at(cui_mouse_pos(ui).x, cui_mouse_pos(ui).y)) {
             app_clear_selection();
         }
     }

@@ -395,7 +395,7 @@ def inside():
         unexpected.unlink(missing_ok=True)
         for use_menu in (True, False):
             if use_menu:
-                menu(a, 9)
+                menu(a, 10)   # Properties is the last row; "Suggest names" sits before Move to Trash
             else:
                 a.cell(0); a.key(13, (18,))
             h, title, cls = native_window(a, lambda r: r[2] == '#32770' and 'action target' in r[1])

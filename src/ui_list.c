@@ -113,7 +113,15 @@ void ui_list_view(void) {
                     cui_id name_id = cui_box_begin(ui, &(cui_box){ .id = "name", .dir = CUI_ROW, .width = CUI_FILL, .height = CUI_FILL, .gap = 8, .align = CUI_ALIGN_CENTER });
                     ui_set_dim(e->flags & FS_INCOMING);
                     cui_icon(ui, ui_kind_icon(e->kind), 16, ui_dimmed(ui, ui_icon_ink(ui, ui_kind_color(e->kind), 4.5f)));
-                    cui_text(ui, app_item_name(r), .nowrap = true, .width = CUI_FILL, .color = ui_dimmed(ui, CUI_COLOR_FOREGROUND));
+                    {
+                        const char *gh = ui_ghost_for(app_item_name(r));
+                        if (!gh) cui_text(ui, app_item_name(r), .nowrap = true, .width = CUI_FILL, .color = ui_dimmed(ui, CUI_COLOR_FOREGROUND));
+                        else {   /* the grey suggestion follows the name; a click on it edits it */
+                            cui_text(ui, app_item_name(r), .nowrap = true, .color = ui_dimmed(ui, CUI_COLOR_FOREGROUND));
+                            cui_text(ui, gh, .nowrap = true, .width = CUI_FILL, .color = cui_alpha(cui_color_of(ui, CUI_COLOR_FOREGROUND), 0.45f));
+                            ui_ghost_hit(gh, cui_last_rect(ui));
+                        }
+                    }
                     ui_set_dim(false);
                     cui_box_end(ui);
                     {   /* last frame's layout: the icon and the name text are the part of the row that is not blank */

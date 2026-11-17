@@ -11,6 +11,7 @@
 #include <cui/cui_render.h>
 #include "ui.h"
 #include "keymatch.h"
+#include "agent.h"
 #include "shell.h"
 #include "starred.h"
 #include "sidebar.h"
@@ -99,6 +100,7 @@ static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     if (m == WM_CHAR && w > 0x20 && w != 0x7F && typed_n < 15 &&
         !(GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000)) typed[typed_n++] = (wchar_t)w;
+    if (m == WM_KEYDOWN && w == VK_TAB && ui_ghost_grab_tab()) return 0;
     if (m == WM_KEYDOWN || m == WM_KEYUP) {
         if (w == VK_ADD) w = VK_OEM_PLUS;
         else if (w == VK_SUBTRACT) w = VK_OEM_MINUS;
@@ -704,6 +706,7 @@ static void frame(void) {
                     app_count_selection();
                     if (!cmp_open()) ui_status_pill();
                     act_frame();
+                    ui_ghost_frame();
                     views_frame();
                 }
             }
@@ -859,6 +862,7 @@ static void test_snapshot(const char *base) {
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));
     json_text(f, A.drive_n ? A.drives[0].root : "");
     act_test_snapshot(f);
+    ui_ghost_snapshot(f);
     dnd_snapshot(f);
     act_jobs_snapshot(f);
     ui_sidebar_snapshot(f);
@@ -977,6 +981,8 @@ int main(void) {
         shell_test_log(opened);
         clip_test_handshake(getenv("DFM_TEST_CLIP_HANDSHAKE"));
         recent_test_source(getenv("DFM_TEST_RECENT"));
+        agent_test_hooks(getenv("DFM_TEST_AGENT"), getenv("DFM_TEST_NO_AGENTS") != NULL);
+        if (getenv("DFM_TEST_AGENT_TIMEOUT_MS")) agent_test_timeout((unsigned)atoi(getenv("DFM_TEST_AGENT_TIMEOUT_MS")));
         fs_test_drives(getenv("DFM_TEST_DRIVES"), getenv("DFM_TEST_EJECT_LOG"));
         if (getenv("DFM_TEST_LIST_DELAY_MS")) fs_test_list_delay((unsigned)atoi(getenv("DFM_TEST_LIST_DELAY_MS")));
     }

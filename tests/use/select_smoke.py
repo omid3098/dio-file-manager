@@ -219,7 +219,7 @@ def inside():
         if place == 'starred':
             a.key(65, (17,))
             a.rclick(*cell_xy(a, 0))
-            for _ in range(7):
+            for _ in range(8):   # one more since "Suggest names" sits before Move to Trash
                 a.key(40)
             a.key(13)
             a.until('Star did not save all fixtures', lambda: saved.exists() and len(saved.read_text(encoding='utf-8').splitlines()) == 8)

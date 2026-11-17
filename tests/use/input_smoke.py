@@ -594,7 +594,7 @@ def inside():
         a.rclick(x,y)
         a.snap('star-menu')
         # Choose Star by row, independent of the popup's clamped screen position.
-        for _ in range(7):
+        for _ in range(8):   # one more since "Suggest names" sits before Move to Trash
             a.key(40)
         a.key(13)
         a.until('Star menu did not persist the sandbox path', lambda: saved.exists() and str(SAND/'starred.txt') in saved.read_text(encoding='utf-8'))

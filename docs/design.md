@@ -419,6 +419,41 @@ Budgets, each a check in `tests/use/compare_smoke.py` that fails over it (releas
 
 The Space delay is read at the end of the frame's drawing; the display adds at most one refresh after it.
 
+## Agent names (Ghost names)
+
+Omid's words (2026-11-17): «۸ و ۱۹ هم جالبه برای تغییر اسم فایلها. به اونی نیاز داریم که کاربر کار دستی کمتری انجام بده.» and
+«یه بار، هر جا خواستم عوض کنم». The file manager uses a coding agent that is already installed (Claude Code, Codex, Gemini CLI,
+Ollama); it ships none and asks for no key.
+
+- **Picking once.** The first time the feature is used and no agent is chosen, a popover opens from the chip of the bar (nothing
+  else appears first). It lists the agents found on this PC, each with its models; one that is not installed shows where to get
+  it. The choice (agent and model) is kept in `%APPDATA%\dio-file-manager\agent.txt` and never asked again. The chip on the bar
+  ("Claude Code · Haiku") opens the same popover any time to change it. With no agent installed the bar says so and shows the
+  download links; nothing else changes.
+- **Asking.** Select files (or none: the whole folder) and press Ctrl+Shift+R or use "Suggest names" in the item menu. The agent
+  may only read: Claude Code gets `-p --tools Read --permission-mode dontAsk --disable-slash-commands --strict-mcp-config --safe-mode` (no hooks, plugins or servers of the user's own setup),
+  Codex a read-only sandbox that ignores its config file (so none of its MCP servers), Gemini plan mode. Text files send their first 1,500 bytes; pictures and PDFs are opened by the
+  agent itself. A run stops after 3 minutes. The window never waits for it (a job on its own thread; the prompt is written
+  from a second thread so neither pipe can stall).
+- **The bar.** One floating bar at the bottom left, the only focal element: sparkle, a status ("Reading 12 files…" or "12 names
+  suggested"), the chip, then Cancel while it runs or Accept all (primary) with Tab, and Drop with Esc. A press on the bar is
+  the bar's (never a selection box or a cleared selection).
+- **Ghosts.** The better name shows grey under (grid) or beside (list) the real name, which stays. Persian names start with a
+  left-to-right mark so the extension stays on the right. A suggestion equal to the old name is dropped.
+- **Accepting.** Tab (taken in the window procedure, because CUI turns every Tab into a focus move) or the button renames all
+  at once as one undoable batch; a toast "N files renamed · Undo" (Ctrl+Z) puts every old name back. Esc or Drop forgets the
+  suggestions; leaving the folder or starting a search does too. A file that was replaced after the suggestion (another file index, time or size) is skipped, also by Undo.
+- **Safe names.** Every answer is cleaned: only the leaf, the characters Windows refuses replaced, device names avoided,
+  trailing dots and spaces cut, direction controls (U+202A–202E, U+2066–2069) dropped, 120 characters at most, the extension
+  of the old name kept, and a number added before the extension when the name exists or another suggestion takes it. Nothing is
+  ever overwritten. A broken or empty answer shows a toast and changes nothing.
+- **F2.** On a file with a machine-made name (IMG_4821.jpg, Screenshot 2026-11-17 093012.png, a8f3c2e1.pdf, Untitled,
+  download (3).pdf) F2 also asks the agent for one name and shows it as a grey line under the field with "Tab"; Tab fills it.
+  A normal name (report-final.docx) never asks. F2 never opens the picker.
+- **Cost.** Nothing runs at start. Idle CPU is unchanged (0.0 to 0.1 % of one core with suggestions on screen and while a run
+  goes: a finished job wakes the window by a posted message, there is no timer). The big state sits in zero-filled memory so it is not in the exe
+  file; the feature added 29.7 KB to the exe (agent.c and ui_ghost.c code, 21 KB of it).
+
 ## Colours (Halo, from `tokens.json`)
 
 | Role | Light | Dark | CUI token |
