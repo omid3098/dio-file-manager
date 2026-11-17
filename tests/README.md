@@ -303,9 +303,8 @@ keys and does not wait for the window, because the app is meant to wait; `App.ms
 ## Header as title bar
 
 `tests/use/chrome_smoke.py` has 14 checks on the private desktop: hit testing (caption, sidebar,
-buttons, every header control, all eight resize edges, the top strip), the system Move loop
-(keyboard form `SC_MOVE 0xF010`; a mouse drag cannot start on a private desktop, so the caption is
-proved by the hit test), double click maximize and restore (maximized client equals the work area),
+buttons, every header control, all eight resize edges, the top strip), the window following moves (`SetWindowPos` steps between `WM_ENTERSIZEMOVE` and `WM_EXITSIZEMOVE`; a mouse drag cannot start on a private desktop, so the caption is
+proved by the hit test; the system Move loop is never started because it moves the real pointer, also from a hidden desktop, so these checks no longer prove that Windows' own move loop runs for this window), double click maximize and restore (maximized client equals the work area),
 the three buttons (real click, the posted non-client hover, press and click of the maximize button),
 close ends the app with code 0, the top three pixel rows in dark and light and active and inactive
 (ours, no Windows grey), the app's report that Windows accepted the border colour (DWM cannot read
@@ -400,3 +399,12 @@ get no menu row, that the Blink button flips, and (13) that opening the search a
 decoding, working set steady, peak and after closing, Space to B drawn from the app's own `b_qpc`); check 12 reads `<base>.frames`: no frame
 in 2 s when nothing moves, and Blink draws only its flips with every frame under 8 ms. Pictures of each state are in the work folder
 (`DFM_USE_WORK`, default `use-checks/compare_smoke`); `--light` runs the same checks in the light theme. Set `DFM_EXE`.
+
+## The checks never move the pointer
+
+The pointer belongs to the whole window station, not to one desktop. Windows' own move and size loops (`WM_SYSCOMMAND` with
+`SC_MOVE` or `SC_SIZE`, `WM_NCLBUTTONDOWN` on the caption or a frame edge) move it for real, also from the hidden desktop, as do
+`SetCursorPos`, `SendInput`, `mouse_event` and `ClipCursor`. `tests/test_pointer_safe.py` (console, no window; also a CTest entry)
+fails if any file in `tests/use/` uses one of them. `input_smoke.py` `live_resize` and `chrome_smoke.py` `drag` therefore test
+live sizing and moving with `WM_ENTERSIZEMOVE`, `SetWindowPos` steps and `WM_EXITSIZEMOVE`, and fail if `GUI_INMOVESIZE` is ever
+set. Not provable that way: that Windows' modal loop itself runs for this window.

@@ -408,25 +408,25 @@ def inside():
         assert a.snap()['state']==2, 'Unreadable folder state'
 
     def live_resize(a):
-        # Enter the native edge-sizing loop with mouse input. An inactive
-        # desktop cannot move the physical cursor, so apply its positions with
-        # SetWindowPos while the button is held and the modal loop stays open.
-        r = W.RECT()
-        U.GetWindowRect(a.hwnd, C.byref(r))
-        x, y = r.right-2, r.bottom-2
-        assert U.PostMessageW(a.hwnd, 0xA1, 17, x | (y << 16))  # HTBOTTOMRIGHT
-        time.sleep(.15)
+        # The sizes a held edge drag would produce, applied with SetWindowPos while the app is told a size/move is on
+        # (WM_ENTERSIZEMOVE, which makes it draw a frame at every WM_SIZE). The system sizing loop (WM_NCLBUTTONDOWN on a
+        # frame edge) is never started: it moves the real pointer, even from a hidden desktop.
         class GUI(C.Structure):
             _fields_ = [('size',W.DWORD),('flags',W.DWORD),('active',W.HWND),('focus',W.HWND),('capture',W.HWND),('menu',W.HWND),('move',W.HWND),('caret',W.HWND),('rect',W.RECT)]
-        info = GUI(); info.size = C.sizeof(info)
-        U.GetGUIThreadInfo(a.tid,C.byref(info))
-        assert info.flags & 2 and info.move == a.hwnd, 'Native sizing loop did not start'
+        def in_loop():
+            info = GUI(); info.size = C.sizeof(info)
+            U.GetGUIThreadInfo(a.tid, C.byref(info))
+            return bool(info.flags & 2)
+        r = W.RECT()
+        U.GetWindowRect(a.hwnd, C.byref(r))
+        assert not in_loop(), 'A system move or size loop is running before the check started'
+        a.msg(0x231)   # WM_ENTERSIZEMOVE
         frames = []
         try:
             for i, (dx, dy) in enumerate(((70,40),(140,80),(-120,-80))):
-                assert U.PostMessageW(a.hwnd, 0x200, 1, (x+dx) | ((y+dy) << 16))
                 assert U.SetWindowPos(a.hwnd,None,0,0,r.right-r.left+dx,r.bottom-r.top+dy,0x16)
                 time.sleep(.12)
+                assert not in_loop(), 'A system sizing loop started'
                 client = W.RECT()
                 U.GetClientRect(a.hwnd, C.byref(client))
                 s = a.snap(f'live-resize-held-{i}')
@@ -437,9 +437,8 @@ def inside():
                 frames.append((client.right,client.bottom))
             assert len(set(frames)) == 3, f'Live sizing did not change sizes: {frames}'
         finally:
-            U.PostMessageW(a.hwnd, 0x202, 0, 0)
-            U.PostMessageW(a.hwnd, 0x100, 27, 1)
-            time.sleep(.15)
+            a.msg(0x232)   # WM_EXITSIZEMOVE
+        assert not in_loop(), 'A system sizing loop is running after the check'
         print(json.dumps({'held_resize_frames':frames}),flush=True)
 
     def popup_typed(a, text):

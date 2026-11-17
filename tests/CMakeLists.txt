@@ -35,3 +35,9 @@ target_compile_definitions(dfm-keymatch-tests PRIVATE UNICODE _UNICODE WIN32_LEA
 target_compile_options(dfm-keymatch-tests PRIVATE /W4 /WX /utf-8)
 target_link_libraries(dfm-keymatch-tests PRIVATE user32)
 add_test(NAME dfm-keymatch COMMAND dfm-keymatch-tests)
+
+# Console check, no window: the use checks must never move or hold the real pointer (see tests/README.md).
+find_package(Python3 QUIET COMPONENTS Interpreter)
+if(Python3_FOUND)
+  add_test(NAME dfm-pointer-safe COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/test_pointer_safe.py)
+endif()

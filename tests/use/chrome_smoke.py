@@ -1,8 +1,10 @@
 """The header is the window's title bar: hit-testing, drag, double-click, window buttons, colours, dimming, icon.
 Run from the repo: python tests/use/chrome_smoke.py
 DFM_USE_WORK and DFM_EXE select isolated artifacts and the executable. Runs on a private desktop.
-Real mouse input cannot reach a private desktop, so a drag is proved by the press Windows would send for it
-(WM_NCLBUTTONDOWN on HTCAPTION starts the system Move loop) plus the keyboard Move loop that moves the window.
+Real mouse input cannot reach a private desktop, so a drag is proved by the hit test (HTCAPTION decides it) plus the window
+following SetWindowPos moves while the app is told a move is on (WM_ENTERSIZEMOVE ... WM_EXITSIZEMOVE).
+The check never starts a system move or size loop: the pointer belongs to the whole window station, and that loop moves it
+for real, also from a hidden desktop. tests/test_pointer_safe.py fails if any file here does.
 """
 import ctypes as C
 from ctypes import wintypes as W
@@ -23,6 +25,7 @@ from input_smoke import App, U, K, WORK, ROOT, EXE
 HTCLIENT, HTCAPTION, HTMAXBUTTON = 1, 2, 9
 HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT = 10, 11, 12, 13, 14, 15, 16, 17
 WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCLBUTTONDBLCLK, WM_NCMOUSEMOVE, WM_GETICON = 0x84, 0xA1, 0xA2, 0xA3, 0xA0, 0x7F
+WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE = 0x231, 0x232
 PANE = {'dark': ((6, 8, 16), (16, 19, 28)), 'light': ((237, 240, 248), (247, 248, 252))}   # sidebar, content (docs/design.md)
 
 U.CreateWindowExW.argtypes = [W.DWORD, W.LPCWSTR, W.LPCWSTR, W.DWORD, C.c_int, C.c_int, C.c_int, C.c_int, W.HWND, W.HMENU, W.HINSTANCE, W.LPVOID]
@@ -215,19 +218,25 @@ def inside():
             flags = C.c_uint.from_buffer(info, 4).value
             return bool(flags & 2)
         # Windows starts a mouse move only after the pointer travels past the drag threshold, which a private desktop
-        # cannot do. What decides the drag is the hit test; the press must also reach the default handler without harm.
+        # cannot do. What decides the drag is the hit test. The system move loop (SC_MOVE, WM_NCLBUTTONDOWN on the caption)
+        # is never started here: it moves the real pointer, even from a hidden desktop.
         assert send(a, WM_NCHITTEST, 0, lp(sx, sy)) == HTCAPTION, 'Empty header space is not the caption'
-        # The keyboard Move loop is the same system loop: it must move the window.
         r0 = W.RECT(); U.GetWindowRect(a.hwnd, C.byref(r0))
-        assert U.PostMessageW(a.hwnd, 0x112, 0xF010, 0)   # SC_MOVE, the keyboard form (0xF012 is the mouse form and waits for pointer travel)
-        a.until('SC_MOVE did not start', moving, 3)
-        for _ in range(6):
-            U.PostMessageW(a.hwnd, 0x100, 0x27, 1)   # right arrow
-            time.sleep(.05)
-        U.PostMessageW(a.hwnd, 0x100, 13, 1)
-        a.until('Move loop did not end after Enter', lambda: not moving(), 3)
+        before = a.snap()['chrome']['window']
+        assert not moving(), 'A system move or size loop is running before the check moved anything'
+        send(a, WM_ENTERSIZEMOVE)   # what the loop tells the window; the app only notes it
+        try:
+            for step in range(1, 7):
+                assert U.SetWindowPos(a.hwnd, None, r0.left + 10 * step, r0.top, 0, 0, 0x15), C.get_last_error()   # NOSIZE | NOZORDER | NOACTIVATE
+                time.sleep(.05)
+                assert not moving(), 'A system move loop started'
+        finally:
+            send(a, WM_EXITSIZEMOVE)
         r1 = W.RECT(); U.GetWindowRect(a.hwnd, C.byref(r1))
-        assert r1.left > r0.left, f'The window did not move: {r0.left} -> {r1.left}'
+        assert r1.left == r0.left + 60 and r1.top == r0.top, f'The window did not move: {r0.left},{r0.top} -> {r1.left},{r1.top}'
+        after = a.snap()['chrome']['window']
+        assert after[0] == before[0] + 60 and after[1] == before[1], f'The app did not follow the move: {before} -> {after}'
+        assert not moving(), 'A system move loop is running after the move'
 
     def double_click(a):
         g = Geo(a)
@@ -274,7 +283,7 @@ def inside():
         assert sh['chrome']['nc'][0] == 1, f"The app did not take the pointer over the maximize button: {sh['chrome']['nc']}"
         hover = pixel(a, *[v * g.scale for v in (cx + 8, cy)])
         assert hover != before, f'Hovering maximize changed nothing: {before} {hover}'
-        send(a, WM_NCLBUTTONDOWN, HTMAXBUTTON, lp(sx, sy))
+        send(a, WM_NCLBUTTONDOWN, HTMAXBUTTON, lp(sx, sy))   # the app takes this press itself (chrome_win.c): no system tracking loop
         send(a, WM_NCLBUTTONUP, HTMAXBUTTON, lp(sx, sy))
         a.until('NC click on maximize did not maximize', lambda: U.IsZoomed(a.hwnd), 3)
         send(a, 0x112, 0xF120, 0)   # SC_RESTORE
