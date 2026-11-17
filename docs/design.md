@@ -430,7 +430,7 @@ Ollama); it ships none and asks for no key.
   it. The choice (agent and model) is kept in `%APPDATA%\dio-file-manager\agent.txt` and never asked again. The chip on the bar
   ("Claude Code · Haiku") opens the same popover any time to change it. With no agent installed the bar says so and shows the
   download links; nothing else changes.
-- **Asking.** Select files (or none: the whole folder) and press Ctrl+Shift+R or use "Suggest names" in the item menu. The agent
+- **Asking.** Select files (with none selected nothing happens; folders are skipped) and press Ctrl+Shift+R or use "Suggest names" in the item menu. The agent
   may only read: Claude Code gets `-p --tools Read --permission-mode dontAsk --disable-slash-commands --strict-mcp-config --safe-mode` (no hooks, plugins or servers of the user's own setup),
   Codex a read-only sandbox that ignores its config file (so none of its MCP servers), Gemini plan mode. Text files send their first 1,500 bytes; pictures and PDFs are opened by the
   agent itself. A run stops after 3 minutes. The window never waits for it (a job on its own thread; the prompt is written
