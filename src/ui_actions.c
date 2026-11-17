@@ -51,6 +51,7 @@ static struct {
     int pop;                       /* POP_* currently shown */
     int want_pop;                  /* POP_* to open at the next anchor */
     int pop_frames;
+    int pop_serial;                /* counts the boxes opened: each one has a field of its own, see name_popover */
     char name[300], orig[300], target[FS_PATH_MAX];
     int sel_a, sel_b;              /* byte range selected when the popover opens */
 
@@ -590,7 +591,7 @@ static void submit_popover(void) {
 static void name_popover(void) {
     cui_ctx *ui = A.ui;
     if (G.want_pop) {
-        G.pop = G.want_pop; G.want_pop = POP_NONE; G.pop_frames = 0;
+        G.pop = G.want_pop; G.want_pop = POP_NONE; G.pop_frames = 0; G.pop_serial++;
         cui_popover_open(ui, "actpop");
     }
     if (G.pop == POP_NONE) return;
@@ -599,12 +600,17 @@ static void name_popover(void) {
         bool rename = G.pop == POP_RENAME;
         cui_column(ui, .width = CUI_FILL, .gap = 10) {
             cui_text(ui, rename ? "Rename" : "New Folder", .font = CUI_FONT_MEDIUM, .size = 15);
+            /* CUI gives a field the keyboard only the first time it sees it (autofocus), and keeps its state for about 300 frames
+             * after it is last drawn. A box opened again soon after one closed found the old state and never took the keyboard.
+             * A new id for each box makes each one a first sight. */
+            cui_push_id_int(ui, G.pop_serial);
             if (G.pop_frames == 1) {   /* the field has its first frame behind it: select the part to replace */
                 int *s = cui_state(ui, cui_make_id(ui, "popname"), 2 * sizeof(int));
                 s[0] = G.sel_b; s[1] = G.sel_a;
             }
             const char *err = name_problem();
             int f = cui_input(ui, "popname", G.name, sizeof G.name, .width = CUI_FILL, .autofocus = true, .error = err);
+            cui_pop_id(ui);
             bool unchanged = rename && !strcmp(G.name, G.orig);
             bool ok = !err && !unchanged;
             cui_row(ui, .width = CUI_FILL, .gap = 8, .justify = CUI_JUSTIFY_END) {
