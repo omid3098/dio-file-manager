@@ -46,8 +46,9 @@ GUARD = re.compile('|'.join([r'0x[Ff]0[01][0-9A-Fa-f]\b', r'\b' + j('SC', '_MOVE
 # So a check can give the app a held modifier only by joining its queue to the app's thread. Both threads are on the
 # private desktop, which no hardware input reaches, so this cannot hold Omid's input; an app test hook would drop it.
 JOIN_CALLS = {j('Attach', 'ThreadInput'), j('Set', 'KeyboardState'), j('Block', 'Input')}
-JOIN_ALLOWED = {j('Attach', 'ThreadInput'): {'input_smoke.py', 'persian_input_smoke.py'},
-                j('Set', 'KeyboardState'): {'input_smoke.py', 'persian_input_smoke.py'}}
+JOIN_ALLOWED = {j('Attach', 'ThreadInput'): {'use/input_smoke.py', 'use/persian_input_smoke.py'},
+                j('Set', 'KeyboardState'): {'use/input_smoke.py', 'use/persian_input_smoke.py'}}
+JOIN_OTHER_SOURCES = {'.c', '.h', '.cpp', '.ps1', '.cmd', '.bat', '.js'}   # not Python: the names are looked for as text
 
 
 def join_violations(source, name='<source>'):
@@ -121,22 +122,26 @@ class PointerSafeTest(unittest.TestCase):
         self.assertEqual(found, [], 'These lines match the guard on the pointer:\n' + '\n'.join(found))
 
     def test_no_check_joins_or_takes_over_input_beyond_the_two_that_need_it(self):
-        found = [v for f in sorted(TESTS.rglob('*.py')) if '__pycache__' not in f.parts and f.name != Path(__file__).name
-                 for v in join_violations(f.read_text(encoding='utf-8'), f.name)]
+        found = [v for f in sorted(TESTS.rglob('*.py')) if '__pycache__' not in f.parts and f != Path(__file__)
+                 for v in join_violations(f.read_text(encoding='utf-8'), f.relative_to(TESTS).as_posix())]
+        found += [f'{f.relative_to(TESTS).as_posix()}: {call}' for f in sorted(TESTS.rglob('*'))
+                 if f.suffix.lower() in JOIN_OTHER_SOURCES for call in JOIN_CALLS
+                 if call in f.read_text(encoding='utf-8', errors='replace')]
         self.assertEqual(found, [], 'These checks join or take over input:\n' + '\n'.join(found))
         for name in {n for names in JOIN_ALLOWED.values() for n in names}:   # the allowance names files that exist
-            self.assertTrue((USE / name).is_file(), name)
+            self.assertTrue((TESTS / name).is_file(), name)
 
     def test_joining_input_is_caught(self):
         attach, keys, block = j('Attach', 'ThreadInput'), j('Set', 'KeyboardState'), j('Block', 'Input')
         for source in (f'U.{attach}(a, b, True)', f'U.{attach}.argtypes = []', f'U.{keys}(state)', f'U.{block}(True)',
                        f"getattr(U, '{attach}')(a, b, True)"):
-            self.assertTrue(join_violations(source, 'chrome_smoke.py'), source)      # any other check
+            self.assertTrue(join_violations(source, 'use/chrome_smoke.py'), source)  # any other check
+            self.assertTrue(join_violations(source, 'elsewhere/input_smoke.py'), source)   # the allowance is by path
             self.assertTrue(join_violations(source, 'test_x.py'), source)
-        self.assertTrue(join_violations(f'U.{block}(True)', 'input_smoke.py'))       # never allowed
+        self.assertTrue(join_violations(f'U.{block}(True)', 'use/input_smoke.py'))       # never allowed
         for source in (f'U.{attach}(a, b, True)', f'U.{keys}(state)'):
-            self.assertEqual(join_violations(source, 'input_smoke.py'), [], source)  # the two that need a held modifier
-            self.assertEqual(join_violations(source, 'persian_input_smoke.py'), [], source)
+            self.assertEqual(join_violations(source, 'use/input_smoke.py'), [], source)  # the two that need a held modifier
+            self.assertEqual(join_violations(source, 'use/persian_input_smoke.py'), [], source)
 
     def test_the_old_checks_are_caught(self):
         # The lines that moved Omid's pointer on 2026-11-17, as they were.
