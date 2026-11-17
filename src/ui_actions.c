@@ -550,7 +550,7 @@ static void paint_none(cui_ctx *ui, cui_rect r, void *user) { (void)ui; (void)r;
 static void context_menu(void) {
     cui_ctx *ui = A.ui;
     cui_vec2 m = cui_mouse_pos(ui), vp = cui_viewport_size(ui);
-    float x0 = A.sidebar_px, y0 = 46.0f;
+    float x0 = A.sidebar_px, y0 = 46.0f + fsearch_strip_h();   /* below the header and the pill strip */
     bool in_header = A.view == VIEW_LIST && A.vis_n > 0 && m.y < y0 + 40.0f;
     bool open_here = cui_mouse_clicked(ui, CUI_MOUSE_RIGHT) && A.loc != LOC_OTHER && !G.delete_open && !G.conflict_open &&
                      !A.sidebar_open && m.x >= x0 && m.x < vp.x && m.y >= y0 && m.y < vp.y && !in_header;
@@ -858,7 +858,7 @@ void act_frame(void) {
         float rh = A.view == VIEW_GRID ? A.cell_h : 36.0f;
         if (A.zoom == Z_LIST && A.column_rows > 0) below = 16 + (float)(A.cursor % A.column_rows + 1) * rh;
         else below = (float)(row - A.first_row + (A.view == VIEW_GRID ? 1 : 0)) * rh;
-        if (A.view == VIEW_LIST) below += A.first_rect.y - 46.0f;
+        if (A.view == VIEW_LIST) below += A.first_rect.y - (46.0f + fsearch_strip_h());
         if (below < 0) below = 0;
         if (A.view == VIEW_GRID && below > A.content_h - 150) below = A.content_h - 150;
     }

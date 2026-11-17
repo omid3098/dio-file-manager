@@ -277,6 +277,14 @@ def inside():
         row()
         a.until('The menu row did not bring the other reading back', lambda: a.snap()['count'] == 1 and a.snap()['chip'], seconds=8)
 
+    def details_header_menu(a):
+        open_search(a)
+        s = found(a, 'sghl', ['x'], 'kb-details-pill')
+        assert s['chip'], 'No pill to push the results down'
+        a.rclick(700, 46 + 40 + 18)   # the column header of Details, under the pill's strip
+        time.sleep(.4)
+        assert not a.snap('kb-details-header')['ctx'], 'A right click on the Details header opened a menu'
+
     def starred_chip(a):
         s = a.snap('kb-starred-open')
         assert s['loc'] == 2 and s['count'] == 1, f'Starred did not open: {s["loc"]}, {s["count"]}'
@@ -298,6 +306,7 @@ def inside():
     check('14-kb-no-false-hits', no_false_hits, extra=kb)
     check('15-kb-pill-x', pill_x_clicked, extra=kb)
     check('16-kb-menu-row', menu_row_clicked, extra=kb)
+    check('18-kb-details-header-click', details_header_menu, 'list', extra=kb)
     starred_file = WORK / 'appdata/dio-file-manager/starred.txt'
     starred_file.parent.mkdir(parents=True, exist_ok=True)
     starred_file.write_text(str(FIND / 'سلام.txt') + chr(10), encoding='utf-8')
