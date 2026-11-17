@@ -556,12 +556,13 @@ def inside():
                 step(0x26, f'Up {n + 2}')
             for n in range(12):
                 step(0x28, f'Down {n + 1}')   # passes the end and wraps to the top
-            a.key(0x1B)   # the reported case: open the menu, press Up, then Enter. The last row is the default file manager switch,
-            time.sleep(.4)   # so Up twice reaches Show Hidden Files: a check never presses the switch
+            a.key(0x1B)   # the reported case: open the menu, press Up, then Enter. The last rows are the default file manager switch
+            time.sleep(.4)   # and Match Across Keyboards, so Up three times reaches Show Hidden Files: a check never presses those
             a.click(*g.mid(mr))
             time.sleep(.6)
             step(0x26, 'Up on a freshly opened menu')
             step(0x26, 'a second Up on a freshly opened menu')
+            step(0x26, 'a third Up on a freshly opened menu')
             a.key(13)
             a.until(f'{cw} px: Enter did not pick Show Hidden Files', lambda: a.snap()['hidden'] != before)
 
@@ -668,7 +669,7 @@ def inside():
         a.click(*g.mid(hdr[3]))
         a.until('The main menu did not open', lambda: a.snap()['popups'] >= 1)
         time.sleep(.4)
-        assert len(a.snap()['menu_rows']) == 5, f"The 360 px main menu should hold Theme, Show Hidden Files and the default file manager switch only: {a.snap()['menu_rows']}"
+        assert len(a.snap()['menu_rows']) == 6, f"The 360 px main menu should hold Theme, Show Hidden Files, Match Across Keyboards and the default file manager switch only: {a.snap()['menu_rows']}"
 
     def menu_switch(a, theme):
         """The main menu holds the default file manager switch inside the window, in the sidebar (1280 px) and in the narrow header menu (360 px)."""
