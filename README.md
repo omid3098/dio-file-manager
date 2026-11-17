@@ -55,6 +55,7 @@ Picture thumbnails.
 
 - Grid view with four icon sizes and a list view (Name, Size, Modified, Type), joined by one continuous zoom slider.
 - Folder sizes in the list view, measured on background threads so the window never waits.
+- A disk tree (Ctrl+3, or the third toggle in the view menu): the open folder as a treemap, where each file or folder is a rectangle as big as its share, with the biggest folders opened one level down. Use it to see what fills a drive.
 - A sidebar with Recent, Starred, Trash, your folders and your drives, each drive with a bar showing how full it is. Add or remove any row. Removable drives have an Eject button.
 - Copy, move, rename, new folder and Move to Trash with Undo, on worker threads, with a progress ring and a dialog for name conflicts (Replace, Keep Both, Skip).
 - Drag files out to other programs and drop files in.
