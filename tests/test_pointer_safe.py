@@ -126,7 +126,7 @@ class PointerSafeTest(unittest.TestCase):
                  for v in join_violations(f.read_text(encoding='utf-8'), f.relative_to(TESTS).as_posix())]
         found += [f'{f.relative_to(TESTS).as_posix()}: {call}' for f in sorted(TESTS.rglob('*'))
                  if f.suffix.lower() in JOIN_OTHER_SOURCES for call in JOIN_CALLS
-                 if call in f.read_text(encoding='utf-8', errors='replace')]
+                 if any(call.encode(enc) in f.read_bytes() for enc in ('ascii', 'utf-16-le'))]   # UTF-8 and UTF-16 files
         self.assertEqual(found, [], 'These checks join or take over input:\n' + '\n'.join(found))
         for name in {n for names in JOIN_ALLOWED.values() for n in names}:   # the allowance names files that exist
             self.assertTrue((TESTS / name).is_file(), name)
