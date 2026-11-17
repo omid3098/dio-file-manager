@@ -308,7 +308,7 @@ static void worker_poll(void) {
     }
     else if (ok) {
         char t[96];
-        snprintf(t, sizeof t, ok == 1 ? "%d file renamed" : "%d files renamed", ok);
+        snprintf(t, sizeof t, "%d file%s renamed", ok, ok == 1 ? "" : "s");
         if (G.undo_toast) cui_toast_dismiss(A.ui, G.undo_toast - 1);
         G.undo_toast = cui_toast(A.ui, t, .action = "Undo", .show_timer = true, .duration = 12) + 1;
         free(G.last); G.last = b;
@@ -332,12 +332,17 @@ void ui_ghost_keys(void) {
 /* ---- results ---- */
 
 static void take_batch_result(int st, const char *text) {
-    if (st == AGENT_CANCELLED) { G.last_result = "cancelled"; clear_ghosts(); return; }
-    if (st == AGENT_TIMEOUT) { G.last_result = "timeout"; clear_ghosts(); toast_bad("The agent took too long", "It was stopped after 3 minutes. Try fewer files."); return; }
-    if (st == AGENT_FAILED) { G.last_result = "failed"; clear_ghosts(); toast_bad("The agent did not answer", "Check that it is signed in, or choose another one."); return; }
-    agent_pair *p = malloc(sizeof *p * GH_MAX);
+    agent_pair *p = st == AGENT_DONE ? malloc(sizeof *p * GH_MAX) : NULL;
     int np = p ? agent_parse_names(text, p, GH_MAX) : 0;
-    if (!np) { free(p); G.last_result = "broken"; clear_ghosts(); toast_bad("The answer could not be read", "The agent did not send names in the expected form. Nothing was changed."); return; }
+    if (!np) {   /* nothing to show: what happened is told and kept for the checks */
+        free(p);
+        clear_ghosts();
+        G.last_result = st == AGENT_CANCELLED ? "cancelled" : st == AGENT_TIMEOUT ? "timeout" : st == AGENT_FAILED ? "failed" : "broken";
+        if (st == AGENT_TIMEOUT) toast_bad("The agent took too long", "It was stopped after 3 minutes. Try fewer files.");
+        else if (st == AGENT_FAILED) toast_bad("The agent did not answer", "Check that it is signed in, or choose another one.");
+        else if (st == AGENT_DONE) toast_bad("The answer could not be read", "The agent did not send names in the expected form. Nothing was changed.");
+        return;
+    }
     G.n = 0;
     for (int k = 0; k < np && G.n < GH_MAX; k++) {
         const char *asked = NULL;
@@ -459,9 +464,8 @@ void ui_ghost_frame(void) {
     if (!chip[0]) snprintf(chip, sizeof chip, "Choose an agent");
     if (G.picking && !running && !G.n) snprintf(status, sizeof status, "Which agent should suggest names?");
     else if (running) {   /* the text never changes width, so Cancel stays under the pointer */
-        if (G.asked == 1) snprintf(status, sizeof status, "Reading 1 file\xE2\x80\xA6");
-        else snprintf(status, sizeof status, "Reading %d files\xE2\x80\xA6", G.asked);
-    } else snprintf(status, sizeof status, G.n == 1 ? "1 name suggested" : "%d names suggested", G.n);
+        snprintf(status, sizeof status, "Reading %d file%s\xE2\x80\xA6", G.asked, G.asked == 1 ? "" : "s");
+    } else snprintf(status, sizeof status, "%d name%s suggested", G.n, G.n == 1 ? "" : "s");
     cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_START, .justify = CUI_JUSTIFY_END, .pad = 16) {
         cui_row(ui, .id = "ghostbar", .bg = CUI_COLOR_SURFACE_RAISED, .radius = 14, .border = 1, .border_color = CUI_COLOR_BORDER,
                 .elevation = CUI_ELEVATION_FLOATING, .pad_x = 12, .pad_y = 7, .gap = 8, .align = CUI_ALIGN_CENTER) {

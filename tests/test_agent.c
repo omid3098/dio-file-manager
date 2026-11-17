@@ -138,6 +138,40 @@ static void runner(void) {
     if (j) { run_to_end(j, &st, &out); CHECK(st == AGENT_FAILED, "a missing program is a failure, not a hang (%d)", st); agent_free(j); }
 }
 
+static int lines_in(const char *name) {   /* how many times a stand-in ran: each run adds a line to its own file */
+    char p[MAX_PATH], b[256] = ""; FILE *f; int n = 0;
+    snprintf(p, sizeof p, "%s\\%s", sandbox, name);
+    if (!fopen_s(&f, p, "rb")) { size_t r = fread(b, 1, sizeof b - 1, f); fclose(f); for (size_t i = 0; i < r; i++) n += b[i] == '\n'; }
+    return n;
+}
+
+/* An older Claude Code does not know --safe-mode and says so. The job then runs once more without the flag, with the hooks
+   switched off by the setting instead; any other failure is not run twice. The stand-ins are batch files that act as the CLI. */
+static void older_claude(void) {
+    char cmd[MAX_PATH * 2], p[MAX_PATH];
+    int st; const char *out;
+    write_text("old.cmd", "@echo off\necho x>>\"%~dp0old.runs\"\necho %* | findstr /c:\"safe-mode\" >nul && (echo error: unknown option '--safe-mode' 1>&2 & exit /b 1)\n"
+                          "echo %* | findstr /c:\"disableAllHooks\" >nul || exit /b 3\necho hooks-off\nfindstr \"^\"\n");
+    write_text("bad.cmd", "@echo off\necho x>>\"%~dp0bad.runs\"\necho Please log in first 1>&2\nexit /b 1\n");
+    write_text("new.cmd", "@echo off\necho x>>\"%~dp0new.runs\"\necho %* | findstr /c:\"safe-mode\" >nul || exit /b 3\necho accepted\nfindstr \"^\"\n");
+    const char *names[] = { "old", "bad", "new" };
+    for (int k = 0; k < 3; k++) {
+        snprintf(p, sizeof p, "%s\\%s.runs", sandbox, names[k]); DeleteFileA(p);
+        snprintf(cmd, sizeof cmd, "cmd /d /s /c \"\"%s\\%s.cmd\" --safe-mode\"", sandbox, names[k]);
+        agent_test_hooks(cmd, true);
+        agent_detect();
+        agent_job *j = agent_start("the prompt", sandbox, 30000);
+        CHECK(j != NULL, "the %s stand-in starts", names[k]);
+        if (!j) continue;
+        run_to_end(j, &st, &out);
+        if (k == 0) CHECK(st == AGENT_DONE && strstr(out, "hooks-off") && strstr(out, "the prompt") && !strstr(out, "unknown option") && lines_in("old.runs") == 2,
+                          "a refused flag: once more without it, hooks off by the setting, the complaint not in the answer (%d, %d runs)", st, lines_in("old.runs"));
+        if (k == 1) CHECK(st == AGENT_FAILED && lines_in("bad.runs") == 1, "another failure is not run twice (%d, %d runs)", st, lines_in("bad.runs"));
+        if (k == 2) CHECK(st == AGENT_DONE && strstr(out, "accepted") && lines_in("new.runs") == 1, "a flag that is known: one run (%d, %d runs)", st, lines_in("new.runs"));
+        agent_free(j);
+    }
+}
+
 int main(void) {
     char appdata[MAX_PATH];
     snprintf(sandbox, sizeof sandbox, "%s\\agent", DFM_TEST_WORK);
@@ -152,6 +186,7 @@ int main(void) {
     answers_read();
     prompt_carries_content();
     runner();
+    older_claude();
     printf(failures ? "%d FAILED\n" : "all agent checks passed\n", failures);
     return failures ? 1 : 0;
 }

@@ -73,10 +73,10 @@ static void env_dir(const wchar_t *var, const wchar_t *tail, wchar_t *out) {
 }
 
 void agent_detect(void) {
-    static const struct { const wchar_t *var, *tail; } extra[] = {
+    static const struct { const wchar_t *var, *tail; } extra[] = {   /* folder names are not case sensitive */
         { L"ProgramFiles", L"\\ClaudeCode" }, { L"USERPROFILE", L"\\.local\\bin" }, { L"USERPROFILE", L"\\.claude\\local" },
-        { L"LOCALAPPDATA", L"\\Programs\\OpenAI\\Codex\\bin" }, { L"APPDATA", L"\\npm" }, { L"LOCALAPPDATA", L"\\Programs\\ollama" },
-        { L"LOCALAPPDATA", L"\\Programs\\Ollama" }, { L"ProgramFiles", L"\\Ollama" }, { L"USERPROFILE", L"\\AppData\\Roaming\\npm" } };
+        { L"LOCALAPPDATA", L"\\Programs\\OpenAI\\Codex\\bin" }, { L"APPDATA", L"\\npm" }, { L"LOCALAPPDATA", L"\\Programs\\Ollama" },
+        { L"ProgramFiles", L"\\Ollama" } };
     for (int a = 0; a < REAL; a++) {
         wchar_t name[32], path[MAX_PATH];
         S.found[a] = false;
@@ -173,7 +173,7 @@ struct agent_job {
     size_t n, cap;
     unsigned timeout_ms;
     DWORD t0, t1;
-    wchar_t *cmd;
+    wchar_t *cmd, *cmd2;   /* cmd2: the same without --safe-mode, for a Claude Code that does not know the flag */
     char *prompt;
     wchar_t dir[MAX_PATH];
 };
@@ -187,16 +187,15 @@ static void quote(wchar_t *dst, size_t cap, const wchar_t *s) {
     for (size_t i = 0; i < tail; i++) dst[n++] = L'\\';
     dst[n++] = L'"'; dst[n] = 0;
 }
-static void add(wchar_t *dst, size_t cap, const wchar_t *s) {
+static void add(wchar_t *dst, size_t cap, const char *s) {   /* flags are ASCII: kept narrow, half the bytes in the exe */
     size_t n = wcslen(dst);
-    if (n + wcslen(s) + 2 < cap) _snwprintf(dst + n, cap - n, L" %ls", s);
+    if (n + strlen(s) + 2 < cap) _snwprintf(dst + n, cap - n, L" %S", s);
 }
 
 static wchar_t *build_cmd(int a, int m, const wchar_t *dir) {
     wchar_t *c = calloc(4096, sizeof *c);
-    wchar_t model[80];
+    const char *model = def_of(a)->model[m][1];
     if (!c) return NULL;
-    u2w(def_of(a)->model[m][1], model, 80);
     if (a == REAL) { wcscpy_s(c, 4096, S.stub); return c; }
     const wchar_t *x = S.exe[a];
     size_t xl = wcslen(x);
@@ -204,19 +203,19 @@ static wchar_t *build_cmd(int a, int m, const wchar_t *dir) {
     if (script) wcscpy_s(c, 4096, L"cmd.exe /d /s /c \"");
     quote(c, 4096, x);
     if (a == 0) {   /* claude: print mode, only the Read tool, nothing else loaded */
-        add(c, 4096, L"-p --output-format text --tools Read --allowedTools Read --permission-mode dontAsk --no-session-persistence --disable-slash-commands --strict-mcp-config --safe-mode");
-        if (model[0]) { add(c, 4096, L"--model"); add(c, 4096, model); }
-        add(c, 4096, L"--add-dir"); wcscat_s(c, 4096, L" "); quote(c, 4096, dir);
+        add(c, 4096, "-p --output-format text --tools Read --allowedTools Read --permission-mode dontAsk --no-session-persistence --disable-slash-commands --strict-mcp-config --safe-mode");
+        if (model[0]) { add(c, 4096, "--model"); add(c, 4096, model); }
+        add(c, 4096, "--add-dir"); wcscat_s(c, 4096, L" "); quote(c, 4096, dir);
     } else if (a == 1) {   /* codex: exec in a read-only sandbox, the prompt from stdin */
-        add(c, 4096, L"exec --sandbox read-only --skip-git-repo-check --ephemeral --color never --ignore-user-config");
-        if (model[0]) { add(c, 4096, L"-m"); add(c, 4096, model); }
-        add(c, 4096, L"-C"); wcscat_s(c, 4096, L" "); quote(c, 4096, dir);
-        add(c, 4096, L"-");
+        add(c, 4096, "exec --sandbox read-only --skip-git-repo-check --ephemeral --color never --ignore-user-config");
+        if (model[0]) { add(c, 4096, "-m"); add(c, 4096, model); }
+        add(c, 4096, "-C"); wcscat_s(c, 4096, L" "); quote(c, 4096, dir);
+        add(c, 4096, "-");
     } else if (a == 2) {   /* gemini: plan mode reads and does not write */
-        add(c, 4096, L"--approval-mode plan -p \" \"");
-        if (model[0]) { add(c, 4096, L"-m"); add(c, 4096, model); }
+        add(c, 4096, "--approval-mode plan -p \" \"");
+        if (model[0]) { add(c, 4096, "-m"); add(c, 4096, model); }
     } else {   /* ollama: a local model, no files; the prompt carries what it needs */
-        add(c, 4096, L"run"); add(c, 4096, model[0] ? model : L"llama3.2");
+        add(c, 4096, "run"); add(c, 4096, model[0] ? model : "llama3.2");
     }
     if (script) wcscat_s(c, 4096, L"\"");
     return c;
@@ -239,8 +238,7 @@ static DWORD WINAPI feed(LPVOID p) {   /* writes the prompt, then closes the pip
     return 0;
 }
 
-static DWORD WINAPI job_main(LPVOID p) {
-    agent_job *j = p;
+static LONG run_once(agent_job *j, wchar_t *cmd) {   /* one process from start to end; the state it ends in */
     HANDLE in_r = NULL, in_w = NULL, out_r = NULL, out_w = NULL, nul = INVALID_HANDLE_VALUE;
     SECURITY_ATTRIBUTES sa = { sizeof sa, NULL, TRUE };
     PROCESS_INFORMATION pi = { 0 };
@@ -261,17 +259,18 @@ static DWORD WINAPI job_main(LPVOID p) {
     STARTUPINFOEXW si = { 0 };
     si.StartupInfo.cb = sizeof si;
     si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-    si.StartupInfo.hStdInput = in_r; si.StartupInfo.hStdOutput = out_w; si.StartupInfo.hStdError = nul;
+    si.StartupInfo.hStdInput = in_r; si.StartupInfo.hStdOutput = out_w;
+    si.StartupInfo.hStdError = cmd == j->cmd && j->cmd2 ? out_w : nul;   /* the first try of Claude Code: its complaint about the flag is read from here */
     si.lpAttributeList = al;
-    if (!CreateProcessW(NULL, j->cmd, NULL, NULL, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+    if (!CreateProcessW(NULL, cmd, NULL, NULL, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
                         NULL, j->dir[0] ? j->dir : NULL, &si.StartupInfo, &pi)) goto done;
-    j->jobobj = CreateJobObjectW(NULL, NULL);
-    if (j->jobobj) {
+    if (j->proc) CloseHandle(j->proc);   /* the first try, when this is the second */
+    if (!j->jobobj && (j->jobobj = CreateJobObjectW(NULL, NULL)) != NULL) {
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION li = { 0 };
         li.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         SetInformationJobObject(j->jobobj, JobObjectExtendedLimitInformation, &li, sizeof li);
-        AssignProcessToJobObject(j->jobobj, pi.hProcess);
     }
+    if (j->jobobj) AssignProcessToJobObject(j->jobobj, pi.hProcess);
     j->proc = pi.hProcess;
     ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
@@ -312,6 +311,18 @@ done:
     if (out_r) CloseHandle(out_r);
     if (out_w) CloseHandle(out_w);
     if (nul != INVALID_HANDLE_VALUE) CloseHandle(nul);
+    return end;
+}
+
+static DWORD WINAPI job_main(LPVOID p) {
+    agent_job *j = p;
+    LONG end = run_once(j, j->cmd);
+    /* A Claude Code from before --safe-mode refuses the flag ("unknown option") and answers nothing: once more without it,
+       with the hooks off by the setting instead (MCP servers stay off through --strict-mcp-config). */
+    if (end == AGENT_FAILED && j->cmd2 && j->out && !j->cancel && !j->timeout && strstr(j->out, "unknown option") && strstr(j->out, "--safe-mode")) {
+        j->n = 0; j->out[0] = 0;
+        end = run_once(j, j->cmd2);
+    }
     j->t1 = GetTickCount();
     InterlockedExchange(&j->state, end);
     if (g_notify) { InvalidateRect(g_notify, NULL, FALSE); PostMessageW(g_notify, WM_NULL, 0, 0); }   /* the window wakes up to take the answer */
@@ -328,8 +339,11 @@ agent_job *agent_start(const char *prompt, const char *workdir, unsigned timeout
     j->prompt = _strdup(prompt);
     if (workdir) u2w(workdir, j->dir, MAX_PATH);
     j->cmd = build_cmd(a, m, j->dir);
+    wchar_t *flag = j->cmd ? wcsstr(j->cmd, L" --safe-mode") : NULL;
+    if (flag && (j->cmd2 = calloc(4096, sizeof *j->cmd2)) != NULL)
+        _snwprintf(j->cmd2, 4095, L"%.*ls --settings \"{\\\"disableAllHooks\\\":true}\"%ls", (int)(flag - j->cmd), j->cmd, flag + 12);
     j->t0 = GetTickCount();
-    if (!j->prompt || !j->cmd || !(j->thread = CreateThread(NULL, 0, job_main, j, 0, NULL))) { free(j->prompt); free(j->cmd); free(j); return NULL; }
+    if (!j->prompt || !j->cmd || !(j->thread = CreateThread(NULL, 0, job_main, j, 0, NULL))) { free(j->prompt); free(j->cmd); free(j->cmd2); free(j); return NULL; }
     return j;
 }
 
@@ -356,7 +370,7 @@ void agent_free(agent_job *j) {
     if (j->thread) { WaitForSingleObject(j->thread, 10000); CloseHandle(j->thread); }
     if (j->proc) CloseHandle(j->proc);
     if (j->jobobj) CloseHandle(j->jobobj);
-    free(j->out); free(j->cmd); free(j->prompt); free(j);
+    free(j->out); free(j->cmd); free(j->cmd2); free(j->prompt); free(j);
 }
 
 /* ---- the answer ---- */
@@ -379,10 +393,9 @@ static const char *read_string(const char *p, char *out, size_t cap) {   /* p is
                 }
             } else cp = *p == 'n' || *p == 't' || *p == 'r' ? ' ' : (unsigned char)*p;
             p++;
-            char u[4];
-            int k = cp < 0x80 ? (u[0] = (char)cp, 1) : cp < 0x800 ? (u[0] = (char)(0xC0 | cp >> 6), u[1] = (char)(0x80 | (cp & 63)), 2)
-                  : cp < 0x10000 ? (u[0] = (char)(0xE0 | cp >> 12), u[1] = (char)(0x80 | ((cp >> 6) & 63)), u[2] = (char)(0x80 | (cp & 63)), 3)
-                  : (u[0] = (char)(0xF0 | cp >> 18), u[1] = (char)(0x80 | ((cp >> 12) & 63)), u[2] = (char)(0x80 | ((cp >> 6) & 63)), u[3] = (char)(0x80 | (cp & 63)), 4);
+            char u[4];   /* UTF-8: the lead byte 0xC0, 0xE0 or 0xF0 for 2, 3 or 4 bytes, then 6 bits each */
+            int k = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+            for (int i = 0; i < k; i++) u[i] = (char)(k == 1 ? cp : (i ? 0x80 : 0xF00 >> k) | ((cp >> 6 * (k - 1 - i)) & (i || k == 1 ? 63 : 255)));
             if (n + (size_t)k < cap) { memcpy(out + n, u, (size_t)k); n += (size_t)k; }
         } else {
             if (n + 1 < cap) out[n++] = *p;
@@ -429,10 +442,20 @@ int agent_parse_names(const char *text, agent_pair *out, int cap) {
 
 /* ---- names ---- */
 
+/* Words kept in one string, split by "|" (a table of pointers costs more in the exe). The length of the word that equals s
+   (whole = true) or that s starts with (whole = false), else 0. */
+static size_t word_in(const char *list, const char *s, size_t n, bool whole) {
+    while (*list) {
+        size_t l = strcspn(list, "|");
+        if (l && (whole ? n == l : n > l) && !_strnicmp(s, list, l)) return l;
+        list += l + (list[l] == '|');
+    }
+    return 0;
+}
+
 static bool reserved(const char *s, size_t n) {
-    static const char *r[] = { "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9" };
-    for (size_t i = 0; i < sizeof r / sizeof *r; i++) if (strlen(r[i]) == n && !_strnicmp(s, r[i], n)) return true;
-    return false;
+    if (n == 4 && s[3] >= '1' && s[3] <= '9' && (!_strnicmp(s, "COM", 3) || !_strnicmp(s, "LPT", 3))) return true;
+    return word_in("CON|PRN|AUX|NUL", s, n, true) != 0;
 }
 
 static size_t ext_at(const char *name) {   /* byte index of the extension's dot, or strlen */
@@ -497,19 +520,18 @@ bool agent_looks_machine_made(const char *name) {
     }
     if (n >= 8 && hex + (int)other >= (int)n && hex >= 8 && digits >= 1) return true;                  /* a8f3c2e1, a GUID */
     if (digits == (int)n && n >= 6) return true;                                                          /* 20261117093012 */
-    static const char *pre[] = { "IMG", "DSC", "DSCN", "DSCF", "PXL", "VID", "MVI", "MOV", "IMAGE", "PHOTO", "SCAN", "SCREENSHOT", "SCREEN SHOT",
-                                 "CAPTURE", "WHATSAPP IMAGE", "WHATSAPP VIDEO", "SIGNAL", "RECORDING", "AUDIO", "P" };
-    for (size_t i = 0; i < sizeof pre / sizeof *pre; i++) {
-        size_t pl = strlen(pre[i]);
-        if (n > pl && !_strnicmp(s, pre[i], pl) && !isalpha((unsigned char)s[pl])) {
+    /* the camera, phone and screenshot prefixes: not before a letter (PHOTOGRAPHER...), with digits after */
+    static const char pre[] = "IMG|DSC|DSCN|DSCF|PXL|VID|MVI|MOV|IMAGE|PHOTO|SCAN|SCREENSHOT|SCREEN SHOT|CAPTURE|WHATSAPP IMAGE|WHATSAPP VIDEO|SIGNAL|RECORDING|AUDIO|P";
+    for (const char *w = pre; *w; ) {
+        size_t pl = strcspn(w, "|");
+        if (n > pl && !_strnicmp(s, w, pl) && !isalpha((unsigned char)s[pl])) {
             int d = 0, l = 0;
             for (size_t k = pl; k < n; k++) { if (isdigit((unsigned char)s[k])) d++; else if (isalpha((unsigned char)s[k])) l++; }
             if (d >= 3 && l <= 3) return true;
         }
+        w += pl + (w[pl] == '|');
     }
-    size_t e = strip_count(s, n);
-    static const char *gen[] = { "untitled", "new document", "new text document", "download", "document", "file", "image", "photo", "scan", "unnamed", "new file", "noname" };
-    for (size_t i = 0; i < sizeof gen / sizeof *gen; i++) if (strlen(gen[i]) == e && !_strnicmp(s, gen[i], e)) return true;
+    if (word_in("untitled|new document|new text document|download|document|file|image|photo|scan|unnamed|new file|noname", s, strip_count(s, n), true)) return true;
     if (n >= 10 && other == 0 && digits >= 3 && letters >= 3 && flips >= 4) return true;                  /* Qm9kx2Lp7Z */
     return false;
 }
@@ -517,10 +539,8 @@ bool agent_looks_machine_made(const char *name) {
 /* ---- the prompt ---- */
 
 static bool text_ext(const char *name) {
-    static const char *e[] = { ".txt", ".md", ".csv", ".json", ".log", ".xml", ".html", ".htm", ".srt", ".ini", ".yaml", ".yml", ".tex", ".rst", ".py", ".js", ".c", ".h" };
     size_t d = ext_at(name);
-    for (size_t i = 0; i < sizeof e / sizeof *e; i++) if (!_stricmp(name + d, e[i])) return true;
-    return false;
+    return word_in(".txt|.md|.csv|.json|.log|.xml|.html|.htm|.srt|.ini|.yaml|.yml|.tex|.rst|.py|.js|.c|.h", name + d, strlen(name + d), true) != 0;
 }
 
 static size_t snippet(const char *dir, const char *name, char *out, size_t cap) {
