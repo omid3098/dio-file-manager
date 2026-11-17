@@ -834,7 +834,8 @@ bool defaultfm_take_window(HWND h, dfm_request *out) {
             name = slash + 1;
     }
     folder_request(out, folder, name);
-    if (out->kind != REQ_FOLDER) { log_line(L"take-left", folder, NULL); return false; }
+    /* the switch may have been turned off while this waited: then the window stays Explorer's */
+    if (out->kind != REQ_FOLDER || !defaultfm_enabled()) { log_line(L"take-left", folder, NULL); return false; }
     PostMessageW(h, WM_CLOSE, 0, 0);
     log_line(L"take-closed", folder, name);
     return true;
