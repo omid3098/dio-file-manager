@@ -371,6 +371,44 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
   - Dragging near the top or bottom edge of the list or grid (the left or right edge in List) scrolls it, up to 720 px a
     second.
 
+## Blink Compare
+
+The job: see exactly what changed between two versions of a picture (a texture, a render, a screenshot). Select exactly two
+pictures and choose "Compare Pictures" in the right-click menu (after Open With; the row appears only for two pictures, so
+never for one, three, a folder, an SVG or a picture and a text file).
+
+- The content pane becomes the compare view; the sidebar and the header stay. A is the older file (by modified time) and B the
+  newer. Each name shows above its side with its pixel size, file size and time; below the stage a line says how much larger or
+  smaller B is and how much later. When the pixel sizes differ, a warning-coloured note says each picture is fitted to the pane.
+- The stage (the focal element) shows the two pictures on top of each other, each fitted to the pane. A divider with a round
+  handle wipes from A (left) to B (right): press or drag anywhere on the stage, Left and Right move it 2 % (Shift 10 %), Home
+  shows B alone, End shows A alone. An A or B label sits in a corner of each side and goes while its side is less than 100 px wide.
+- Holding Space shows B alone for as long as the key is down; releasing it goes back. The Blink button flips A and B every
+  0.5 s until Split, a key or a drag takes over. Pictures with transparency sit on a checkerboard.
+- Esc or the Close button closes it and the selection stays as it was. Going anywhere else (a folder, search, a place) closes it.
+  While it is open it owns the keyboard: Delete, Ctrl+A and typed letters do nothing to the files behind it.
+- Windows' own decoder (WIC) reads each picture on a worker thread, scaled to the pixels the stage shows (never more than 4096 on
+  an edge, never scaled up), so the window answers the whole time. The stage growing makes it read again after 250 ms.
+  A picture Windows cannot read (a format without an installed codec) shows "Windows can't read “name” as a picture."
+- Limits: no zoom, so a single changed pixel of an 8K picture is not visible at the pane's size (the picture is shown fitted);
+  only the first frame of a GIF or TIFF; EXIF rotation is not applied; PSD is not a picture here.
+
+Budgets, each a check in `tests/use/compare_smoke.py` that fails over it (release build, 1080x720 window, two 7680x4320 PNGs):
+
+| What | Budget | Measured |
+|---|---|---|
+| Executable size added | at most 30,000 bytes | 11,776 bytes |
+| Working set with both open, steady | at most 120 MB | 118 to 119 MB (105 MB before opening) |
+| Working set, peak | at most 160 MB | 124 to 125 MB |
+| Working set after closing | at most 20 MB over before | 18 MB over |
+| Both pictures shown after the menu choice | under 4 s | 0.4 s |
+| Longest message delay of the window while they decode | under 50 ms | 10 to 25 ms |
+| Space pressed to B drawn (end of the frame that draws B) | at most 50 ms | under 1 ms |
+| Idle with it open and nothing moving | no frames drawn | 0 frames in 2 s |
+| Blink running | one frame per flip, each build under 8 ms | 5 frames in 2 s, slowest 0.2 ms |
+
+The Space delay is read at the end of the frame's drawing; the display adds at most one refresh after it.
+
 ## Colours (Halo, from `tokens.json`)
 
 | Role | Light | Dark | CUI token |

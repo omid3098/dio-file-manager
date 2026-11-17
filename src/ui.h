@@ -258,6 +258,17 @@ void ui_thumb_begin(void);
 bool ui_thumb_lookup(const char *path, uint64_t mtime, int px, ui_thumb *out);
 void ui_thumb_end(void);
 
+/* ui_compare.c: Blink Compare, two selected pictures over each other */
+bool cmp_open(void);
+bool cmp_can_open(void);                    /* exactly two pictures are selected and no comparison is open */
+void cmp_open_selection(void);
+void cmp_close(void);
+void cmp_keys(void);                        /* before the frame: Esc, Space (held shows B), arrows move the divider */
+void cmp_view(void);                        /* the content pane while it is open */
+void cmp_frame_end(void);
+void cmp_snapshot(FILE *f);
+bool cmp_test_message(void *copydata);
+
 /* theme.c */
 unsigned theme_accent(bool dark, unsigned *on_accent);
 void theme_apply(cui_ctx *ui, bool dark);

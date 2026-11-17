@@ -511,6 +511,7 @@ static void menu_items(void) {
         bool one = A.sel_n == 1;
         if (cui_menu_item(ui, "Open", .icon = CUI_ICON_FOLDER_OPEN, .shortcut = "Enter")) open_selected();
         if (cui_menu_item(ui, "Open With\xE2\x80\xA6", .icon = CUI_ICON_EXTERNAL_LINK, .disabled = !one)) open_with();
+        if (cmp_can_open() && cui_menu_item(ui, "Compare Pictures", .icon = CUI_ICON_LAYERS)) cmp_open_selection();   /* only with exactly two pictures selected */
         if (lnk_item_shown() && cui_menu_item(ui, "Open File Location", .icon = CUI_ICON_ARROW_UP_RIGHT)) open_file_location();
         if (virt && cui_menu_item(ui, "Open Item Location", .icon = CUI_ICON_MAP_PIN, .disabled = !one)) views_open_location();
         cui_menu_separator(ui);

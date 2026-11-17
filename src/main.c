@@ -58,7 +58,7 @@ static LRESULT CALLBACK test_input_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_DEVICECHANGE && watch_device_event(w, l)) return TRUE;   /* Windows asks to remove the drive: the watch lets go of the folder first */
     if (m == WM_DFM_DRAG) { dnd_run(); return 0; }
     if (m == WM_DFM_TERMINAL) { act_terminal_failed((void *)l); return 0; }
-    if (m == WM_COPYDATA && test_mode && dnd_test_message((void *)l)) return TRUE;
+    if (m == WM_COPYDATA && test_mode && (dnd_test_message((void *)l) || cmp_test_message((void *)l))) return TRUE;
     if (m == WM_NCMOUSELEAVE && test_mode) return 0;   /* same reason: the maximize button's hover comes from the driver */
     if (chrome_message(h, m, w, l, (intptr_t *)&chrome_result)) return chrome_result;
     if (m == WM_MOUSELEAVE && test_mode) return 0;
@@ -135,7 +135,7 @@ void app_set_theme(int pref) {
 }
 
 void app_set_search_open(bool open) {
-    if (open) A.search_focus = true;
+    if (open) { A.search_focus = true; cmp_close(); }
     A.search_open = open;
     if (!open) {
         bool was = A.searching || A.search[0];
@@ -243,6 +243,7 @@ static void poll_list(void) {
 static void quiet_cleanup(void);
 static bool watch_wanted;   /* a change settled on disk: list the folder again, quietly, when the window can */
 static void load_entry(const char *entry) {
+    cmp_close();   /* every way to another listing (a folder, Back, Forward, a place) ends the comparison */
     ui_band_cancel();
     quiet_cleanup();
     fsearch_end();
@@ -465,7 +466,7 @@ static bool field_keys;         /* a text field held the keyboard at the end of 
  * new-folder popover, the search field and an open menu keep their letters. */
 static void typed_letters(void) {
     if (!typed_n) return;
-    if (!path_key && !cui_wants_keyboard(A.ui) && !A.search_open && !act_modal_open() && !ctxmenu_is_open(A.ui) &&
+    if (!cmp_open() && !path_key && !cui_wants_keyboard(A.ui) && !A.search_open && !act_modal_open() && !ctxmenu_is_open(A.ui) &&
         A.loc != LOC_OTHER && A.list && A.list_seen) {
         typed[typed_n] = 0;
         fs_w_to_u8(typed, A.search, (int)sizeof A.search);
@@ -494,6 +495,7 @@ static void global_keys(void) {
      * drawn, so before the fields only the last frame knows. Asking CUI here always said no: Enter in the path
      * field or a popover also opened the selected file, and Delete or Ctrl+V in a field acted on files. */
     bool typing = field_keys;
+    if (cmp_open()) { cmp_keys(); return; }   /* the two pictures own the keyboard: Esc, Space and the arrows */
     if (cui_shortcut(ui, CUI_MOD_ALT, CUI_KEY_LEFT)) app_back();
     else if (cui_shortcut(ui, CUI_MOD_ALT, CUI_KEY_RIGHT)) app_forward();
     else if (cui_shortcut(ui, CUI_MOD_ALT, CUI_KEY_UP)) app_up();
@@ -695,9 +697,9 @@ static void frame(void) {
             cui_column(ui, .width = CUI_FILL, .height = CUI_PX(A.content_h + strip), .gap = 0) {
                 fsearch_chip();
                 cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_PX(A.content_h), .clip = true) {
-                    content_body();
+                    if (cmp_open()) cmp_view(); else content_body();
                     app_count_selection();
-                    ui_status_pill();
+                    if (!cmp_open()) ui_status_pill();
                     act_frame();
                     views_frame();
                 }
@@ -840,6 +842,7 @@ static void test_snapshot(const char *base) {
     ui_toast_snapshot(f);
     fsearch_chip_snapshot(f);
     fprintf(f, ",\"type_w\":%.1f", A.view == VIEW_LIST ? ui_list_column_width(3) : 0.0f);   /* the Type column of the folder list */
+    cmp_snapshot(f);
     fprintf(f, ",\"documents\":"); json_text(f, A.places[2]);
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));
     json_text(f, A.drive_n ? A.drives[0].root : "");
@@ -866,6 +869,7 @@ static void window_frame(cui_ctx *ui, void *user) {
     QueryPerformanceCounter(&t0);
     float zv_before = A.zv;
     frame();
+    cmp_frame_end();
     QueryPerformanceCounter(&t1);
     QueryPerformanceFrequency(&hz);
     if (A.frame_log) {   /* test mode: one line per drawn frame, so checks can see motion and idleness */

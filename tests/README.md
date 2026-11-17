@@ -387,3 +387,15 @@ clipboard. In `--test-state` mode the app also writes `<base>.sidebar`: one line
 ## Sidebar rows added and removed
 
 `sidebar_smoke.py` runs 19 checks on the private desktop with the check's own `APPDATA` (the settings file `sidebar.txt` is read from it, never Omid's): a folder with a long Persian name added from the item menu (row right after Trash, before the drives, settings line written, the row opens the folder; light, dark, and at 683 px); the same folder added twice and by Ctrl+D (one row); 30 added folders (the order added, 30 lines saved, Other Locations pushed below the window); Home removed and Show Hidden Places; a drive row removed, then every row but Other Locations, then all back from Other Locations' menu; a restart that keeps removed and added rows; Ctrl+D in Recent and in a search adds nothing, a search result folder is added from its menu; a deleted folder's row dimmed (`dim` in the state) and its click leaving the window where it is; the 360x280 window with the sidebar sheet open (remove and show inside it); a sidebar.txt with a 5,000-character line (one broken record, the lines after it read); one folder written six ways (trailing backslash, `.\`, `x\..\`, other letter case) is one row, also when added again; a failed save (read-only sidebar.txt) shows the row and the next Add saves it; the same rows in the 360x280 sheet in dark. The state dump has `sbrows` (each row by key with its rectangle) and `sbmenu` (the two menu items). The menu items are picked with keys for the item menu (the Add to Sidebar row is the 8th) and clicks for the row menu. Not covered: scrolling a long sidebar with the wheel (the harness's wheel messages do not move the sidebar on main either).
+
+## Blink Compare checks
+
+`tests/use/compare_smoke.py [--light]` has 13 checks on the private desktop, with a fixture it makes itself (needs Pillow): two 2048x1536 PNGs
+that differ in one 200x120 box (the screenshot diff must find exactly that box, about 1 % of the stage), 800x600 against 2000x1500 of one
+picture, a JPG against a PNG, transparency, two Persian file names, two 7680x4320 PNGs, and a text file. It opens the compare view
+through the real right-click menu (arrow keys: Open, Open With, Compare Pictures), drags the divider, checks the arrow keys, that Esc keeps
+the selection, that Delete, Ctrl+A and typed letters do nothing behind the view, that one or three pictures or a picture and a text file
+get no menu row, that the Blink button flips, and (13) that opening the search closes it. Check 11 measures the 8K budgets of `docs/design.md` (open time, longest message delay while
+decoding, working set steady, peak and after closing, Space to B drawn from the app's own `b_qpc`); check 12 reads `<base>.frames`: no frame
+in 2 s when nothing moves, and Blink draws only its flips with every frame under 8 ms. Pictures of each state are in the work folder
+(`DFM_USE_WORK`, default `use-checks/compare_smoke`); `--light` runs the same checks in the light theme. Set `DFM_EXE`.

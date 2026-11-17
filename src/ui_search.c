@@ -95,6 +95,7 @@ static void begin(void) {
 
 /* The query changed (typing, paste, clear). Folders search after a short pause; the other places filter by name. */
 void fsearch_changed(void) {
+    cmp_close();
     exact_once = false;
     if (A.loc != LOC_FOLDER) { app_rebuild_view(); return; }
     if (!A.search[0]) {
