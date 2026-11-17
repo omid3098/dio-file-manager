@@ -79,7 +79,15 @@ def run_one(path, theme):
             time.sleep(.05)
         out['seconds_to_all_in'] = round(time.monotonic() - t0, 1)
         out['seconds_to_first_rectangles'] = round(first_pic or -1, 1)
-        time.sleep(1.0)   # nested listings land after the sizes
+        # nested listings land after the sizes and may ask for sizes the cache dropped: wait until the engine is quiet for 2 s in a row
+        t1, quiet = time.monotonic(), 0
+        while quiet < 2 and time.monotonic() - t1 < 180:
+            worst = max(worst, a.msg(0))
+            ws, pk = mem_mb(h)
+            peak = max(peak, pk)
+            quiet = quiet + 1 if a.snap()['fsz_open'] == 0 else 0
+            time.sleep(1.0)
+        out['seconds_nested_settle'] = round(time.monotonic() - t1, 1)
         s = a.snap(f'{name}-state')
         shutil.copyfile(str(a.base) + '.png', PICS / (name + view + '.png'))
         out['head'] = s['tree']['head']
