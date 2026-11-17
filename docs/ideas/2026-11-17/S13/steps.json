@@ -1,0 +1,141 @@
+[
+  {
+    "do": "expect",
+    "sel": "#reading:not([hidden])",
+    "note": "Alternate reading and contract are visible on arrival"
+  },
+  {
+    "do": "click",
+    "sel": "[data-name='قرارداد اجاره.pdf']",
+    "note": "۱ · Select the contract found across keyboards"
+  },
+  {
+    "do": "expect",
+    "sel": "#shell[data-step='2'] [data-name='قرارداد اجاره.pdf'][aria-selected='true']",
+    "note": "Contract is selected; next hint asks to dismiss the reading"
+  },
+  {
+    "do": "click",
+    "sel": "#dismiss-reading",
+    "note": "۲ · Dismiss only this reading"
+  },
+  {
+    "do": "expect",
+    "sel": "#shell[data-step='3'] #exact-empty",
+    "note": "Exact typed text returns no contract"
+  },
+  {
+    "do": "key",
+    "key": "Control+A",
+    "note": "Select the previous search text"
+  },
+  {
+    "do": "key",
+    "key": "Backspace",
+    "note": "Clear the previous query"
+  },
+  {
+    "do": "type",
+    "sel": "#search",
+    "text": "پاسپورت کیان",
+    "note": "۳ · Find both Persian and Arabic forms of ی and ک"
+  },
+  {
+    "do": "expect",
+    "sel": "#shell[data-step='4'] [data-name='پاسپورت كيان.pdf'] mark",
+    "note": "Arabic-letter spelling is matched and highlighted"
+  },
+  {
+    "do": "key",
+    "key": "Control+A",
+    "note": "Select the previous search text"
+  },
+  {
+    "do": "key",
+    "key": "Backspace",
+    "note": "Clear the previous query"
+  },
+  {
+    "do": "type",
+    "sel": "#search",
+    "text": "۱۱",
+    "note": "۴ · Persian digits find English 11"
+  },
+  {
+    "do": "expect",
+    "sel": "#shell[data-step='5'] [data-name='invoice-11-2026.pdf'] mark",
+    "note": "English digits are highlighted in the invoice name"
+  },
+  {
+    "do": "key",
+    "key": "Control+A",
+    "note": "Select the previous search text"
+  },
+  {
+    "do": "key",
+    "key": "Backspace",
+    "note": "Clear the previous query"
+  },
+  {
+    "do": "type",
+    "sel": "#search",
+    "text": "bank statement",
+    "note": "۵ · Spaces find the hyphenated bank statement"
+  },
+  {
+    "do": "expect",
+    "sel": "#shell[data-step='6'] [data-name='bank-statement-10-2026.pdf'] mark",
+    "note": "Bank statement is found without an alternate-reading chip"
+  },
+  {
+    "do": "key",
+    "key": "Control+A",
+    "note": "Select the previous search text"
+  },
+  {
+    "do": "key",
+    "key": "Backspace",
+    "note": "Clear the previous query"
+  },
+  {
+    "do": "type",
+    "sel": "#search",
+    "text": "rhvnhn",
+    "note": "۶ · A new query restores keyboard matching"
+  },
+  {
+    "do": "expect",
+    "sel": "#shell[data-step='7'] #reading:not([hidden])",
+    "note": "The dismissed reading does not persist into a new query"
+  },
+  {
+    "do": "click",
+    "sel": "#options",
+    "note": "۷ · Open the small search options menu"
+  },
+  {
+    "do": "expect",
+    "sel": "#shell[data-step='8'] #keyboard-toggle[aria-checked='true']",
+    "note": "Matching is on; installed-layout fixture is shown"
+  },
+  {
+    "do": "click",
+    "sel": "#keyboard-toggle",
+    "note": "۸ · Turn Match across keyboards off"
+  },
+  {
+    "do": "expect",
+    "sel": "#shell[data-step='9'] #exact-empty",
+    "note": "Matching is off and the contract is no longer returned"
+  },
+  {
+    "do": "click",
+    "sel": "#restart",
+    "note": "۹ · Restart the guided sample"
+  },
+  {
+    "do": "expect",
+    "sel": "#shell[data-step='1'] #reading:not([hidden])",
+    "note": "Restart restores the first scene and matching"
+  }
+]

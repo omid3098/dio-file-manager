@@ -1,0 +1,14 @@
+[
+  {"do":"click","sel":"#compare-action","note":"1 · Compare the two selected textures"},
+  {"do":"expect","sel":"#compare .compare-stage[data-mode='split']","note":"Two textures overlay at the same scale"},
+  {"do":"drag","sel":"#divider","to":".label-b","note":"2 · Drag the divider to reveal the changed panel"},
+  {"do":"expect","sel":".dio-try-strip[data-phase='3']","note":"The Persian strip advances after dragging"},
+  {"do":"click","sel":"#blink","note":"3 · Blink to the latest version"},
+  {"do":"expect","sel":"#compare .compare-stage[data-mode='blink']","note":"The complete B image is visible"},
+  {"do":"key","key":"Space","note":"Hold and release Space"},
+  {"do":"key","key":"Escape","note":"4 · Escape returns to the exact original selection"},
+  {"do":"expect","sel":"[data-name='hero_albedo_v07.png'][aria-selected='true']","note":"A remains selected"},
+  {"do":"expect","sel":"[data-name='hero_albedo_v08.png'][aria-selected='true']","note":"B remains selected"},
+  {"do":"click","sel":"#restart","note":"5 · Start again"},
+  {"do":"expect","sel":"#compare-action","note":"The original pair and Compare action are restored"}
+]

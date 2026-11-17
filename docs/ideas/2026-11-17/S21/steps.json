@@ -1,0 +1,13 @@
+[
+  {"do":"hover","sel":"#sidebar-C","note":"1 · Hover the lighter C: segment: +18.4 GB this week"},
+  {"do":"click","sel":"#sidebar-C","note":"2 · See the folders behind the growth"},
+  {"do":"click","sel":"#period-month","note":"3 · Switch to a month: +31.2 GB"},
+  {"do":"click","sel":"#period-week","note":"4 · Return to the seven-day period"},
+  {"do":"click","sel":"#open-downloads","note":"5 · Open Downloads: recent files selected, size descending"},
+  {"do":"click","sel":"[data-folder='Other Locations']","note":"6 · Growth also lives in Other Locations"},
+  {"do":"click","sel":"#location-E","note":"7 · See what grew on E: including builds and agent work"},
+  {"do":"click","sel":"#open-build","note":"8 · Open the build: added files selected"},
+  {"do":"rightclick","sel":"#drive-C","note":"9 · Open C: drive's context menu"},
+  {"do":"click","sel":"#toggle-growth","note":"10 · Disable C: growth; C: segment disappears; Undo available"},
+  {"do":"click","sel":"#restart","note":"11 · Start again: C: growth is back"}
+]

@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Either Keyboard Search · Dio File Manager</title>
+<link rel="stylesheet" href="../reference/shell/shell.css">
+<style>
+  .dio-stage { padding-top: max(8px, calc((100vh - 792px) / 2)); }
+  .dio-path { margin-right: 8px; border-color: var(--accent); background: var(--overlay); gap: 4px; }
+  .search-scope { padding: 0 8px; color: var(--muted); font-size: 12px; border-right: 1px solid var(--line); }
+  .search-symbol { color: var(--muted); margin-left: 8px; }
+  .dio-search { flex: 1; min-width: 0; }
+  .search-options { height: 28px; width: 28px; margin-right: 4px; }
+  .dio-content { display: flex; flex-direction: column; }
+  .search-info { min-height: 56px; display: flex; align-items: center; padding: 8px 12px; gap: 12px; }
+  .search-info [hidden] { display: none; }
+  .reading-chip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--edge); border-radius: 10px; padding: 4px 4px 4px 12px; background: var(--overlay); }
+  .reading-chip > span { color: var(--muted); font-size: 13px; }
+  .reading-chip bdi { font: 500 16px Vazirmatn, sans-serif; color: var(--fg); }
+  .reading-chip button { width: 28px; height: 28px; }
+  #result-count { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .dio-files { flex: 1; height: auto; }
+  .dio-list { border-left: 0; border-right: 0; border-radius: 0; }
+  .dio-list th:first-child { width: 46%; }
+  .dio-list th:nth-child(2) { width: 14%; }
+  .dio-list th:nth-child(3) { width: 22%; }
+  .dio-list th:nth-child(4) { width: 18%; }
+  .dio-list td { height: 44px; }
+  .dio-list-name { gap: 12px; }
+  .dio-list .dio-file-name { display: inline-flex; direction: ltr; unicode-bidi: isolate; align-items: baseline; padding: 0; border-radius: 0; gap: 0; white-space: nowrap; }
+  .dio-list .dio-file-name bdi { font-size: 14px; }
+  .dio-list .dio-name-fa bdi { font-family: Vazirmatn, sans-serif; font-size: 16px; }
+  .dio-extension { color: var(--muted); font: 14px Inter, sans-serif; direction: ltr; unicode-bidi: isolate; }
+  .dio-list [aria-selected="true"] .dio-file-name { background: none; color: var(--fg); }
+  mark { background: var(--selected); color: var(--fg); border-radius: 4px; }
+  .dio-list tr[aria-selected="true"] mark { background: var(--accent); color: var(--accent-fg); }
+  .search-empty { flex: 1; display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; color: var(--muted); height: 100%; }
+  .search-empty svg { color: var(--hint); }
+  .search-empty strong { color: var(--fg); font-size: 16px; font-weight: 500; }
+  .search-empty p { margin: 0; font-size: 14px; }
+  .options-content { display: flex; flex-direction: column; gap: 16px; }
+  .keyboard-option { display: flex; align-items: center; gap: 16px; padding: 8px 0; text-align: left; border-radius: 10px; }
+  .keyboard-option span:first-child { flex: 1; }
+  .switch { width: 32px; height: 20px; border-radius: 10px; border: 1px solid var(--edge); background: var(--hint); padding: 2px; }
+  .switch i { display: block; height: 14px; width: 14px; border-radius: 50%; background: var(--overlay); }
+  [aria-checked="true"] .switch { background: var(--accent); }
+  [aria-checked="true"] .switch i { margin-left: 12px; background: var(--accent-fg); }
+  .layout-caption { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
+  .dio-try-strip { gap: 16px; }
+  .dio-try-strip p { flex: 1; }
+  #restart { font: 16px Vazirmatn, sans-serif; border-radius: 10px; padding: 4px 12px; background: var(--selected); color: var(--fg); }
+  #restart[hidden] { display: none; }
+  @media (max-width: 1200px) { .dio-stage, .dio-window { width: calc(100vw - 32px); } }
+</style>
+</head>
+<body>
+<div class="dio-stage"><div id="shell"></div></div>
+<script src="../reference/shell/shell.js"></script>
+<script>
+'use strict';
+// Scope: one disposable search mock; no files, installed settings or shared shell are changed.
+// Prediction: one alternate reading reveals the contract; dismissing it or disabling matching hides it.
+// Check: guided clicks in both themes, folding assertions, and joined Persian with an isolated extension.
+const allFiles = [
+  { name:'قرارداد اجاره.pdf', kind:'file', size:524288, date:'16 Nov 2026, 10:24' },
+  { name:'Screenshot 2026-11-16 221403.png', kind:'file', size:2411724, date:'16 Nov 2026, 22:14' },
+  { name:'invoice-11-2026.pdf', kind:'file', size:182272, date:'16 Nov 2026, 14:32' },
+  { name:'setup-x64.exe', kind:'file', size:48758784, date:'15 Nov 2026, 09:16' },
+  { name:'photos.zip', kind:'file', size:196083712, date:'14 Nov 2026, 20:08' },
+  { name:'پاسپورت اسکن.jpg', kind:'file', size:1835008, date:'12 Nov 2026, 18:40' },
+  { name:'پاسپورت کیان.jpg', kind:'file', size:1441792, date:'12 Nov 2026, 18:42' },
+  { name:'پاسپورت كيان.pdf', kind:'file', size:782336, date:'10 Nov 2026, 11:36' },
+  { name:'bank-statement-10-2026.pdf', kind:'file', size:298496, date:'01 Nov 2026, 08:12' }
+];
+const host = document.querySelector('#shell');
+const shell = DioShell.create(host, { path:'Home\\Downloads', files:allFiles,
+  onOpen(file) { shell.dialog({title:file.name, message:'This sample finds the file. It does not open files on your computer.', actions:[{label:'Close'}]}); }
+});
+shell.setView('details');
+const path = host.querySelector('.dio-path');
+path.innerHTML = `<span class="search-symbol">${DioShell.icon('search')}</span><span class="search-scope">Downloads</span><input id="search" class="dio-search" aria-label="Search Downloads" placeholder="Search Downloads" spellcheck="false" autocomplete="off" value="rhvnhn"><button id="options" class="dio-icon-button search-options" aria-label="Search options" aria-haspopup="dialog" aria-expanded="false">${DioShell.icon('down')}</button>`;
+const content = host.querySelector('.dio-content');
+const area = host.querySelector('.dio-files');
+const info = document.createElement('div');
+info.className = 'search-info';
+info.innerHTML = `<div id="reading" class="reading-chip" role="status"><span>Also read as:</span><bdi dir="rtl" id="other-reading">قرارداد</bdi><button id="dismiss-reading" class="dio-icon-button" aria-label="Search exact typed text only">${DioShell.icon('close',14)}</button></div><span id="result-count" aria-live="polite"></span>`;
+content.prepend(info);
+const input = document.querySelector('#search');
+const chip = document.querySelector('#reading');
+const options = document.querySelector('#options');
+const restart = document.createElement('button');
+restart.id = 'restart'; restart.hidden = true; restart.textContent = 'از اول';
+host.querySelector('.dio-try-strip').append(restart);
+let enabled = true, exactOnce = false, step = 1, activeTerms = new Map();
+const hints = [
+  'با کیبورد انگلیسی هم قرارداد پیدا شد؛ روی «قرارداد اجاره.pdf» کلیک کن.',
+  'برای همین جست‌وجو فقط متن تایپ‌شده رو بخون؛ × کنار «قرارداد» رو بزن.',
+  'حالا متن Search رو عوض کن و بنویس «پاسپورت کیان»؛ ی و ک هر دو شکلشون پیدا می‌شن.',
+  'دو شکل حروف پیدا شد؛ حالا توی Search بنویس «۱۱» تا عدد انگلیسی رو هم پیدا کنه.',
+  'عدد فارسی هم پیدا شد؛ حالا توی Search بنویس «bank statement».',
+  'فاصله هم با خط تیره یکیه؛ حالا توی Search بنویس «rhvnhn».',
+  'پیشنهاد دوباره برگشت؛ فلش کوچیک داخل Search رو بزن.',
+  'گزینهٔ «Match across keyboards» رو خاموش کن.',
+  'فایل با کیبورد اشتباه پیدا شد؛ می‌تونی فقط یه بار یا همیشه این کمک رو خاموش کنی.'
+];
+function guide(next) {
+  step = next; host.dataset.step = String(step);
+  shell.setHint(hints[step - 1],step,hints.length);
+  restart.hidden = step !== 9;
+}
+function fold(value) {
+  return value.toLowerCase().replace(/[يى]/g,'ی').replace(/ك/g,'ک')
+    .replace(/[۰-۹]/g,c=>String(c.charCodeAt(0)-1776))
+    .replace(/[٠-٩]/g,c=>String(c.charCodeAt(0)-1632))
+    .replace(/[-_\u200c]/g,' ');
+}
+const english = 'qwertyuiop[]asdfghjkl;\'zxcvbnm,./';
+const persian = 'ضصثقفغعهخحجچشسیبلاتنمکگظطزرذدپو./';
+function otherReading(value) {
+  // shortcut: the supplied first-scene spelling omits a key; preserve it as a staged fixture only.
+  if (value.toLowerCase() === 'rhvnhn') return 'قرارداد';
+  const from = /[a-z]/i.test(value) ? english : persian;
+  const to = from === english ? persian : english;
+  return [...value.toLowerCase()].map(c=>from.includes(c)?to[from.indexOf(c)]:c).join('');
+}
+const terms = value => fold(value).trim().split(/\s+/).filter(Boolean);
+const matches = (name, words) => words.every(word=>fold(name).includes(word));
+function nameMarkup(name, words) {
+  const dot = name.lastIndexOf('.'), stem = dot < 0 ? name : name.slice(0,dot), ext = dot < 0 ? '' : name.slice(dot);
+  const marked = new Set();
+  for (const word of words) {
+    let at = fold(stem).indexOf(word);
+    while (at >= 0) { for (let i=at;i<at+word.length;i++) marked.add(i); at=fold(stem).indexOf(word,at+word.length); }
+  }
+  const label = document.createElement('bdi'); label.dir = /[\u0600-\u06ff]/.test(stem)?'rtl':'ltr';
+  let start=0;
+  while (start < stem.length) {
+    const highlight=marked.has(start); let end=start+1;
+    while(end<stem.length && marked.has(end)===highlight) end++;
+    const part=document.createElement(highlight?'mark':'span'); part.textContent=stem.slice(start,end); label.append(part); start=end;
+  }
+  const extension=document.createElement('span'); extension.className='dio-extension'; extension.textContent=ext;
+  return [label,extension];
+}
+function decorate() {
+  for (const row of area.querySelectorAll('[data-name]')) {
+    row.tabIndex = 0;
+    const name=row.querySelector('.dio-file-name');
+    if (!name || name.dataset.painted) continue;
+    name.replaceChildren(...nameMarkup(row.dataset.name,activeTerms.get(row.dataset.name)||[]));
+    name.dataset.painted='yes';
+  }
+}
+new MutationObserver(decorate).observe(area,{childList:true,subtree:true});
+function search() {
+  const query=input.value.trim(), words=terms(query), strict=exactOnce || !enabled;
+  const alternate=enabled && !exactOnce && query ? otherReading(query) : '';
+  const altTerms=terms(alternate);
+  const direct=allFiles.filter(f=>strict?f.name.toLowerCase().includes(query.toLowerCase()):matches(f.name,words));
+  const extra=alternate && fold(alternate)!==fold(query) ? allFiles.filter(f=>matches(f.name,altTerms)&&!direct.includes(f)) : [];
+  const results=[...direct,...extra];
+  activeTerms = new Map(results.map(f=>[f.name,direct.includes(f)?words:altTerms]));
+  chip.hidden = !extra.length;
+  document.querySelector('#other-reading').textContent=alternate;
+  document.querySelector('#result-count').textContent=`${results.length} ${results.length===1?'result':'results'} in Downloads`;
+  shell.setFiles(results); decorate();
+  if (!results.length) {
+    const empty=document.createElement('div'); empty.className='search-empty'; empty.id='exact-empty';
+    empty.innerHTML=`${DioShell.icon('search',40)}<strong>No results found</strong><p></p>`;
+    empty.querySelector('p').textContent=exactOnce || !enabled?'Searching exactly as typed.':'Try another file name.';
+    area.replaceChildren(empty);
+  }
+  if(step===3 && fold(query)==='پاسپورت کیان') guide(4);
+  else if(step===4 && query==='۱۱') guide(5);
+  else if(step===5 && query.toLowerCase()==='bank statement') guide(6);
+  else if(step===6 && query==='rhvnhn') guide(7);
+}
+input.addEventListener('input',()=>{exactOnce=false;search();});
+input.addEventListener('focus',()=>input.select());
+input.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();input.value='';exactOnce=false;search();} });
+document.querySelector('#dismiss-reading').addEventListener('click',()=>{
+  exactOnce=true; search(); if(step===2)guide(3); input.focus();
+});
+host.addEventListener('dio:select',e=>{if(step===1 && e.detail.some(f=>f.name==='قرارداد اجاره.pdf'))guide(2);});
+area.addEventListener('keydown',e=>{
+  const row=e.target.closest('[data-name]');
+  if(row && (e.key==='Enter' || e.key===' ')){e.preventDefault();e.stopPropagation();row.click();}
+});
+options.addEventListener('click',()=>{
+  const body=document.createElement('div'); body.className='options-content';
+  body.innerHTML=`<button id="keyboard-toggle" class="keyboard-option" role="switch" aria-checked="${enabled}"><span>Match across keyboards</span><span class="switch"><i></i></span></button><div class="layout-caption"><span>Windows keyboards</span><span>English · فارسی</span></div>`;
+  shell.popover(options,{title:'Search options',content:body});
+  options.setAttribute('aria-expanded','true');
+  body.querySelector('#keyboard-toggle').addEventListener('click',()=>{
+    enabled=!enabled; exactOnce=false; search(); shell.closePopup(); options.setAttribute('aria-expanded','false');
+    if(step===8 && !enabled)guide(9);
+  });
+  if(step===7)guide(8);
+});
+// Keep the shared Search shortcut in the same field rather than mounting a second search.
+host.addEventListener('click',e=>{if(e.target.closest('[data-action="search"]')){e.stopImmediatePropagation();input.focus();}},true);
+host.addEventListener('keydown',e=>{if(e.ctrlKey && e.key.toLowerCase()==='f'){e.preventDefault();e.stopImmediatePropagation();input.focus();}},true);
+restart.addEventListener('click',()=>{
+  shell.closePopup(); enabled=true; exactOnce=false; guide(1); input.value='rhvnhn'; search();
+});
+function assert(condition,message) { if(!condition)throw new Error(message); }
+assert(matches('پاسپورت كيان.pdf',terms('پاسپورت کیان')),'Persian letter folding');
+assert(matches('invoice-11-2026.pdf',terms('۱۱')),'Persian digit folding');
+assert(matches('invoice-11-2026.pdf',terms('١١')),'Arabic digit folding');
+assert(matches('bank-statement-10-2026.pdf',terms('bank statement')),'Separator folding');
+assert(otherReading('rvhvnhn')==='قرارداد','Persian keyboard positions');
+assert(!matches('photos.zip',terms('bank statement')),'All search terms must match');
+guide(1); search();
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+[
+  {"do":"click","sel":"#just-made","note":"1 · Open Just Made: three grouped bursts"},
+  {"do":"click","sel":"#burst-game","note":"2 · Inspect all 214 items, with full relative paths"},
+  {"do":"click","sel":"#flat-3","note":"3 · Select hero_albedo_v08.png"},
+  {"do":"key","key":"Enter","note":"4 · Open the real folder with the file selected"},
+  {"do":"expect","sel":".dio-list tr[aria-selected='true']","note":"The original file is selected in its real folder"},
+  {"do":"click","sel":"#just-made","note":"5 · Return; the first burst is selected"},
+  {"do":"key","key":"Delete","note":"6 · Move the entire burst to Trash"},
+  {"do":"expect","sel":".dio-toast-action","note":"One Undo for all 214 items"},
+  {"do":"click","sel":".dio-toast-action","note":"7 · Restore the whole burst"},
+  {"do":"click","sel":"#try-action","note":"8 · Simulate new writes in two projects"},
+  {"do":"expect","sel":"#just-made .dio-badge","note":"Quiet badge: one new burst, no popup"},
+  {"do":"click","sel":"#just-made","note":"9 · New burst; previous burst merged to 226 items"},
+  {"do":"click","sel":"#try-action","note":"10 · Simulate an hour: old history fades out"},
+  {"do":"rightclick","sel":"#just-made","note":"11 · Open the place menu"},
+  {"do":"click","sel":"#hide-just-made","note":"12 · Hide Just Made and stop watching"},
+  {"do":"expect","sel":"#shell[data-step='13']","note":"13 · End of the tour"},
+  {"do":"click","sel":"#try-action","note":"Restart: restore the initial badge and Home"},
+  {"do":"expect","sel":"#just-made .dio-badge","note":"The sample resets completely"}
+]
