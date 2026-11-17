@@ -409,8 +409,8 @@ def inside():
 
     def live_resize(a):
         # The sizes a held edge drag would produce, applied with SetWindowPos while the app is told a size/move is on
-        # (WM_ENTERSIZEMOVE, which makes it draw a frame at every WM_SIZE). The system sizing loop (WM_NCLBUTTONDOWN on a
-        # frame edge) is never started: it moves the real pointer, even from a hidden desktop.
+        # (WM_ENTERSIZEMOVE, which makes it draw a frame at every WM_SIZE). The system sizing loop (a press on a frame
+        # edge) is never started: it moves the real pointer, even from a hidden desktop.
         class GUI(C.Structure):
             _fields_ = [('size',W.DWORD),('flags',W.DWORD),('active',W.HWND),('focus',W.HWND),('capture',W.HWND),('menu',W.HWND),('move',W.HWND),('caret',W.HWND),('rect',W.RECT)]
         def in_loop():

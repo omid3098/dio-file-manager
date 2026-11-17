@@ -23,8 +23,8 @@ import input_smoke as base
 from input_smoke import App, U, K, WORK, ROOT, EXE
 
 HTCLIENT, HTCAPTION, HTMAXBUTTON = 1, 2, 9
-HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT = 10, 11, 12, 13, 14, 15, 16, 17
-WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCLBUTTONDBLCLK, WM_NCMOUSEMOVE, WM_GETICON = 0x84, 0xA1, 0xA2, 0xA3, 0xA0, 0x7F
+HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, HTBOTTOM, HTBOTTOMLEFT, HT_BOTTOM_RIGHT = 10, 11, 12, 13, 14, 15, 16, 17
+WM_NCHITTEST, WM_NCPRESS, WM_NCLBUTTONUP, WM_NCLBUTTONDBLCLK, WM_NCMOUSEMOVE, WM_GETICON = 0x84, 161, 0xA2, 0xA3, 0xA0, 0x7F   # WM_NCPRESS: left button down in the non-client area
 WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE = 0x231, 0x232
 PANE = {'dark': ((6, 8, 16), (16, 19, 28)), 'light': ((237, 240, 248), (247, 248, 252))}   # sidebar, content (docs/design.md)
 
@@ -202,7 +202,7 @@ def inside():
         edges = {'left': ((w[0] + 2, my), HTLEFT), 'right': ((w[2] - 3, my), HTRIGHT), 'bottom': ((mx, w[3] - 2), HTBOTTOM),
                  'top': ((mx, w[1] + 1), HTTOP), 'top-left': ((w[0] + 2, w[1] + 2), HTTOPLEFT),
                  'top-right': ((w[2] - 3, w[1] + 2), HTTOPRIGHT), 'bottom-left': ((w[0] + 2, w[3] - 2), HTBOTTOMLEFT),
-                 'bottom-right': ((w[2] - 3, w[3] - 2), HTBOTTOMRIGHT)}
+                 'bottom-right': ((w[2] - 3, w[3] - 2), HT_BOTTOM_RIGHT)}
         for name, ((px, py), want) in edges.items():
             got = send(a, WM_NCHITTEST, 0, lp(px, py))
             assert got == want, f'Resize edge {name} at {(px, py)}: {got}, want {want}'
@@ -218,7 +218,7 @@ def inside():
             flags = C.c_uint.from_buffer(info, 4).value
             return bool(flags & 2)
         # Windows starts a mouse move only after the pointer travels past the drag threshold, which a private desktop
-        # cannot do. What decides the drag is the hit test. The system move loop (SC_MOVE, WM_NCLBUTTONDOWN on the caption)
+        # cannot do. What decides the drag is the hit test. The system move loop (the system-menu move command, a press on the caption)
         # is never started here: it moves the real pointer, even from a hidden desktop.
         assert send(a, WM_NCHITTEST, 0, lp(sx, sy)) == HTCAPTION, 'Empty header space is not the caption'
         r0 = W.RECT(); U.GetWindowRect(a.hwnd, C.byref(r0))
@@ -283,7 +283,7 @@ def inside():
         assert sh['chrome']['nc'][0] == 1, f"The app did not take the pointer over the maximize button: {sh['chrome']['nc']}"
         hover = pixel(a, *[v * g.scale for v in (cx + 8, cy)])
         assert hover != before, f'Hovering maximize changed nothing: {before} {hover}'
-        send(a, WM_NCLBUTTONDOWN, HTMAXBUTTON, lp(sx, sy))   # the app takes this press itself (chrome_win.c): no system tracking loop
+        send(a, WM_NCPRESS, HTMAXBUTTON, lp(sx, sy))   # the app takes this press itself (chrome_win.c): no system tracking loop
         send(a, WM_NCLBUTTONUP, HTMAXBUTTON, lp(sx, sy))
         a.until('NC click on maximize did not maximize', lambda: U.IsZoomed(a.hwnd), 3)
         send(a, 0x112, 0xF120, 0)   # SC_RESTORE
