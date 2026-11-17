@@ -46,6 +46,8 @@ static char sub_root[FS_PATH_MAX];
 static fs_list *sub_list;
 static unsigned sub_ver;
 static bool was_shown;
+static bool sub_hidden;
+static unsigned sub_gen;
 
 static titem T[TOP_MAX + 8];
 static int T_n;
@@ -129,9 +131,9 @@ static int find_sub(const char *path) {
 }
 
 static void subs_frame(void) {
-    if (A.list != sub_list || strcmp(sub_root, A.path)) {
+    if (A.list != sub_list || strcmp(sub_root, A.path) || sub_hidden != A.show_hidden || sub_gen != A.nav_gen) {   /* the listings follow Ctrl+H and F5 */
         subs_reset();
-        sub_list = A.list;
+        sub_list = A.list; sub_hidden = A.show_hidden; sub_gen = A.nav_gen;
         snprintf(sub_root, sizeof sub_root, "%s", A.path);
         g_root = strlen(A.path) == 3 && A.path[1] == ':';
         root_total = root_free = 0;
@@ -143,6 +145,7 @@ static void subs_frame(void) {
     }
     for (int i = 0; i < sub_n; i++)
         if (S[i].l && fs_list_state(S[i].l) != FS_LOADING) extract(&S[i]);
+    for (int i = 0; i < sub_n; i++) if (S[i].l) { cui_request_wakeup(A.ui, 0.03f); break; }   /* a finished listing must repaint */
 }
 
 /* Start the listings of the biggest folders that are big enough to show their children. Called after the layout, largest first. */
@@ -208,21 +211,25 @@ static void nest_layout(titem *t, const sub *s) {
     }
     sum += small;
     if (!sum) return;
+    uint64_t rem = t->size > sum ? t->size - sum : 0;   /* bytes the listing does not show (hidden files, what could not be read): empty space, so the shares stay the folder's */
+    sum += rem;
     qsort(rows, (size_t)n, sizeof *rows, cmp_nrow);
     double area = (double)in.w * in.h;
     int keep = 0;
     while (keep < n && keep < NEST_MAX - 1 && (double)rows[keep].size / (double)sum * area >= NEST_SMALL) keep++;
     for (int i = keep; i < n; i++) { small += rows[i].size; small_n++; }
-    double v[NEST_MAX];
-    nrect tmp[NEST_MAX];
+    double v[NEST_MAX + 1];
+    nrect tmp[NEST_MAX + 1];
     int m = 0;
     for (int i = 0; i < keep; i++) { v[m] = (double)rows[i].size; tmp[m] = (nrect){ .node = rows[i].node, .size = rows[i].size }; m++; }
-    if (small > 0) {   /* sorted in among the others */
+    for (int k = 0; k < 2; k++) {   /* the small items, then the unlisted remainder, sorted in among the others */
+        uint64_t sz = k ? rem : small;
+        if (!sz || m >= NEST_MAX) continue;
         int at = m;
-        while (at > 0 && v[at - 1] < (double)small) { v[at] = v[at - 1]; tmp[at] = tmp[at - 1]; at--; }
-        v[at] = (double)small; tmp[at] = (nrect){ .node = -1, .size = small, .small_n = small_n }; m++;
+        while (at > 0 && v[at - 1] < (double)sz) { v[at] = v[at - 1]; tmp[at] = tmp[at - 1]; at--; }
+        v[at] = (double)sz; tmp[at] = (nrect){ .node = k ? -2 : -1, .size = sz, .small_n = k ? 0 : small_n }; m++;
     }
-    tm_rect out[NEST_MAX];
+    tm_rect out[NEST_MAX + 1];
     tm_layout(v, m, in, out);
     for (int i = 0; i < m && NP_n < POOL_MAX; i++) { tmp[i].r = out[i]; NP[NP_n++] = tmp[i]; t->ncnt++; }
 }
@@ -325,7 +332,7 @@ static void label(cui_ctx *ui, cui_rect b, const char *name, const char *meta, f
     ui_fit_name(name, maxw, nsize, out);
     text_at(ui, b.x + 6, b.y + 3, nsize, fg, out);
     if (meta && b.h >= 38) {   /* the percent and the size whole, else the percent alone, else nothing: never cut in the middle */
-        float ms = nsize - 1;
+        float ms = nsize - 1 < 12.0f ? 12.0f : nsize - 1;   /* never under 12 px */
         char pc[32];
         snprintf(pc, sizeof pc, "%s", meta);
         char *dot = strstr(pc, " \xC2\xB7 ");
@@ -348,19 +355,19 @@ static void draw_nested(cui_ctx *ui, const titem *t, cui_rect ox, const sub *s) 
     for (int i = 0; i < t->ncnt; i++) {
         const nrect *n = &NP[t->noff + i];
         cui_rect b = { ox.x + n->r.x + 0.5f, ox.y + n->r.y + 0.5f, n->r.w - 1, n->r.h - 1 };
-        if (b.w < 2 || b.h < 2) continue;
+        if (b.w < 2 || b.h < 2 || n->node == -2) continue;   /* -2: the unlisted remainder stays empty */
         char meta[64], pc[16], sz[40], nm[64];
         pct_text(pc, sizeof pc, n->size, t->size); fs_format_size(sz, sizeof sz, n->size);
         snprintf(meta, sizeof meta, "%s \xC2\xB7 %s", pc, sz);
         if (n->node < 0) {
             cui_draw_rect(ui, b, CUI_CORNERS(3), tint(ui, CUI_COLOR_FOREGROUND, 0.10f));
             snprintf(nm, sizeof nm, "%d small items", n->small_n);
-            label(ui, b, nm, meta, 11.5f);
+            label(ui, b, nm, meta, 12.0f);
         } else {
             const tnode *nd = &s->nodes[n->node];
             cui_color base = nd->dir ? CUI_COLOR_ACCENT : ui_kind_color(nd->kind);
             cui_draw_rect(ui, b, CUI_CORNERS(3), tint(ui, base, nd->dir ? 0.30f : 0.40f));
-            label(ui, b, nd->name, meta, 11.5f);
+            label(ui, b, nd->name, meta, 12.0f);
         }
     }
 }
@@ -515,7 +522,7 @@ void app_set_tree(bool on) {
 
 void ui_tree_after_frame(void) {   /* once a frame: leaving the view drops what it holds */
     bool shown = ui_tree_shown();
-    if (was_shown && !shown) { subs_reset(); sub_list = NULL; sub_root[0] = 0; }
+    if (was_shown && !shown) { subs_reset(); sub_list = NULL; sub_root[0] = 0; T_n = 0; NP_n = 0; g_total = 0; }
     was_shown = shown;
 }
 
@@ -533,7 +540,13 @@ void ui_tree_snapshot(FILE *f) {
     for (int i = 0; i < T_n && i < 80; i++) {
         fprintf(f, "%s{\"k\":%d,\"v\":%d,\"x\":%.1f,\"y\":%.1f,\"w\":%.1f,\"h\":%.1f,\"size\":%llu,\"nest\":%d,\"n\":", i ? "," : "", T[i].kind, T[i].vis,
                 T[i].r.x, T[i].r.y, T[i].r.w, T[i].r.h, (unsigned long long)T[i].size, T[i].ncnt);
-        jstr(f, T[i].kind == TK_ITEM ? app_item_name(T[i].vis) : "");
+        jstr(f, T[i].kind == TK_ITEM && ui_tree_shown() && T[i].vis < A.vis_n ? app_item_name(T[i].vis) : "");
+        fprintf(f, ",\"nr\":[");   /* the nested rectangles: x, y, w, h, size, node (-1 small items, -2 unlisted remainder) */
+        for (int k = 0; k < T[i].ncnt; k++) {
+            const nrect *q = &NP[T[i].noff + k];
+            fprintf(f, "%s[%.1f,%.1f,%.1f,%.1f,%llu,%d]", k ? "," : "", q->r.x, q->r.y, q->r.w, q->r.h, (unsigned long long)q->size, q->node);
+        }
+        fputc(']', f);
         fputc('}', f);
     }
     fprintf(f, "]}");

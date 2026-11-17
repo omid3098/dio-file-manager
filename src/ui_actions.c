@@ -553,7 +553,7 @@ static void context_menu(void) {
     cui_ctx *ui = A.ui;
     cui_vec2 m = cui_mouse_pos(ui), vp = cui_viewport_size(ui);
     float x0 = A.sidebar_px, y0 = 46.0f + fsearch_strip_h();   /* below the header and the pill strip */
-    bool in_header = A.view == VIEW_LIST && A.vis_n > 0 && m.y < y0 + 40.0f;
+    bool in_header = A.view == VIEW_LIST && !ui_tree_shown() && A.vis_n > 0 && m.y < y0 + 40.0f;
     bool open_here = cui_mouse_clicked(ui, CUI_MOUSE_RIGHT) && A.loc != LOC_OTHER && !G.delete_open && !G.conflict_open &&
                      !A.sidebar_open && m.x >= x0 && m.x < vp.x && m.y >= y0 && m.y < vp.y && !in_header;
     if (open_here) { G.ctx_item = A.ctx_item; if (G.ctx_item) lnk_menu_open(); }

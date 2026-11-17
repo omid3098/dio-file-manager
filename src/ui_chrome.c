@@ -514,11 +514,13 @@ static void view_options_menu(cui_placement where) {
         }
         view_mode_rect = cui_get_rect(ui, cui_make_id(ui, "viewmode"));
     }
-    float value = A.zv;   /* continuous: the ticks only mark the six stops */
-    if (cui_slider(ui, "View size", &value, 0, Z_COUNT - 1, .width = CUI_FILL)) { app_set_tree(false); app_set_zoomv(value, false); }
-    A.zoom_rect = cui_last_rect(ui);
-    cui_canvas(ui, "zoom-ticks", CUI_FILL, CUI_PX(4), paint_zoom_ticks, NULL, 0);
-    cui_text(ui, names[A.zoom], .width = CUI_FILL, .align = CUI_TEXT_CENTER, .size = 13, .color = CUI_COLOR_TEXT_SECONDARY);
+    if (!app_tree_on()) {   /* the icon size means nothing for the tree */
+        float value = A.zv;   /* continuous: the ticks only mark the six stops */
+        if (cui_slider(ui, "View size", &value, 0, Z_COUNT - 1, .width = CUI_FILL)) { app_set_tree(false); app_set_zoomv(value, false); }
+        A.zoom_rect = cui_last_rect(ui);
+        cui_canvas(ui, "zoom-ticks", CUI_FILL, CUI_PX(4), paint_zoom_ticks, NULL, 0);
+        cui_text(ui, names[A.zoom], .width = CUI_FILL, .align = CUI_TEXT_CENTER, .size = 13, .color = CUI_COLOR_TEXT_SECONDARY);
+    } else A.zoom_rect = (cui_rect){ 0 };
     cui_menu_separator(ui);
     menu_rows_begin("view-scroll");
     cui_menu_label(ui, "Sort by");

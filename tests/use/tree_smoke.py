@@ -149,6 +149,30 @@ def inside():
         assert huge['nest'] >= 2, f'huge shows {huge["nest"]} nested blocks'
         assert t['subs'] >= 2, f'Nested listings read: {t["subs"]}'
 
+    def hidden_share(a):
+        """A folder of a visible 1,000,000-byte file and a hidden 9,000,000-byte one: the visible file is a tenth of the
+        folder's rectangle, not all of it; Ctrl+H then shows both files."""
+        s = a.settled()
+        t = a.t(s)
+        hid = next(i for i in t['items'] if i['n'] == 'hid')
+        assert hid['nest'] >= 1, f'no nested blocks in {hid}'
+        files = lambda it: [r for r in it['nr'] if r[5] >= 0]
+        assert len(files(hid)) == 1, f'one visible file expected: {hid["nr"]}'
+        share = files(hid)[0][2] * files(hid)[0][3] / (hid['w'] * hid['h'])
+        assert 0.04 < share < 0.2, f'the visible file (10 % of the folder) fills {share:.2f} of its rectangle'
+        a.key(72, (17,))   # Ctrl+H: hidden files shown
+        def both():
+            tt = a.t()
+            h = next(i for i in tt['items'] if i['n'] == 'hid')
+            return len(files(h)) == 2
+        a.until('Ctrl+H did not show the hidden file in the nested blocks', both, 15)
+        a.key(72, (17,))
+        def one():
+            tt = a.t()
+            h = next(i for i in tt['items'] if i['n'] == 'hid')
+            return len(files(h)) == 1
+        a.until('Ctrl+H again did not hide the hidden file in the nested blocks', one, 15)
+
     def select_open(a):
         a.settled()
         x, y, i = a.center('video.mp4')
@@ -253,6 +277,12 @@ def inside():
     check('1-layout-dark', layout)
     check('1-layout-light', layout, theme='light')
     check('2-nested', nested)
+    hid = WORK / 'tree2'
+    (hid / 'hid').mkdir(parents=True, exist_ok=True)
+    (hid / 'hid' / 'vis.bin').write_bytes(b'\0' * 1_000_000)
+    (hid / 'hid' / 'hid.bin').write_bytes(b'\0' * 9_000_000)
+    subprocess.run(['attrib', '+h', str(hid / 'hid' / 'hid.bin')], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+    check('2b-hidden-share-and-ctrl-h', hidden_share, path=hid)
     check('3-select-open-keys', select_open)
     check('4-double-click-opens-then-back', open_by_double)
     check('5-ctrl-3-and-leave', keys_and_leave)
