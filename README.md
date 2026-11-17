@@ -3,6 +3,10 @@
 A fast, light and smooth file manager for Windows, written in C and modelled on GNOME Files (Nautilus).
 It is a single executable of under 800 KB.
 
+![A 14-second film of Dio File Manager: a slider under the window zooms the folder from the list view to large icons while the grid reflows, and the film ends on the app icon and the GitHub address](docs/media/film.webp)
+
+[Watch the film as a video file (MP4)](docs/media/film.mp4)
+
 ![The main window in the dark theme, in grid view: a sidebar with the drives and their fill bars, and a folder of files](docs/media/grid-dark.png)
 
 ## What it looks like

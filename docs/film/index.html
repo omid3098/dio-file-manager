@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: "Literata"; src: url("assets/fonts/literata-latin.woff2") format("woff2"); font-weight: 400 500; font-style: normal; }
+      @font-face { font-family: "Segoe UI Variable"; src: url("assets/fonts/SegUIVar.ttf") format("truetype"); font-weight: 300 700; font-style: normal; }
+      @font-face { font-family: "DM Sans"; src: url("assets/fonts/dmsans-latin.woff2") format("woff2"); font-weight: 400 600; font-style: normal; }
+      @font-face { font-family: "Vazirmatn"; src: url("assets/fonts/vazirmatn-arabic.woff2") format("woff2"); font-weight: 400 500; font-style: normal; }
+
+      :root {
+        --stage: #e4e2dd;
+        --ink: #202228;
+        --accent: #2b7cc4; /* the app's #6cb4ee is too pale on the light stage: darkened for the knob and the caption word */
+        --track: #a9a69f;
+        --tick: #8c8981;
+        --serif: "Literata", Georgia, serif;
+        --sans: "DM Sans", system-ui, sans-serif;
+        --appsans: "Segoe UI Variable", "Vazirmatn", sans-serif; /* the app: theme.c loads C:\Windows\Fonts\SegUIVar.ttf */
+        --farsi: "Vazirmatn", sans-serif;
+        /* the app's own dark window colours, measured from its pictures */
+        --win: #10131c;
+        --win-side: #060810;
+        --win-hdr: #0a0c15;
+        --win-line: #1c2030;
+        --win-text: #eef1fa;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--stage); }
+      #root { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--stage); font-family: var(--sans); color: var(--ink); }
+      #ground { position: absolute; inset: 0; background: var(--stage); }
+
+      #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+      #winScale { position: absolute; left: 140px; top: 30px; width: 1084px; height: 520px; transform: scale(1.513); transform-origin: 0 0; }
+      #win { position: absolute; left: 0; top: 0; width: 1084px; height: 520px; background: var(--win); border-radius: 0; overflow: hidden;
+        box-shadow: 0 22px 56px rgba(48, 42, 32, 0.30); font-family: var(--appsans), var(--farsi); color: var(--win-text); }
+      #sideW { position: absolute; left: 0; top: 0; width: 240px; height: 520px; overflow: hidden; }
+      #side { position: absolute; left: 0; top: 0; width: 240px; height: 520px; background: var(--win-side); overflow: hidden; }
+      .sb-row { position: absolute; left: 0; width: 240px; height: 28px; font-size: 13.5px; line-height: 28px; padding-left: 44px; color: #cfd2dc; white-space: nowrap; }
+      .sb-row svg { position: absolute; left: 18px; top: 5px; width: 18px; height: 18px; fill: none; stroke: #aeb3c4; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+      .sb-div { position: absolute; left: 10px; width: 220px; height: 1px; background: #1a1e2b; }
+      .sb-bar { position: absolute; left: 44px; top: 24px; width: 178px; height: 3px; border-radius: 2px; background: #353535; }
+      .sb-bar i { display: block; height: 3px; border-radius: 2px; background: #8ab4ff; }
+      #hdr { position: absolute; top: 0; height: 46px; left: 240px; right: 0; display: flex; align-items: center; gap: 4px; padding: 0 8px; }
+      #hBack svg, #hFwd svg, #bb .hb svg { stroke: #565c70 !important; }
+      #hdr svg { flex: none; fill: none; stroke: #a6abbc; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+      .hb { position: relative; flex: none; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; }
+      #path { flex: none; height: 34px; border-radius: 10px; background: #0b0d16; border: 1px solid #232736; display: flex; align-items: center; padding-left: 12px; font-size: 14px; color: #b1b8cf; white-space: nowrap; overflow: hidden; }
+      #path b { font-weight: 600; color: #eef1fa; }
+      #path span { display: block; width: 34px; height: 14px; margin-left: 4px; position: relative; }
+      #path span svg { position: absolute; left: 10px; top: 1px; stroke: #8a91a8; }
+      #hsp { flex: 1 1 0; min-width: 0; }
+      #vbtn { position: relative; width: 66px; height: 36px; flex: none; }
+      #vbtn svg { position: absolute; left: 13px; top: 7px; }
+      #wbs { flex: none; width: 84px; height: 24px; display: flex; gap: 6px; margin-left: 8px; }
+      .wbtn { flex: none; width: 24px; height: 24px; border-radius: 12px; background: rgba(255,255,255,0.10); position: relative; }
+      .wbtn svg { position: absolute; left: 0; top: 0; fill: none; stroke: #b1b8cf; stroke-width: 1.5; stroke-linecap: butt; }
+      #bb { position: absolute; left: 0; bottom: 0; height: 46px; width: 100%; background: var(--win); border-top: 1px solid #262830; display: none; align-items: center; gap: 4px; padding: 0 8px; z-index: 6; }
+      #bb svg { flex: none; fill: none; stroke: #a6abbc; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+      #edge { position: absolute; right: 0; top: 0; width: 3px; height: 520px; background: var(--accent); opacity: 0; z-index: 20; }
+
+      /* the file view: 844 x 476, as in the app's window */
+      #content { position: absolute; left: 240px; top: 46px; width: 844px; height: 474px; overflow: hidden; }
+      #view { position: absolute; left: 0; top: 0; width: 844px; height: 474px; }
+      #lh { position: absolute; left: 0; top: 0; height: 40px; width: 844px; background: var(--win-hdr); border-bottom: 1px solid var(--win-line); font-size: 12.5px; font-weight: 600; color: #cfd2dc; opacity: 0; z-index: 5; }
+      #lh span { position: absolute; top: 0; line-height: 40px; }
+      #lh svg { position: absolute; top: 14px; width: 12px; height: 12px; fill: none; stroke: #767e9c; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+      #lh .sz { right: 393px; }
+      .it { position: absolute; left: 0; top: 0; width: 0; height: 0; opacity: 0; }
+      .ico { position: absolute; left: 0; top: 0; width: 64px; height: 64px; transform-origin: 0 0; }
+      .ico svg { display: block; width: 64px; height: 64px; }
+      .lab { position: absolute; left: 0; top: 0; font-size: 13px; line-height: 17px; color: var(--win-text); unicode-bidi: plaintext; }
+      .lab.tile { text-align: center; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+      .lab.det { font-size: 14px; }
+      .lab.cmp { direction: ltr; unicode-bidi: normal; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .col { position: absolute; left: 0; top: 0; font-size: 14px; line-height: 16px; color: var(--win-text); white-space: nowrap; display: none; }
+      .col.sz { text-align: right; width: 130px; }
+      .col.pend { color: #767e9c; }
+      .rl { position: absolute; left: 0; top: 0; height: 1px; width: 844px; background: var(--win-line); display: none; }
+
+      /* the slider: a track, six quiet ticks, the knob */
+      #hud { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+      #track { position: absolute; left: 163px; top: 869px; width: 1594px; height: 6px; border-radius: 3px; background: var(--track); }
+      #tether { position: absolute; width: 3px; border-radius: 2px; background: var(--accent); transform-origin: 50% 100%; opacity: 0; margin-left: -1.5px; }
+      #grip { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 7px; background: var(--accent); opacity: 0; }
+      .tick { position: absolute; top: 886px; width: 2px; height: 10px; margin-left: -1px; border-radius: 1px; background: var(--tick); }
+      #knob { position: absolute; top: 849px; left: 0; width: 46px; height: 46px; margin-left: -23px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 5px var(--stage), 0 6px 16px rgba(40, 36, 30, 0.32); }
+
+      .cap { opacity: 0; will-change: opacity; position: absolute; left: 140px; top: 934px; width: 1700px; text-align: left; font-family: var(--serif); font-weight: 500; font-size: 88px; line-height: 104px; color: var(--ink); letter-spacing: -0.028em; white-space: nowrap; }
+      .acc { color: var(--accent); }
+      #icoBig { position: absolute; left: 1617px; top: 732px; width: 280px; height: 280px; opacity: 0; }
+      #endTitle { position: absolute; left: 738px; top: 306px; font-family: var(--serif); font-weight: 500; font-size: 128px; line-height: 140px; color: var(--ink); letter-spacing: -0.02em; white-space: nowrap; }
+      #endTitle .l { display: inline-block; white-space: pre; }
+      /*ENDFONT*/ #root #endTitle{font-family:"Segoe UI Variable",sans-serif;font-weight:600;letter-spacing:-0.035em} #root #endTag,#root #endFacts,#root #endBtn,#root #endUrl{font-family:"Segoe UI Variable",sans-serif}
+      #endTag { position: absolute; left: 740px; top: 462px; font-family: var(--sans); font-weight: 400; font-size: 44px; line-height: 54px; color: #3f4047; white-space: nowrap; }
+      #endFacts { position: absolute; left: 740px; top: 530px; font-family: var(--sans); font-weight: 400; font-size: 30px; line-height: 40px; color: #5c5a54; white-space: nowrap; }
+      #endBtn { position: absolute; left: 740px; top: 606px; height: 68px; padding: 0 34px; border-radius: 14px; background: var(--ink); color: #f4f2ed; font-family: var(--sans); font-weight: 600; font-size: 34px; line-height: 68px; white-space: nowrap; }
+      #endUrl { position: absolute; left: 742px; top: 696px; font-family: var(--sans); font-weight: 400; font-size: 30px; line-height: 40px; color: #5c5a54; white-space: nowrap; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="14.5" data-width="1920" data-height="1080">
+      <div id="ground" class="clip" data-start="0" data-duration="14.5" data-track-index="0"></div>
+
+      <div id="stage" class="clip" data-start="0" data-duration="10.1" data-track-index="1">
+        <div id="winScale">
+          <div id="win">
+            <div id="sideW"><div id="side"></div></div>
+            <div id="hdr">
+              <div class="hb" id="hSb" style="display:none"><svg width="22" height="22" viewBox="0 0 22 22"><rect x="3.5" y="4.5" width="15" height="13" rx="2.5"/><path d="M8.5 4.5v13"/></svg></div>
+              <div class="hb" id="hBack"><svg width="22" height="22" viewBox="0 0 22 22"><path d="M13.5 5.5 8 11l5.5 5.5" /></svg></div>
+              <div class="hb" id="hFwd"><svg width="22" height="22" viewBox="0 0 22 22"><path d="M8.5 5.5 14 11l-5.5 5.5" /></svg></div>
+              <div id="path">R:<span><svg width="12" height="12" viewBox="0 0 12 12" style="fill:none;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round"><path d="M4.5 2.5 8 6l-3.5 3.5"/></svg></span><b>Work</b></div>
+              <div id="hsp"></div>
+              <div class="hb" id="hSearch"><svg width="22" height="22" viewBox="0 0 22 22"><circle cx="9.5" cy="9.5" r="5.5" /><path d="m14 14 4 4" /></svg></div>
+              <div class="hb" id="hMenu" style="display:none"><svg width="22" height="22" viewBox="0 0 22 22"><path d="M4 6h14M4 11h14M4 16h14"/></svg></div>
+              <div id="vbtn">
+                <svg id="vGrid" width="40" height="22" viewBox="0 0 40 22"><rect x="6" y="4" width="5" height="5" rx="1" /><rect x="13" y="4" width="5" height="5" rx="1" /><rect x="6" y="11" width="5" height="5" rx="1" /><rect x="13" y="11" width="5" height="5" rx="1" /><path d="m26 9 3.5 3.5L33 9" /></svg>
+                <svg id="vList" width="40" height="22" viewBox="0 0 40 22" style="opacity:0"><path d="M6 6h12M6 11h12M6 16h12" /><path d="m26 9 3.5 3.5L33 9" /></svg>
+              </div>
+              <div id="wbs"><div class="wbtn"><svg width="24" height="24" viewBox="0 0 24 24"><path d="M7.5 15h9"/></svg></div><div class="wbtn"><svg width="24" height="24" viewBox="0 0 24 24"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5"/></svg></div><div class="wbtn"><svg width="24" height="24" viewBox="0 0 24 24" style="stroke-width:1.2"><path d="M8 8l8 8M16 8l-8 8"/></svg></div></div>
+            </div>
+            <div id="content">
+              <div id="view"></div>
+              <div id="lh"><span style="left:12px">Name &#8593;</span><span class="sz">Size</span><span style="left:492px">Modified</span><span style="left:632px">Type</span>
+                <svg style="left:455px" viewBox="0 0 12 12"><path d="M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5"/></svg><svg style="left:545px" viewBox="0 0 12 12"><path d="M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5"/></svg><svg style="left:662px" viewBox="0 0 12 12"><path d="M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5"/></svg></div>
+            </div>
+            <div id="bb"><div class="hb"><svg width="22" height="22" viewBox="0 0 22 22"><path d="M13.5 5.5 8 11l5.5 5.5" /></svg></div><div class="hb"><svg width="22" height="22" viewBox="0 0 22 22"><path d="M8.5 5.5 14 11l-5.5 5.5" /></svg></div><div style="flex:1"></div>
+              <div style="position:relative;width:66px;height:36px"><svg style="position:absolute;left:13px;top:7px" width="40" height="22" viewBox="0 0 40 22"><rect x="6" y="4" width="5" height="5" rx="1" /><rect x="13" y="4" width="5" height="5" rx="1" /><rect x="6" y="11" width="5" height="5" rx="1" /><rect x="13" y="11" width="5" height="5" rx="1" /><path d="m26 9 3.5 3.5L33 9" /></svg></div></div>
+            <div id="edge"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="hud" class="clip" data-start="0" data-duration="14.5" data-track-index="2">
+        <div id="track"></div>
+        <div class="tick" style="left:163px"></div><div class="tick" style="left:481.8px"></div><div class="tick" style="left:800.6px"></div>
+        <div class="tick" style="left:1119.4px"></div><div class="tick" style="left:1438.2px"></div><div class="tick" style="left:1757px"></div>
+        <div id="tether"></div><div id="grip"></div><div id="knob"></div><img id="icoBig" src="assets/icon.svg" alt="Dio File Manager icon" />
+      </div>
+
+      <div id="cap1" class="cap clip" data-start="0.1" data-duration="2.8" data-track-index="3">Folder <span class="acc">sizes,</span> measured in the background.</div>
+      <div id="cap2" class="cap clip" data-start="2.9" data-duration="3.3" data-track-index="4">Drag to <span class="acc">zoom.</span></div>
+      <div id="cap3" class="cap clip" data-start="6.3" data-duration="3.3" data-track-index="5">Reflows as <span class="acc">you drag.</span></div>
+
+      <div id="endTitle" class="clip" data-start="10.7" data-duration="3.8" data-track-index="6"></div>
+      <div id="endTag" class="clip" data-start="10.7" data-duration="3.8" data-track-index="7">A fast, light file manager for Windows.</div>
+      <div id="endFacts" class="clip" data-start="10.7" data-duration="3.8" data-track-index="8">Under 800 KB &middot; Open source &middot; MIT</div>
+      <div id="endBtn" class="clip" data-start="10.7" data-duration="3.8" data-track-index="9">Get it on GitHub.</div>
+      <div id="endUrl" class="clip" data-start="10.7" data-duration="3.8" data-track-index="10">github.com/omid3098/dio-file-manager</div>
+    </div>
+
+    <script>
+      // names, sizes, times and types are the ones in the app's own pictures (list-sizes-dark.png, grid-dark.png)
+      const ITEMS = [
+        { n: "Budget", k: "folder", sz: ["122.9", "kB"], m: "10:22", t: "Folder" },
+        { n: "Holiday Photos", k: "folder", sz: ["531.6", "kB"], m: "10:22", t: "Folder" },
+        { n: "Invoices", k: "folder", sz: ["417.8", "kB"], m: "10:30", t: "Folder" },
+        { n: "Music", k: "folder", sz: ["15.4", "MB"], m: "10:22", t: "Folder" },
+        { n: "Reports", k: "folder", sz: ["2.4", "MB"], m: "10:22", t: "Folder" },
+        { n: "Screenshots", k: "folder", sz: ["263.9", "kB"], m: "10:22", t: "Folder" },
+        { n: "سفر ۱۴۰۴", k: "folder", sz: ["177.2", "kB"], m: "10:22", t: "Folder" },
+        { n: "گزارش‌ها", k: "folder", sz: ["17", "bytes"], m: "10:24", t: "Folder" },
+        { n: "Archive.zip", k: "doc", ext: "ZIP", c: "#d6a02c", sz: ["3.9", "MB"], m: "10:22", t: "Archive" },
+        { n: "Budget overview.xlsx", k: "doc", ext: "XLSX", c: "#38c7a3", sz: ["42.0", "kB"], m: "10:22", t: "Spreadsheet" },
+        { n: "Contract draft.docx", k: "doc", ext: "DOCX", c: "#f27a92", sz: ["65.5", "kB"], m: "10:22", t: "Document" },
+        { n: "Harbour.jpg", k: "img", g: ["#ee7186", "#1f3b47"], sz: ["42.1", "kB"], m: "10:24", t: "Image" },
+        { n: "Hills.jpg", k: "img", g: ["#a6d04c", "#244b3b"], sz: ["45.1", "kB"], m: "10:24", t: "Image" },
+        { n: "Ideas.md", k: "doc", ext: "MD", c: "#a9aebf", sz: ["34", "bytes"], m: "10:22", t: "Text" },
+        { n: "Lake.jpg", k: "img", g: ["#f4a85a", "#29505b"], sz: ["45.5", "kB"], m: "10:24", t: "Image" },
+        { n: "Latest Report.lnk", k: "doc", ext: "LNK", c: "#a9aebf", sz: ["686", "bytes"], m: "10:24", t: "File" },
+        { n: "Logo.png", k: "doc", ext: "PNG", c: "#4fd89b", sz: ["92.2", "kB"], m: "10:22", t: "Image" },
+        { n: "Meeting notes.txt", k: "doc", ext: "TXT", c: "#a9aebf" },
+        { n: "Notes to self.txt", k: "doc", ext: "TXT", c: "#a9aebf" },
+        { n: "Poster.pdf", k: "doc", ext: "PDF", c: "#f27d9d" },
+        { n: "Presentation.pptx", k: "doc", ext: "PPTX", c: "#f28f78" },
+        { n: "Shopping list.txt", k: "doc", ext: "TXT", c: "#a9aebf" },
+        { n: "Sunset.jpg", k: "img", g: ["#62b4dc", "#2a4651"] }
+      ];
+      const N = ITEMS.length;
+
+      /* the app's small icons. Details: 16 px Lucide line icons in the kind colour (ui_list.c, ui_kind_icon, ui_kind_color).
+         List and Small icons (under 40 px): paint_compact, ui_draw_folder and the "small" page of ui_draw_file (ui_icons.c). */
+      const L = {
+        folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+        image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+        archive: '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+        sheet: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/>',
+        text: '<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+        file: '<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/>'
+      };
+      const KIND = { ZIP: ["archive", "#fbbf24"], XLSX: ["sheet", "#5eead4"], DOCX: ["text", "#fc909e"], PDF: ["text", "#fc909e"], PPTX: ["text", "#fc909e"],
+        PNG: ["image", "#4ade80"], MD: ["text", "#b1b8cf"], TXT: ["text", "#b1b8cf"], LNK: ["file", "#b1b8cf"] };
+      function lineSvg(it) {
+        const k = it.k === "folder" ? ["folder", "#8ab4ff"] : it.k === "img" ? ["image", "#4ade80"] : KIND[it.ext];
+        return '<svg viewBox="0 0 24 24" fill="none" stroke="' + k[1] + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + L[k[0]] + "</svg>";
+      }
+      function smallSvg(it, i) {
+        if (it.k === "folder")
+          return '<svg viewBox="0 0 64 64"><defs><linearGradient id="f' + i + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#98bdff"/><stop offset="1" stop-color="#8ab4ff"/></linearGradient></defs><path d="M3.2 10.24 H20 a8.2 8.2 0 0 1 7.5 5.12 V16 H3.2z" fill="#a0c1fe"/><rect x="3.2" y="15.36" width="57.6" height="37.1" rx="5.12" fill="#a0c1fe"/><rect x="3.2" y="23.04" width="57.6" height="32" rx="5.12" fill="url(#f' + i + ')"/></svg>';
+        if (it.k === "img") return SVGS_T[i];
+        const tone = KIND[it.ext][1], sw = 1.25 * 4;   // 1.25 px at 16 px = 5 in this 64-unit box
+        return '<svg viewBox="0 0 64 64"><path d="M10.24 3.2H42.2L53.76 15.4V60.8H10.24z" fill="#171b27" stroke="#b1b8cf" stroke-width="' + sw + '" stroke-linejoin="miter"/><path d="M42.2 3.2V15.4H53.76z" fill="' + tone + '" stroke="#b1b8cf" stroke-width="' + sw + '"/></svg>';
+      }
+
+      function iconSvg(it, i) {
+        if (it.k === "folder")
+          return '<svg viewBox="0 0 64 64"><path d="M5 15a5 5 0 0 1 5-5h14a5 5 0 0 1 4 2l3 4h23a5 5 0 0 1 5 5v28a5 5 0 0 1-5 5H10a5 5 0 0 1-5-5z" fill="#86adf6"/><rect x="5" y="22" width="54" height="32" rx="5" fill="#9cc0ff"/></svg>';
+        if (it.k === "img")
+          return '<svg viewBox="0 0 64 64"><defs><linearGradient id="g' + i + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + it.g[0] + '"/><stop offset="1" stop-color="' + it.g[1] + '"/></linearGradient></defs><rect x="6" y="14" width="52" height="38" rx="5" fill="url(#g' + i + ')"/><circle cx="32" cy="26" r="3.4" fill="#ffe9a8"/><path d="M6 44l9-9 8 6 10-8 12 9 13-6v11a5 5 0 0 1-5 5H11a5 5 0 0 1-5-5z" fill="#1b3039" opacity=".85"/></svg>';
+        return '<svg viewBox="0 0 64 64"><path d="M16 5h22l12 12v38a4 4 0 0 1-4 4H16a4 4 0 0 1-4-4V9a4 4 0 0 1 4-4z" fill="#1a1e2b" stroke="#2c3245" stroke-width="1.5"/><path d="M38 5v9a3 3 0 0 0 3 3h9z" fill="#2c3245"/><rect x="18" y="22" width="12" height="2" rx="1" fill="#3a4055"/><text x="31" y="43" text-anchor="middle" font-family="Segoe UI Variable" font-weight="600" font-size="10.5" fill="' + it.c + '">' + it.ext + "</text></svg>";
+      }
+
+      /* sidebar */
+      const SB = {
+        Recent: '<circle cx="9" cy="9" r="6.5"/><path d="M9 5.5V9l2.6 1.6"/>',
+        Starred: '<path d="m9 2.5 2 4.2 4.6.6-3.3 3.2.8 4.5L9 12.8 4.9 15l.8-4.5L2.4 7.3 7 6.7z"/>',
+        Home: '<path d="M2.5 9 9 3l6.5 6M4.5 8v7h9V8"/>',
+        Desktop: '<rect x="2.5" y="3.5" width="13" height="8.5" rx="1.5"/><path d="M6.5 15h5M9 12v3"/>',
+        Documents: '<path d="M5 2.5h5.5l3 3V15a.8.8 0 0 1-.8.8H5a.8.8 0 0 1-.8-.8V3.3A.8.8 0 0 1 5 2.5z"/><path d="M7 9h4.5M7 11.8h4.5"/>',
+        Downloads: '<path d="M9 3v8m-3-3 3 3 3-3M3.5 14.5h11"/>',
+        Music: '<path d="M7 13V4.5l7-1.5v8.5"/><circle cx="5.5" cy="13" r="1.8"/><circle cx="12.5" cy="11.5" r="1.8"/>',
+        Pictures: '<rect x="2.5" y="3.5" width="13" height="11" rx="1.8"/><path d="m3 12.5 3.5-3.5 3 3 2-1.8 3.5 3"/>',
+        Videos: '<rect x="2.5" y="4.5" width="9" height="9" rx="1.8"/><path d="m11.5 8 4-2v6l-4-2"/>',
+        Trash: '<path d="M3.5 5h11M7 5V3.3h4V5M5 5l.7 10h6.6L13 5"/>',
+        Drive: '<rect x="2.5" y="3.5" width="13" height="4.5" rx="1.5"/><rect x="2.5" y="10" width="13" height="4.5" rx="1.5"/><path d="M5 5.8h.1M5 12.2h.1"/>',
+        Plus: '<path d="M9 4v10M4 9h10"/>'
+      };
+      const sbHtml = [];
+      ["Recent", "Starred", "Home", "Desktop", "Documents", "Downloads", "Music", "Pictures", "Videos", "Trash"].forEach((n, i) => {
+        sbHtml.push('<div class="sb-row" style="top:' + (47 + i * 34) + 'px"><svg viewBox="0 0 18 18">' + SB[n] + "</svg>" + n + "</div>");
+      });
+      sbHtml.push('<div class="sb-div" style="top:393px"></div>');
+      [["Local Disk (C:)", 0.84], ["Shared (D:)", 0.44], ["Local Disk (E:)", 0.88]].forEach((d, i) => {
+        sbHtml.push('<div class="sb-row" style="top:' + (406 + i * 34) + 'px;height:30px"><svg viewBox="0 0 18 18" style="top:5px">' + SB.Drive + "</svg>" + d[0] + '<div class="sb-bar"><i style="width:' + Math.round(d[1] * 100) + '%"></i></div></div>');
+      });
+      /* the real sidebar goes on with a fourth drive and "Other Locations"; the film's window is cut at 520 px, above them */
+      sbHtml.push('<svg class="sb-ham" style="position:absolute;left:204px;top:12px;fill:none;stroke:#aeb3c4;stroke-width:1.6;stroke-linecap:round" width="20" height="20" viewBox="0 0 20 20"><path d="M3 5h14M3 10h14M3 15h14"/></svg>');
+      document.getElementById("side").innerHTML = sbHtml.join("");
+
+      /* ---------------------------------------------------------------- the app's layout rules, ported
+         Sources (E:\w\dio-file-manager\src): ui_zoom.c (stop_of, app_icon_size, set_value, app_view_fade),
+         ui_grid.c (min_cell_w, cell_height, ui_grid_view, ui_column_view, glide_plan, paint_glide, mask_labels). */
+      const WIN_X = 140, TX0 = 163, TW = 1594;           // the knob's travel: its edges meet the window's edges
+      let WC = 844, VIEWH = 474;                           // the content pane's width and height: they change when the window does (ui_grid.c reads them each frame)
+      const GPAD = 16, NAME_LINES = 2, LINE_H = 17;
+      const NARROW_BELOW = 683, CONTENT_W_MIN = 440, SIDEBAR_W = 240, BAR_H = 46, HEADER_H = 46, VH_FULL = 474, SC = 1.513;
+      const WFULL = 1084, WMIN = 560;
+      const GLIDE_S = 0.15, FADE_S = 0.12, DT = 1 / 120, STEPS = 1152;
+      const clamp01 = (x) => Math.min(1, Math.max(0, x));
+      const T_START = 3.0, T_DUR = 3.0;                    // the knob's move (the approved zoom scene, unchanged, 2.4 s later): 3.0 s to 6.0 s, sine.inOut
+      const SIZE_T = Array.from({ length: 8 }, (_, k) => 0.5 + k * 1.5 / 7);   // the eight folders' sizes come in, the top one first, 0.5 s to 2.0 s
+      const sineIO = (u) => 0.5 * (1 - Math.cos(Math.PI * clamp01(u)));
+      const pow2IO = (u) => { u = clamp01(u); return u < 0.5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u); };
+      function widthAt(t) {                                // the window's width in app pixels: the knob drags its right edge
+        if (t < 6.5) return WFULL;
+        if (t < 8.0) return WFULL + (WMIN - WFULL) * pow2IO((t - 6.5) / 1.5);   // power2.inOut
+        if (t < 8.2) return WMIN;
+        return WMIN + (WFULL - WMIN) * pow2IO((t - 8.2) / 1.4);   // power2.inOut
+      }
+      /* main.c sidebar_step: the sidebar slides out below 683 px over 150 ms (ease-out cubic) and back in; a crossing back turns round from where it is */
+      const SB_S = { want: true, moving: false, from: 240, t0: 0, dur: 0.15, px: 240, gone: false, docked: true };
+      function sidebarStep(t, W) {
+        const S = SB_S, want = W >= NARROW_BELOW, room = Math.max(0, W - CONTENT_W_MIN), full = Math.min(SIDEBAR_W, room);
+        if (want !== S.want) {
+          S.want = want;
+          const from = Math.min(S.px, room), to = want ? full : 0;
+          if (Math.abs(to - from) > 0.5) { const part = Math.abs(to - from) / Math.max(full, 1); S.moving = true; S.from = from; S.t0 = t; S.dur = GLIDE_S * Math.min(1, Math.max(0.25, part)); }
+          else S.moving = false;
+        }
+        const to = S.want ? full : 0;
+        if (S.moving) {
+          const u = (t - S.t0) / S.dur;
+          if (u >= 1) S.moving = false;
+          else { const e = 1 - Math.pow(1 - u, 3); S.px = Math.min(room, S.from + (to - S.from) * e); }
+        }
+        if (!S.moving) S.px = to;
+        S.gone = !S.want && !S.moving; S.docked = S.want && !S.moving;
+      }
+
+      const stopOf = (v) => (v < 0.5 ? 0 : v < 1.5 ? 1 : v < 2.5 ? 2 : Math.min(5, Math.floor(v + 0.5)));
+      function iconSize(v) {                               // 32, 64, 96, 144 at zv 2, 3, 4, 5; straight between; 16 before 1.5
+        const px = [32, 64, 96, 144];
+        if (v < 1.5) return 16;
+        const x = v < 2 ? 2 : v > 5 ? 5 : v;
+        const i = Math.floor(x - 2);
+        return i >= 3 ? px[3] : px[i] + (px[i + 1] - px[i]) * (x - 2 - i);
+      }
+      const minCellW = (zoom, icon) => (zoom === 2 ? 240 : icon + 48);
+      const cellHeight = (zoom, icon) => (zoom === 2 ? icon + 16 : icon + 12 + 8 + NAME_LINES * LINE_H + 10);
+
+      const mctx = document.createElement("canvas").getContext("2d");
+      mctx.font = '13px "DM Sans", "Vazirmatn", sans-serif';
+      const TW_CACHE = ITEMS.map((it) => mctx.measureText(it.n).width);
+
+      // the reflow glide (ui_grid.c): state of the last frame and per item records
+      const G = { valid: false, on: false, compact: false, cols: 0, cw: 0, ch: 0, t0: 0, rem: 1, sl: 0, gf: 1, base: 0, cnt: 0, it: [] };
+      function shape(p) { const v = 1 - clamp01(p); G.rem = v * v * v; G.sl = 1 - G.rem; const q = 1 - clamp01(p / 0.5); G.gf = q * q; }
+      const itemOf = (i) => (G.on && i >= G.base && i < G.base + G.cnt ? G.it[i - G.base] : null);
+      const mainAlpha = (it) => (it ? it.a0 + (1 - it.a0) * G.sl : 1);
+      function glideRect(i, cols, cw, ch) {
+        const r = { x: GPAD + (i % cols) * cw, y: Math.floor(i / cols) * ch, w: cw, h: ch };
+        const it = itemOf(i);
+        if (it && !it.fade) {
+          r.x += it.ox * G.rem; r.y += it.oy * ch * G.rem;
+          r.w = it.w0 * G.rem + cw * G.sl; r.h = (it.h0 * G.rem + G.sl) * ch;
+        }
+        return r;
+      }
+      function addGhost(n, x, y, w, h, a) {
+        let at = n.g.length;
+        if (at === 2) {
+          at = 0;
+          for (let k = 1; k < 2; k++) if (n.g[k].a < n.g[at].a) at = k;
+          if (n.g[at].a >= a) return;
+        }
+        n.g[at] = { x, y, w, h, a };
+      }
+      function labelBox(i, r, zoom, icon) {
+        const tw = TW_CACHE[i];
+        if (zoom <= 2) { const w = Math.min(tw, r.w - icon - 36); return { x: r.x + icon + 20, y: r.y + r.h * 0.5 - 7, w, h: LINE_H }; }
+        const room = r.w - 10, w = Math.min(tw, room), n = tw > room ? 2 : 1;
+        return { x: r.x + (r.w - w) * 0.5, y: r.y + 2 + icon + 16 + 4, w, h: n * LINE_H };
+      }
+      const boxGap = (a, b) => Math.max(Math.max(b.x - (a.x + a.w), a.x - (b.x + b.w)), Math.max(b.y - (a.y + a.h), a.y - (b.y + b.h)));
+      function maskLabels(cp, zoom, icon) {                // a less opaque copy holds its name back near a more opaque one
+        for (const c of cp) c.lb = labelBox(c.i, c, zoom, icon);
+        for (let c = 0; c < cp.length; c++) {
+          cp[c].cut = 0;
+          if (cp[c].a >= 0.999) continue;
+          for (let o = 0; o < cp.length; o++) {
+            if (o === c || cp[o].a < 0.02) continue;
+            if (cp[o].a < cp[c].a || (cp[o].a === cp[c].a && o > c)) continue;
+            const cut = 1 - clamp01((boxGap(cp[c].lb, cp[o].lb) - 4) / 8);
+            if (cut > cp[c].cut) cp[c].cut = cut;
+          }
+        }
+      }
+
+      function gridFrame(t, zoom, icon) {
+        const cwmin = minCellW(zoom, icon), cols = Math.max(1, Math.floor((WC - 2 * GPAD) / cwmin));
+        const ch = cellHeight(zoom, icon), cw = (WC - 2 * GPAD) / cols;
+        // glide_plan
+        if (!G.valid) G.on = false;
+        else {
+          const kind = (zoom === 2) !== G.compact;
+          if (G.on) { const tt = (t - G.t0) / GLIDE_S; if (tt >= 1) G.on = false; else shape(tt); }
+          if (kind) G.on = false;
+          if (cols !== G.cols && !kind && N > 0) {
+            let i0 = 0, i1 = (Math.ceil(VIEWH / ch) + 1) * cols;
+            const o0 = 0, o1 = Math.ceil(VIEWH / G.ch) * G.cols;
+            if (o0 < i0) i0 = o0;
+            if (o1 > i1) i1 = o1;
+            if (i1 > N) i1 = N;
+            const nt = []; let any = false;
+            for (let i = i0; i < i1; i++) {
+              const n = { ox: 0, oy: 0, w0: cw, h0: 1, a0: 1, fade: false, g: [] };
+              const r0 = glideRect(i, G.cols, G.cw, G.ch), old = itemOf(i);
+              const a0 = old ? mainAlpha(old) : 1;
+              const sy = r0.y, oldVis = sy + G.ch > 0 && sy < VIEWH;
+              const dx = GPAD + (i % cols) * cw, dy = Math.floor(i / cols) * ch;
+              const newVis = dy + ch > 0 && dy < VIEWH;
+              if (old) for (const g of old.g) { const a = g.a * G.gf; if (a > 0.02) addGhost(n, g.x, (g.y * G.ch) / ch, g.w, g.h, a); }
+              if (oldVis && !(old && old.fade) && Math.floor(i / G.cols) === Math.floor(i / cols)) {
+                n.ox = r0.x - dx; n.oy = (sy - dy) / ch; n.a0 = a0; n.w0 = r0.w; n.h0 = r0.h / ch;
+              } else {
+                if (oldVis && a0 > 0.02) addGhost(n, r0.x, sy / ch, r0.w, r0.h / ch, a0);
+                if (newVis) { n.fade = true; n.a0 = 0; }
+              }
+              if (n.g.length || n.fade || Math.abs(n.ox) > 0.5 || Math.abs(n.oy) * ch > 0.5 || n.a0 < 0.99) any = true;
+              nt.push(n);
+            }
+            G.on = any;
+            if (any) { G.it = nt; G.base = i0; G.cnt = i1 - i0; G.t0 = t; shape(0); }
+          }
+        }
+        // paint_glide, or the plain grid
+        const cp = [];
+        if (G.on) {
+          for (let k = 0; k < G.cnt; k++) for (const g of G.it[k].g) { const a = g.a * G.gf; if (a >= 0.01) cp.push({ i: G.base + k, ghost: 1, x: g.x, y: g.y * ch, w: g.w, h: g.h * ch, a }); }
+          for (let i = 0; i < N; i++) { const r = glideRect(i, cols, cw, ch); cp.push({ i, ghost: 0, x: r.x, y: r.y, w: r.w, h: r.h, a: mainAlpha(itemOf(i)) }); }
+        } else {
+          for (let i = 0; i < N; i++) cp.push({ i, ghost: 0, x: GPAD + (i % cols) * cw, y: Math.floor(i / cols) * ch, w: cw, h: ch, a: 1 });
+        }
+        maskLabels(cp, zoom, icon);
+        G.valid = true; G.compact = zoom === 2; G.cols = cols; G.cw = cw; G.ch = ch;
+        const q = (v) => Math.round(v * 100) / 100;
+        return { cols, ch, cw, c: cp.map((c) => [c.i, q(c.x), q(c.y), q(c.w), q(c.h), q(c.a), c.ghost, q(c.cut)]) };
+      }
+
+      /* the simulation: 120 steps a second, every step stored, so any time can be drawn out of order */
+      const sim = [];
+      (function run() {
+        const A = { zv: 0, zoom: 0, fadeT: 0 };
+        for (let k = 0; k <= STEPS; k++) {
+          const t = k * DT;
+          const u = clamp01((t - T_START) / T_DUR), p = 0.5 * (1 - Math.cos(Math.PI * u));   // sine.inOut
+          const v = 5 * p;
+          if (Math.abs(v - A.zv) >= 0.0005) {                          // set_value
+            const oldStop = A.zoom, stop = stopOf(v);
+            A.zv = v; A.zoom = stop;
+            if (stop !== oldStop) {
+              if ((oldStop === 2) !== (stop === 2) && oldStop >= 2 && stop >= 2) A.fadeT = t;   // compact rows to tiles
+              if (oldStop === 1 || stop === 1 || oldStop === 0 || stop === 0) A.fadeT = t;       // another kind of view
+            }
+          }
+          let fade = 1;
+          if (A.fadeT > 0) { const f = (t - A.fadeT) / FADE_S; if (f >= 1) A.fadeT = 0; else fade = 0.15 + 0.85 * f; }
+          const icon = iconSize(A.zv), zoom = A.zoom;
+          const W = widthAt(t); sidebarStep(t, W);
+          WC = W - SB_S.px; VIEWH = VH_FULL - (SB_S.gone ? BAR_H : 0);
+          const st = { p, zv: A.zv, zoom, icon, fade, wa: 1 - Math.pow(1 - clamp01(t / 0.4), 3), W, px: SB_S.px, wc: WC, gone: SB_S.gone, vh: VIEWH };
+          if (zoom >= 2) Object.assign(st, gridFrame(t, zoom, icon));
+          else { G.valid = false; G.on = false; }
+          sim.push(st);
+        }
+      })();
+      window.__sim = sim;
+
+      /* ---------------------------------------------------------------- draw a stored state */
+      const $ = (id) => document.getElementById(id);
+      const winEl = $("win"), sideW = $("sideW"), sideEl = $("side"), hdrEl = $("hdr"), contentEl = $("content"), bbEl = $("bb"), edgeEl = $("edge"), tetherEl = $("tether"), gripEl = $("grip");
+      const hSb = $("hSb"), hBack = $("hBack"), hFwd = $("hFwd"), hSearch = $("hSearch"), hMenu = $("hMenu"), vbtn = $("vbtn"), pathEl = $("path");
+      const ticks = Array.from(document.querySelectorAll(".tick"));
+      const vl1 = document.createElement("div"), vl2 = document.createElement("div");
+      for (const v of [vl1, vl2]) { v.style.cssText = "position:absolute;top:0;width:1px;height:520px;background:#262830;z-index:7"; winEl.appendChild(v); }
+      const viewEl = $("view"), lh = $("lh"), vGrid = $("vGrid"), vList = $("vList"), knob = $("knob"), winScale = $("winScale");
+      const SVGS_T = ITEMS.map((it, i) => iconSvg(it, i));
+      const SVGS_S = ITEMS.map((it, i) => smallSvg(it, i)), SVGS_L = ITEMS.map((it) => lineSvg(it));
+      const slots = [];
+      for (let s = 0; s < 80; s++) {
+        const w = document.createElement("div");
+        w.className = "it";
+        w.innerHTML = '<div class="ico"></div><div class="lab"></div><div class="col sz"></div><div class="col md"></div><div class="col ty"></div><div class="rl"></div>';
+        viewEl.appendChild(w);
+        const q = (c) => w.querySelector(c);
+        slots.push({ w, ico: q(".ico"), lab: q(".lab"), sz: q(".sz"), md: q(".md"), ty: q(".ty"), rl: q(".rl"), item: -1 });
+      }
+      function place(s, i, x, y, a) {
+        if (s.item !== i) {
+          s.item = i; s.vr = "T"; s.ico.innerHTML = SVGS_T[i]; s.lab.textContent = ITEMS[i].n;
+          const it = ITEMS[i];
+          s.sz.textContent = it.sz ? it.sz[0] + " " + it.sz[1] : ""; s.sz.classList.remove("pend"); s.md.textContent = it.m || ""; s.ty.textContent = it.t || "";
+        }
+        s.y = y;
+        const tx0 = s.ico.querySelector("text"); if (tx0) tx0.style.display = "";
+        s.vr = s.vr || "T";
+        s.w.style.display = "block";
+        s.w.style.opacity = a.toFixed(3);
+        s.w.style.transform = "translate(" + x.toFixed(2) + "px," + y.toFixed(2) + "px)";
+      }
+      const setVar = (s, v) => { if (s.vr !== v) { s.vr = v; s.ico.innerHTML = (v === "L" ? SVGS_L : v === "S" ? SVGS_S : SVGS_T)[s.item]; } };
+      const icoAt = (s, x, y, size) => { s.ico.style.transform = "translate(" + x.toFixed(2) + "px," + y.toFixed(2) + "px) scale(" + (size / 64).toFixed(4) + ")"; };
+      const labAt = (s, cls, x, y, w, o) => {
+        s.lab.className = "lab " + cls;
+        s.lab.style.width = w.toFixed(2) + "px"; s.lab.style.opacity = o.toFixed(3);
+        s.lab.style.transform = "translate(" + x.toFixed(2) + "px," + y.toFixed(2) + "px)";
+      };
+      const cols3 = (s, on) => { const d = on ? "block" : "none"; s.sz.style.display = d; s.md.style.display = d; s.ty.style.display = d; s.rl.style.display = d; };
+
+      // parts that start below the view are clipped anyway: not drawn, as the app builds only what it shows
+      function clipParts(s, parts) { for (const [el, dy] of parts) el.style.display = s.y + dy >= VIEWH - 1 ? "none" : el.classList.contains("col") ? "block" : ""; }
+      /* header_plan in ui_chrome.c: how wide the path bar is, and whether search stays in the header */
+      function planHeader(W, px, gone) {
+        const avail = W - px, steps = gone ? 1 : 2; let path = 0, tier = 0;
+        for (let step = 0; step < steps; step++) {
+          const right = gone || step ? 1 : 2, rightW = gone ? 36 : step ? 66 : 102, left = gone ? 1 : 2;
+          const kids = left + 1 + 1 + right + (gone ? 1 : 0) + 1 + 1;
+          const rest = 16 + 36 * left + rightW + (gone ? 36 : 0) + 4 + 84 + 4 * (kids - 1) + 4;
+          tier = step; path = avail - rest;
+          if (path >= (step < steps - 1 ? 144 : 116)) break;
+        }
+        if (path > 176) path -= 32;
+        const floor = gone ? 40 : 116; if (path < floor) path = floor;
+        return { path, tier };
+      }
+      function render() {
+        const t = tl.time();
+        const st = sim[Math.min(sim.length - 1, Math.max(0, Math.round(t * 120)))];
+        VIEWH = st.vh;
+        const dr = clamp01((t - 9.6) / 0.5), dp = 1 - Math.pow(dr, 3);   // 9.6 to 10.1: tether, edge and window go
+        winScale.style.opacity = ((0.5 + 0.5 * st.wa) * (1 - dr)).toFixed(3);
+        winScale.style.transform = "translate(0," + (12 * (1 - st.wa)).toFixed(2) + "px) scale(1.513)";
+        // the window: its width, the sidebar sliding, the header's form
+        const W = st.W, px = st.px, wc = st.wc, gone = st.gone;
+        winScale.style.width = W.toFixed(2) + "px"; winEl.style.width = W.toFixed(2) + "px";
+        sideW.style.display = px > 0.01 ? "block" : "none"; sideW.style.width = px.toFixed(2) + "px"; sideEl.style.left = (px - 240).toFixed(2) + "px";
+        hdrEl.style.left = px.toFixed(2) + "px"; contentEl.style.left = px.toFixed(2) + "px"; contentEl.style.width = wc.toFixed(2) + "px"; contentEl.style.height = st.vh + "px";
+        viewEl.style.width = wc.toFixed(2) + "px"; lh.style.width = wc.toFixed(2) + "px";
+        bbEl.style.display = gone ? "flex" : "none"; bbEl.style.left = px.toFixed(2) + "px"; bbEl.style.width = wc.toFixed(2) + "px";
+        vl1.style.display = px > 0.01 ? "block" : "none"; vl1.style.left = px.toFixed(2) + "px"; vl2.style.left = (W - 1).toFixed(2) + "px";
+        const hp = planHeader(W, px, gone);
+        hSb.style.display = gone ? "flex" : "none"; hMenu.style.display = gone ? "flex" : "none";
+        hBack.style.display = gone ? "none" : "flex"; hFwd.style.display = gone ? "none" : "flex"; vbtn.style.display = gone ? "none" : "block";
+        hSearch.style.display = hp.tier === 0 ? "flex" : "none";
+        pathEl.style.width = hp.path.toFixed(2) + "px";
+        // the slider and the tether to the window's edge (scene 3)
+        const kx = t < 6.0 ? TX0 + TW * st.p : WIN_X + SC * W - 23;
+        knob.style.left = kx.toFixed(2) + "px";
+        const ex = WIN_X + SC * W, ey = 30 + 520 * SC, ky = 849;
+        const fo = clamp01((t - 6.0) / 0.5), fe = 1 - Math.pow(1 - fo, 3);
+        for (const k of ticks) k.style.opacity = (1 - fo).toFixed(3);
+        edgeEl.style.opacity = (fe * (1 - dr)).toFixed(3);
+        const tp = (1 - Math.pow(1 - clamp01((t - 6.05) / 0.45), 3)) * (1 - Math.pow(dr, 2)), full = ky - ey, ang = 0;   // the tether stands straight above the knob
+        tetherEl.style.opacity = tp > 0 ? 1 : 0; tetherEl.style.left = kx.toFixed(2) + "px"; tetherEl.style.height = (full * tp).toFixed(2) + "px";
+        tetherEl.style.top = (ky - full * tp).toFixed(2) + "px"; tetherEl.style.transform = "rotate(" + ang.toFixed(3) + "deg)";
+        gripEl.style.opacity = tp.toFixed(3); gripEl.style.left = kx.toFixed(2) + "px"; gripEl.style.top = ey.toFixed(2) + "px"; gripEl.style.transform = "scale(" + tp.toFixed(3) + ")";
+        vList.style.opacity = st.zoom <= 1 ? 1 : 0;
+        vGrid.style.opacity = st.zoom <= 1 ? 0 : 1;
+        viewEl.style.opacity = st.fade.toFixed(3);
+        lh.style.opacity = st.zoom === 0 ? st.fade.toFixed(3) : 0;
+        let used = 0;
+        if (st.zoom === 0) {                                      // Details: a table, rows of 36 px under a 36 px header
+          for (let i = 0; i < N; i++) {
+            if (40 + i * 36 >= VIEWH) break;                   // below the view: clipped, so not built (as the app builds only visible rows)
+            const s = slots[used++], it = ITEMS[i];
+            place(s, i, 0, 40 + i * 36, 1);
+            const pend = it.k === "folder" && t < SIZE_T[i];             // a folder still being measured: a muted "…" at the right edge
+            s.sz.textContent = pend ? "\u2026" : it.sz ? it.sz[0] + " " + it.sz[1] : ""; s.sz.classList.toggle("pend", pend);
+            cols3(s, !!it.sz || pend); s.sz.style.display = it.sz || pend ? "block" : "none";
+            setVar(s, "L"); icoAt(s, 12, 10, 16); labAt(s, "cmp det", 36, 10, 250, 1);
+            s.sz.style.transform = "translate(338px,10px)"; s.md.style.transform = "translate(492px,10px)"; s.ty.style.transform = "translate(632px,10px)";
+            s.rl.style.transform = "translate(0,35px)";
+            clipParts(s, [[s.ico, 9], [s.lab, 10]]);
+            if (it.sz || pend) clipParts(s, [[s.sz, 10], [s.md, 10], [s.ty, 10]]);
+          }
+        } else if (st.zoom === 1) {                               // List: 240 px columns, 32 px rows, top to bottom then the next column
+          const rows = Math.max(1, Math.floor((VIEWH - 32) / 32));
+          for (let i = 0; i < N; i++) {
+            const s = slots[used++];
+            place(s, i, Math.floor(i / rows) * 240, 16 + (i % rows) * 32, 1); cols3(s, false);
+            setVar(s, "S"); icoAt(s, 12, 8, 16); labAt(s, "cmp", 36, 7.5, 188, 1);
+            clipParts(s, [[s.ico, 8], [s.lab, 7.5]]);
+          }
+        } else {
+          for (const c of st.c) {
+            if (used >= slots.length) break;
+            const [i, x, y, w, h, a, ghost, cut] = c;
+            if (y >= VIEWH || y + h <= 0 || a < 0.01) continue;
+            const s = slots[used++];
+            place(s, i, x, y, a); cols3(s, false);
+            setVar(s, st.icon < 40 ? "S" : "T");
+            if (st.zoom === 2) { icoAt(s, 12, h / 2 - st.icon / 2, st.icon); labAt(s, "cmp", st.icon + 20, h / 2 - 8.5, Math.max(10, w - st.icon - 36), 1 - cut); }
+            else { icoAt(s, (w - st.icon) / 2, 10, st.icon); labAt(s, "tile", 5, st.icon + 22, Math.max(10, w - 10), 1 - cut); }
+            clipParts(s, [[s.ico, 10], [s.lab, st.zoom === 2 ? h / 2 - 8.5 : st.icon + 22]]);
+            const tx = s.ico.querySelector("text");   // the file-type letters of a document icon: not drawn once they fall below the view
+            if (tx) tx.style.display = s.y + (st.zoom === 2 ? h / 2 - st.icon / 2 : 10) + st.icon * 0.52 >= VIEWH ? "none" : "";
+          }
+        }
+        for (let k = used; k < slots.length; k++) { if (slots[k].w.style.display !== "none") slots[k].w.style.display = "none"; }
+      }
+
+      /* ---------------------------------------------------------------- timeline: 5.0 s */
+      const tl = gsap.timeline({ paused: true, onUpdate: render });
+      tl.to({}, { duration: 14.5 }, 0);
+      [["#cap1", 0.2, 2.9], ["#cap2", 3.0, 6.2], ["#cap3", 6.4, 9.6]].forEach(([id, a, b]) => {   // fully in place at a, gone at b
+        tl.fromTo(id, { opacity: 0 }, { opacity: 1, duration: 0.1, ease: "power1.out" }, a - 0.1);
+        tl.to(id, { opacity: 0, duration: 0.15, ease: "power1.in" }, b - 0.15);
+      });
+      /* 10.0 to 14.5: the closing scene */
+      const title = $("endTitle");
+      "Dio File Manager".split("").forEach((ch) => { const e = document.createElement("span"); e.className = "l"; e.textContent = ch; title.appendChild(e); });
+      tl.to("#track", { scaleX: 0, transformOrigin: "100% 50%", duration: 0.7, ease: "power3.in" }, 10.0);
+      tl.to("#knob", { scale: 280 / 46, borderRadius: "22%", backgroundColor: "#0a0d1a", boxShadow: "0 0 0 0 rgba(0,0,0,0)", duration: 0.7, ease: "power3.inOut" }, 10.0);
+      tl.to("#icoBig", { opacity: 1, duration: 0.25, ease: "power1.out" }, 10.45);
+      tl.to("#knob", { opacity: 0, duration: 0.05 }, 10.7);
+      tl.to("#icoBig", { x: 543 - 1757, y: 520 - 872, duration: 0.7, ease: "power3.inOut" }, 10.7);
+      tl.fromTo("#endTitle .l", { opacity: 0, filter: "blur(9px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.24, ease: "power2.out", stagger: 0.035 }, 10.85);
+      tl.fromTo("#endTag", { clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)", duration: 0.5, ease: "power3.out" }, 11.5);
+      tl.fromTo("#endFacts", { clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)", duration: 0.4, ease: "power3.out" }, 11.75);
+      tl.fromTo("#endBtn", { clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)", duration: 0.35, ease: "power3.out" }, 11.95);
+      tl.fromTo("#endUrl", { clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)", duration: 0.3, ease: "power3.out" }, 12.1);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main"] = tl;
+      render();
+      tl.seek(0);
+    </script>
+  </body>
+</html>
