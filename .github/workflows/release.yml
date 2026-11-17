@@ -24,10 +24,12 @@ on:
 permissions:
   contents: write
 
-# One release run at a time, so two pushes never take the same version number.
+# One release run at a time, in order (queue: max keeps every waiting push; the default keeps only the newest),
+# so two pushes never take the same version number and none is dropped.
 concurrency:
   group: release
   cancel-in-progress: false
+  queue: max
 
 jobs:
   windows:
