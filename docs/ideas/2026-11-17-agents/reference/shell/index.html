@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dio File Manager · reusable shell</title>
+  <link rel="stylesheet" href="shell.css">
+</head>
+<body>
+  <div class="dio-stage">
+    <div id="shell"></div>
+    <footer class="dio-demo-controls" aria-label="Demo controls">
+      <span>Theme</span>
+      <button data-theme-choice="system" aria-pressed="true">System</button>
+      <button data-theme-choice="light" aria-pressed="false">Light</button>
+      <button data-theme-choice="dark" aria-pressed="false">Dark</button>
+      <nav class="dio-demo-links" aria-label="Example states">
+        <a href="#grid">Grid</a><a href="#details">Details</a><a href="#menu">Menu</a>
+        <a href="#popover">Popover</a><a href="#dialog">Dialog</a>
+      </nav>
+    </footer>
+  </div>
+  <script src="shell.js"></script>
+  <script>
+    const exampleFiles = [
+      {name:'Reports',kind:'folder',size:2516582,date:'10:22',files:[{name:'November report.pdf',kind:'file',size:1363148,date:'Yesterday'}]},
+      {name:'Holiday Photos',kind:'folder',size:55794790,date:'Yesterday'},
+      {name:'گزارش‌ها',kind:'folder',size:181452,date:'Yesterday'},
+      {name:'Screenshot 2026-11-16 221403.png',kind:'file',size:2457600,date:'Yesterday'},
+      {name:'invoice-11-2026.pdf',kind:'file',size:184320,date:'Yesterday'},
+      {name:'setup-x64.exe',kind:'file',size:40894464,date:'Nov 15'},
+      {name:'قرارداد اجاره.pdf',kind:'file',size:524288,date:'Nov 14'},
+      {name:'photos.zip',kind:'file',size:85983232,date:'Nov 14'},
+      {name:'hero_albedo_v07.png',kind:'file',size:16777216,date:'Nov 13'},
+      {name:'hero_albedo_v08.png',kind:'file',size:17825792,date:'Nov 13'},
+      {name:'hero_final_FINAL.psd',kind:'file',size:150994944,date:'Nov 12'},
+      {name:'rock_01.fbx',kind:'file',size:7340032,date:'Nov 12'},
+      {name:'پاسپورت اسکن.jpg',kind:'file',size:2867200,date:'Nov 11'},
+      {name:'bank-statement-10-2026.pdf',kind:'file',size:94208,date:'Nov 10'}
+    ];
+    window.shell = DioShell.create('#shell',{files:exampleFiles,path:'Home\\Downloads'});
+    shell.registerFolder('Documents',[{name:'Papers',kind:'folder',size:9542041,date:'Yesterday',files:[{name:'residence-permit-2026.pdf',kind:'file',size:744448,date:'Nov 10'},{name:'پاسپورت اسکن.jpg',kind:'file',size:2867200,date:'Nov 11'},{name:'bank-statement-10-2026.pdf',kind:'file',size:94208,date:'Nov 10'}]}]);
+    shell.registerFolder('Local Disk (E:)',[{name:'w',kind:'folder',size:16106127360,date:'Today',files:['game-tools','website','notes-app'].map(name=>({name,kind:'folder',size:52428800,date:'Today',files:['.git','src','build','.agent-work'].map(name=>({name,kind:'folder',date:'Today'}))}))}]);
+    shell.registerFolder('Reports',exampleFiles[0].files);
+    shell.select('invoice-11-2026.pdf');
+    shell.toast('“old-download.zip” moved to Trash',{duration:0,onAction:()=>{shell.setFiles([...shell.files,{name:'old-download.zip',kind:'file',size:1048576,date:'Yesterday'}]);shell.toast('Restored from Trash',{action:null});}});
+    document.querySelectorAll('[data-theme-choice]').forEach(button=>button.addEventListener('click',()=>{
+      shell.setTheme(button.dataset.themeChoice);
+      document.querySelectorAll('[data-theme-choice]').forEach(b=>b.setAttribute('aria-pressed',b===button));
+    }));
+    function state() {
+      shell.closePopup();
+      const rect=shell.element.getBoundingClientRect();
+      if(location.hash==='#details')shell.setView('details');
+      if(location.hash==='#grid')shell.setView('grid');
+      if(location.hash==='#menu')shell.openMenu(rect.left+530,rect.top+260,[
+        {label:'Open',icon:'open',shortcut:'Enter',action:()=>shell.dialog({title:'invoice-11-2026.pdf',message:'PDF Document · 180.0 kB'})},
+        {label:'Open With…',icon:'external'},'separator',
+        {label:'Cut',icon:'cut',shortcut:'Ctrl X',action:()=>shell.toast('Ready to move',{action:null})},
+        {label:'Copy',icon:'copy',shortcut:'Ctrl C',action:()=>shell.toast('Copied',{action:null})},'separator',
+        {label:'Rename…',icon:'edit',shortcut:'F2',action:()=>{shell.closePopup();shell.element.querySelector('.dio-files').dispatchEvent(new KeyboardEvent('keydown',{key:'F2',bubbles:true}));}},
+        {label:'Move to Trash',icon:'trash',shortcut:'Delete',action:()=>shell.element.querySelector('.dio-files').dispatchEvent(new KeyboardEvent('keydown',{key:'Delete',bubbles:true}))},'separator',
+        {label:'Star',icon:'star',action:()=>shell.toast('Added to Starred',{action:null})},
+        {label:'Copy Path',icon:'link',action:()=>shell.toast('Path copied',{action:null})},
+        {label:'Properties',icon:'info',shortcut:'Alt Enter',action:()=>shell.dialog({title:'invoice-11-2026.pdf',message:'PDF Document · 180.0 kB'})}
+      ]);
+      if(location.hash==='#popover')shell.element.querySelector('[data-action="view"]').click();
+      if(location.hash==='#dialog')shell.dialog({title:'Replace “invoice-11-2026.pdf”?',message:'A file with this name already exists in Downloads.',actions:[{label:'Skip'},{label:'Keep Both',action:()=>shell.toast('Both files kept',{action:null})},{label:'Replace',action:()=>shell.toast('File replaced',{action:null})}]});
+    }
+    addEventListener('hashchange',state);state();
+  </script>
+</body>
+</html>
