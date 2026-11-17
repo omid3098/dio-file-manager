@@ -393,9 +393,10 @@ static const char *read_string(const char *p, char *out, size_t cap) {   /* p is
                 }
             } else cp = *p == 'n' || *p == 't' || *p == 'r' ? ' ' : (unsigned char)*p;
             p++;
-            char u[4];   /* UTF-8: the lead byte 0xC0, 0xE0 or 0xF0 for 2, 3 or 4 bytes, then 6 bits each */
+            char u[4];   /* UTF-8: 6 bits per byte from the end, then the lead byte 0xC0, 0xE0 or 0xF0 for 2, 3 or 4 bytes */
             int k = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
-            for (int i = 0; i < k; i++) u[i] = (char)(k == 1 ? cp : (i ? 0x80 : 0xF00 >> k) | ((cp >> 6 * (k - 1 - i)) & (i || k == 1 ? 63 : 255)));
+            for (int i = k - 1; i > 0; i--, cp >>= 6) u[i] = (char)(0x80 | (cp & 63));
+            u[0] = (char)(k == 1 ? cp : (0xF00 >> k) | cp);
             if (n + (size_t)k < cap) { memcpy(out + n, u, (size_t)k); n += (size_t)k; }
         } else {
             if (n + 1 < cap) out[n++] = *p;
@@ -570,10 +571,10 @@ static size_t snippet(const char *dir, const char *name, char *out, size_t cap) 
 size_t agent_build_prompt(const char *dir, const char *const *names, int n, char *out, size_t cap) {
     size_t o = (size_t)snprintf(out, cap,
         "Rename suggestions for files in this folder: %s\n"
-        "You may only read. Do not change, create or delete anything. Open the listed files that you need to see (pictures, PDFs, documents) to learn what each one is.\n"
-        "For each file give a short, clear name that says what the file is about. Write the name in the language of the file's own content "
-        "(a Persian text gets a Persian name); when the language is unclear, use English. Keep each file's extension. "
-        "At most 60 characters before the extension. Never use these characters: \\ / : * ? \" < > |\n"
+        "You may only read: change, create and delete nothing. Open the files you need to see (pictures, PDFs, documents) to learn what each one is.\n"
+        "Give each file a short, clear name that says what it is about, in the language of the file's own content "
+        "(a Persian text gets a Persian name; unclear: English). Keep the extension. "
+        "At most 60 characters before it. Never use: \\ / : * ? \" < > |\n"
         "Reply with JSON only, no other text: {\"names\":[{\"old\":\"<the exact current name>\",\"new\":\"<the new name with its extension>\"}]}\n"
         "Files:\n", dir);
     for (int i = 0; i < n && o + 2200 < cap; i++) {

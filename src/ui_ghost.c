@@ -77,9 +77,8 @@ bool ui_ghost_hit(const char *name, cui_rect r) {   /* a paint routine tells whe
 
 static void clear_ghosts(void) { G.n = 0; G.dir[0] = 0; }
 
-static void stop_run(void) {
-    if (G.job) { agent_free(G.job); G.job = NULL; }
-}
+static void drop_job(agent_job **j) { if (*j) { agent_free(*j); *j = NULL; } }
+static void stop_run(void) { drop_job(&G.job); }
 
 /* ---- names ---- */
 
@@ -102,10 +101,10 @@ static bool stamp_of(const char *dir, const char *name, stamp *out) {
 }
 
 static bool wide_exists(const char *dir, const char *name) {
-    wchar_t w[FS_PATH_MAX + 320];
+    wchar_t w[FS_WPATH_MAX + 320];
     char p[FS_PATH_MAX + 320];
     snprintf(p, sizeof p, "%s\\%s", dir, name);
-    if (!MultiByteToWideChar(CP_UTF8, 0, p, -1, w, (int)(sizeof w / sizeof *w))) return true;   /* cannot tell: treat as taken */
+    if (!fs_u8_to_w_long(p, w, (int)(sizeof w / sizeof *w))) return true;   /* cannot tell: treat as taken */
     return GetFileAttributesW(w) != INVALID_FILE_ATTRIBUTES;
 }
 
@@ -132,9 +131,9 @@ static bool start_run(const char *dir, const char *const *names, int n, bool sin
     agent_build_prompt(dir, names, n, prompt, 200000);
     agent_job *j = agent_start(prompt, dir, agent_timeout_ms());
     free(prompt);
-    if (!j) { toast_bad("Could not start the agent", "Choose another one from the menu."); return false; }
+    if (!j) { toast_bad("Could not start the agent", "Choose another agent."); return false; }
     G.runs++;
-    if (single) { if (G.f2job) agent_free(G.f2job); G.f2job = j; }
+    if (single) { drop_job(&G.f2job); G.f2job = j; }
     else { stop_run(); G.job = j; G.t_run = 0; }
     return true;
 }
@@ -149,7 +148,7 @@ void ui_ghost_suggest(void) {
         return;
     }
     for (int i = 0; i < A.vis_n; i++) if (A.sel[i] && !(app_item(i)->flags & (FS_DIR | FS_INCOMING))) files++;
-    if (!files) { toast_info("Select files, not folders", "Names are suggested for files."); return; }
+    if (!files) { toast_info("Select files, not folders", ""); return; }
     const char *names[GH_MAX];
     int n = 0;
     for (int i = 0; i < A.vis_n && n < GH_MAX; i++) if (A.sel[i] && !(app_item(i)->flags & (FS_DIR | FS_INCOMING))) {
@@ -159,7 +158,7 @@ void ui_ghost_suggest(void) {
         n++;
     }
     if (!n) return;
-    if (files > GH_MAX) { char d[96]; snprintf(d, sizeof d, "Only the first %d of %d files were sent.", GH_MAX, files); toast_info("One run takes 50 files", d); }
+    if (files > GH_MAX) { char d[96]; snprintf(d, sizeof d, "Sent the first %d of %d files.", GH_MAX, files); toast_info("One run takes 50 files", d); }
     clear_ghosts();
     G.asked = n;
     snprintf(G.dir, sizeof G.dir, "%s", A.path);
@@ -179,7 +178,7 @@ void ui_ghost_f2(const char *path, const char *name) {
     G.f2_ready = false; G.f2_sug[0] = 0;
     snprintf(G.f2_path, sizeof G.f2_path, "%s", path);
     snprintf(G.f2_name, sizeof G.f2_name, "%s", name);
-    if (G.f2job) { agent_free(G.f2job); G.f2job = NULL; }
+    drop_job(&G.f2job);
     const char *g = ui_ghost_for(name);
     if (g) { snprintf(G.f2_sug, sizeof G.f2_sug, "%s", g); G.f2_ready = true; return; }   /* a suggestion is already there */
     if (!agent_choice(&a, NULL) || !agent_looks_machine_made(name)) return;     /* F2 never opens the picker */
@@ -243,35 +242,41 @@ static void start_batch(batch *b) {
     if (!G.worker) { InterlockedExchange(&G.wstate, 0); free(b); G.wb = NULL; }
 }
 
+static batch *batch_new(const char *dir) {
+    batch *b = calloc(1, sizeof *b);
+    if (b) snprintf(b->dir, sizeof b->dir, "%s", dir);
+    return b;
+}
+
+static void batch_add(batch *b, const char *from, const char *to, const stamp *st) {   /* a rename keeps the time and the size, so the stamp stays */
+    int k = b->n++;
+    snprintf(b->from[k], sizeof b->from[0], "%s", from);
+    snprintf(b->to[k], sizeof b->to[0], "%s", to);
+    b->st[k] = *st;
+}
+
 static void accept_all(void) {
     if (!G.n || G.wstate != 0 || G.job) return;
-    batch *b = calloc(1, sizeof *b);
+    batch *b = batch_new(G.dir);
     if (!b) return;
-    snprintf(b->dir, sizeof b->dir, "%s", G.dir);
-    for (int i = 0; i < G.n; i++) {
-        snprintf(b->from[b->n], sizeof b->from[0], "%s", G.g[i].old_name);
-        snprintf(b->to[b->n], sizeof b->to[0], "%s", G.g[i].new_name);
-        b->st[b->n] = G.g_st[i];
-        b->n++;
-    }
+    for (int i = 0; i < G.n; i++) batch_add(b, G.g[i].old_name, G.g[i].new_name, &G.g_st[i]);
     clear_ghosts();
     start_batch(b);
 }
 
 static void start_undo(void) {
     if (!G.last || G.wstate != 0) return;
-    batch *u = calloc(1, sizeof *u);
+    batch *u = batch_new(G.last->dir);
     if (!u) return;
-    snprintf(u->dir, sizeof u->dir, "%s", G.last->dir);
-    for (int i = 0; i < G.last->n; i++) if (G.last->ok[i]) {   /* only what was renamed goes back, last first */
-        int k = u->n++;
-        snprintf(u->from[k], sizeof u->from[0], "%s", G.last->to[i]);
-        snprintf(u->to[k], sizeof u->to[0], "%s", G.last->from[i]);
-        u->st[k] = G.last->st[i];   /* a rename keeps the time and the size */
-    }
+    for (int i = 0; i < G.last->n; i++) if (G.last->ok[i]) batch_add(u, G.last->to[i], G.last->from[i], &G.last->st[i]);   /* only what was renamed goes back */
     u->undo = true;
     free(G.last); G.last = NULL;
     if (u->n) start_batch(u); else free(u);
+}
+
+static void set_undo_toast(const char *title, const char *action) {   /* one Undo toast at a time */
+    if (G.undo_toast) cui_toast_dismiss(A.ui, G.undo_toast - 1);
+    G.undo_toast = cui_toast(A.ui, title, .action = action, .show_timer = true, .duration = 12) + 1;
 }
 
 static void worker_poll(void) {
@@ -284,23 +289,16 @@ static void worker_poll(void) {
     for (int i = 0; i < b->n; i++) ok += b->ok[i];
     InterlockedExchange(&G.wstate, 0);
     if (ok < b->n) {
-        char d[120]; snprintf(d, sizeof d, "%d of %d could not be renamed (the name is taken, the file is in use or it was changed).", b->n - ok, b->n);
-        toast_bad(b->undo ? "Could not undo every rename" : "Some renames failed", d);
+        char d[120]; snprintf(d, sizeof d, "%d of %d could not be renamed (name taken, file in use or changed).", b->n - ok, b->n);
+        toast_bad(b->undo ? "Undo was incomplete" : "Some renames failed", d);
     }
     if (b->undo) {
         if (ok) toast_info(ok == 1 ? "1 rename undone" : "Renames undone", "");
         if (ok < b->n) {   /* what is still under its new name can be undone again */
-            batch *l = calloc(1, sizeof *l);
+            batch *l = batch_new(b->dir);
             if (l) {
-                snprintf(l->dir, sizeof l->dir, "%s", b->dir);
-                for (int i = 0; i < b->n; i++) if (!b->ok[i]) {
-                    int k = l->n++;
-                    snprintf(l->from[k], sizeof l->from[0], "%s", b->to[i]);
-                    snprintf(l->to[k], sizeof l->to[0], "%s", b->from[i]);
-                    l->st[k] = b->st[i]; l->ok[k] = true;
-                }
-                if (G.undo_toast) cui_toast_dismiss(A.ui, G.undo_toast - 1);
-                G.undo_toast = cui_toast(A.ui, "Some renames are still not undone", .action = "Try again", .show_timer = true, .duration = 12) + 1;
+                for (int i = 0; i < b->n; i++) if (!b->ok[i]) { batch_add(l, b->to[i], b->from[i], &b->st[i]); l->ok[l->n - 1] = true; }
+                set_undo_toast("Some renames not undone", "Try again");
                 free(G.last); G.last = l;
             }
         }
@@ -309,8 +307,7 @@ static void worker_poll(void) {
     else if (ok) {
         char t[96];
         snprintf(t, sizeof t, "%d file%s renamed", ok, ok == 1 ? "" : "s");
-        if (G.undo_toast) cui_toast_dismiss(A.ui, G.undo_toast - 1);
-        G.undo_toast = cui_toast(A.ui, t, .action = "Undo", .show_timer = true, .duration = 12) + 1;
+        set_undo_toast(t, "Undo");
         free(G.last); G.last = b;
     } else free(b);
     if (A.loc == LOC_FOLDER && !A.searching) app_reload_quiet();
@@ -338,29 +335,28 @@ static void take_batch_result(int st, const char *text) {
         free(p);
         clear_ghosts();
         G.last_result = st == AGENT_CANCELLED ? "cancelled" : st == AGENT_TIMEOUT ? "timeout" : st == AGENT_FAILED ? "failed" : "broken";
-        if (st == AGENT_TIMEOUT) toast_bad("The agent took too long", "It was stopped after 3 minutes. Try fewer files.");
-        else if (st == AGENT_FAILED) toast_bad("The agent did not answer", "Check that it is signed in, or choose another one.");
-        else if (st == AGENT_DONE) toast_bad("The answer could not be read", "The agent did not send names in the expected form. Nothing was changed.");
+        if (st == AGENT_TIMEOUT) toast_bad("The agent took too long", "Stopped after 3 minutes. Try fewer files.");
+        else if (st == AGENT_FAILED) toast_bad("The agent did not answer", "Is it signed in? Or choose another one.");
+        else if (st == AGENT_DONE) toast_bad("The answer could not be read", "The answer had no names. Nothing was changed.");
         return;
     }
     G.n = 0;
     for (int k = 0; k < np && G.n < GH_MAX; k++) {
-        const char *asked = NULL;
-        for (int i = 0; i < G.asked; i++) if (!_stricmp(G.asked_names[i], p[k].old_name)) { asked = G.asked_names[i]; break; }
+        int ai = 0, dup = 0;
+        while (ai < G.asked && _stricmp(G.asked_names[ai], p[k].old_name)) ai++;
+        const char *asked = G.asked_names[ai];   /* ai == G.asked: the agent named a file that was not asked about */
         char nn[300];
-        if (!asked || !agent_clean_name(asked, p[k].new_name, nn, sizeof nn) || !strcmp(nn, asked)) continue;   /* a name the agent left as it was is no suggestion */
-        bool dup = false;
-        for (int i = 0; i < G.n; i++) if (!_stricmp(G.g[i].old_name, asked)) dup = true;
+        if (ai == G.asked || !agent_clean_name(asked, p[k].new_name, nn, sizeof nn) || !strcmp(nn, asked)) continue;   /* a name the agent left as it was is no suggestion */
+        for (int i = 0; i < G.n; i++) dup |= !_stricmp(G.g[i].old_name, asked);
         if (dup) continue;
         make_unique(G.dir, asked, nn, sizeof nn, G.n);
         snprintf(G.g[G.n].old_name, sizeof G.g[G.n].old_name, "%s", asked);
         snprintf(G.g[G.n].new_name, sizeof G.g[G.n].new_name, "%s", nn);
-        for (int i = 0; i < G.asked; i++) if (asked == G.asked_names[i]) G.g_st[G.n] = G.asked_st[i];
-        G.n++;
+        G.g_st[G.n++] = G.asked_st[ai];
     }
     free(p);
     G.last_result = G.n ? "ok" : "none";
-    if (!G.n) { clear_ghosts(); toast_info("No better names", "The agent found nothing to change."); }
+    if (!G.n) { clear_ghosts(); toast_info("No better names", ""); }
     cui_request_redraw(A.ui);
 }
 
@@ -406,7 +402,7 @@ static void picker(void) {
         cui_column(ui, .width = CUI_FILL, .gap = 2) {
             cui_text(ui, "Agent and model", .font = CUI_FONT_MEDIUM, .size = 15);
             if (!agent_found_count()) {
-                cui_text(ui, "No agent was found on this computer. Install one of these and open this menu again:", .color = CUI_COLOR_TEXT_MUTED);
+                cui_text(ui, "No agent found on this computer. Install one and open this menu again:", .color = CUI_COLOR_TEXT_MUTED);
                 for (int a = 0; a < agent_real_count(); a++) { char l[160]; snprintf(l, sizeof l, "%s: %s", agent_title(a), agent_get_url(a)); cui_text(ui, l, .color = CUI_COLOR_TEXT_MUTED); }
             }
             for (int a = 0; a < agent_count(); a++) {
@@ -462,7 +458,7 @@ void ui_ghost_frame(void) {
     char chip[96], status[96];
     agent_choice_text(chip, sizeof chip);
     if (!chip[0]) snprintf(chip, sizeof chip, "Choose an agent");
-    if (G.picking && !running && !G.n) snprintf(status, sizeof status, "Which agent should suggest names?");
+    if (G.picking && !running && !G.n) snprintf(status, sizeof status, "Pick an agent");
     else if (running) {   /* the text never changes width, so Cancel stays under the pointer */
         snprintf(status, sizeof status, "Reading %d file%s\xE2\x80\xA6", G.asked, G.asked == 1 ? "" : "s");
     } else snprintf(status, sizeof status, "%d name%s suggested", G.n, G.n == 1 ? "" : "s");
@@ -520,7 +516,7 @@ void ui_ghost_snapshot(FILE *f) {
 
 void ui_ghost_shutdown(void) {
     stop_run();
-    if (G.f2job) { agent_free(G.f2job); G.f2job = NULL; }
+    drop_job(&G.f2job);
     if (G.worker) { WaitForSingleObject(G.worker, INFINITE); CloseHandle(G.worker); G.worker = NULL; }
     free(G.last); G.last = NULL;
 }
