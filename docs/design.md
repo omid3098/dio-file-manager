@@ -443,9 +443,12 @@ Ollama); it ships none and asks for no key.
 - **Accepting.** Tab (taken in the window procedure, because CUI turns every Tab into a focus move) or the button renames all
   at once as one undoable batch; a toast "N files renamed · Undo" (Ctrl+Z) puts every old name back. Esc or Drop forgets the
   suggestions; leaving the folder or starting a search does too. A file that was replaced after the suggestion (another file index, time or size) is skipped, also by Undo.
+- **Short names.** Omid (2026-11-17): «خیلی اسم‌های طولانی پیشنهاد میده. اسم فایل‌ها معمولاً نباید از چند کلمه بیشتر باشه و هرچی
+  کوتاهتر هم باشه بهتره.» The request asks for one to three words (four at most), no dates, numbers or filler unless the content
+  needs them. The app also enforces it, whatever the agent answers: a name keeps at most four words (split at spaces, hyphens and
+  underscores) and 40 characters before the extension, cut at a word end; one long word with no separator is cut at 40 characters.
 - **Safe names.** Every answer is cleaned: only the leaf, the characters Windows refuses replaced, device names avoided,
-  trailing dots and spaces cut, direction controls (U+202A–202E, U+2066–2069) dropped, 120 characters at most, the extension
-  of the old name kept, and a number added before the extension when the name exists or another suggestion takes it. Nothing is
+  trailing dots and spaces cut, direction controls (U+202A–202E, U+2066–2069) dropped, the extension of the old name kept, and a number added before the extension when the name exists or another suggestion takes it. Nothing is
   ever overwritten. A broken or empty answer shows a toast and changes nothing.
 - **F2.** On a file with a machine-made name (IMG_4821.jpg, Screenshot 2026-11-17 093012.png, a8f3c2e1.pdf, Untitled,
   download (3).pdf) F2 also asks the agent for one name and shows it as a grey line under the field with "Tab"; Tab fills it.

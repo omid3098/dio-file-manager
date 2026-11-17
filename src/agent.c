@@ -487,7 +487,19 @@ bool agent_clean_name(const char *old_name, const char *suggested, char *out, si
     size_t el = strlen(ext);
     if (el && n >= el && !_stricmp(s + n - el, ext)) { n -= el; s[n] = 0; }
     while (n && (s[n - 1] == ' ' || s[n - 1] == '.')) s[--n] = 0;
-    if (n > 120) { n = 120; while (n && ((unsigned char)s[n] & 0xC0) == 0x80) n--; s[n] = 0; }
+    /* a name is a few words: at most 4 words and 40 characters, cut at a word end (words split at space, - and _) */
+    size_t i, w = 0, ch = 0, ws = 0, keep = n;
+    bool in = false;
+    for (i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)s[i];
+        bool sep = c == ' ' || c == '-' || c == '_';
+        if (!sep && !in) { if (w == 4) { keep = i; break; } w++; ws = i; }
+        in = !sep;
+        if ((c & 0xC0) != 0x80 && ++ch > 40) { keep = in && w > 1 ? ws : i; break; }
+    }
+    n = keep;
+    while (n && strchr(" .-_", s[n - 1])) n--;
+    s[n] = 0;
     if (!n) return false;
     if (reserved(s, n)) { memmove(s + 1, s, n + 1); s[0] = '_'; n++; }
     if (n + el + 1 > cap) return false;
@@ -573,9 +585,9 @@ size_t agent_build_prompt(const char *dir, const char *const *names, int n, char
     size_t o = (size_t)snprintf(out, cap,
         "Rename suggestions for files in this folder: %s\n"
         "You may only read: change, create and delete nothing. Open the files you need to see (pictures, PDFs, documents) to learn what each one is.\n"
-        "Give each file a short, clear name that says what it is about, in the language of the file's own content "
-        "(a Persian text gets a Persian name; unclear: English). Keep the extension. "
-        "At most 60 characters before it. Never use: \\ / : * ? \" < > |\n"
+        "Give each file a name of one to three words, four at most, that says what it is about, in the language of the file's own content "
+        "(a Persian text gets a Persian name; unclear: English). No dates, numbers or filler unless the content needs them. Keep the extension. "
+        "Never use: \\ / : * ? \" < > |\n"
         "Reply with JSON only, no other text: {\"names\":[{\"old\":\"<the exact current name>\",\"new\":\"<the new name with its extension>\"}]}\n"
         "Files:\n", dir);
     for (int i = 0; i < n && o + 2200 < cap; i++) {

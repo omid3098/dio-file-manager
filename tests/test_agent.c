@@ -35,7 +35,14 @@ static void names_cleaned(void) {
     CHECK(!clean("IMG_1.jpg", " . ", o) && !clean("IMG_1.jpg", "///", o), "a name of nothing is no suggestion");
     char big[800];
     memset(big, 'a', sizeof big - 1); big[sizeof big - 1] = 0;
-    CHECK(clean("IMG_1.jpg", big, o) && strlen(o) < 300 && !strcmp(o + strlen(o) - 4, ".jpg"), "an overlong name is cut, extension kept (%zu)", strlen(o));
+    CHECK(clean("IMG_1.jpg", big, o) && strlen(o) == 44 && !strcmp(o + strlen(o) - 4, ".jpg"), "a long word with no separator is cut at 40 characters, extension kept (%zu)", strlen(o));
+    CHECK(clean("IMG_1.jpg", "Invoice Nordlicht web hosting 2026 November.jpg", o) && !strcmp(o, "Invoice Nordlicht web hosting.jpg"), "more than four words: the first four stay: %s", o);
+    CHECK(clean("IMG_1.jpg", "Invoice-Nordlicht-web-hosting-2026.jpg", o) && !strcmp(o, "Invoice-Nordlicht-web-hosting.jpg"), "words split at a hyphen: %s", o);
+    CHECK(clean("IMG_1.jpg", "Budget_meeting_minutes_Oct_12.jpg", o) && !strcmp(o, "Budget_meeting_minutes_Oct.jpg"), "words split at an underscore: %s", o);
+    CHECK(clean("IMG_1.jpg", "Four words are fine here.jpg", o) && !strcmp(o, "Four words are fine.jpg") && clean("IMG_1.jpg", "One two three four.jpg", o) && !strcmp(o, "One two three four.jpg"), "four words stay as they are: %s", o);
+    CHECK(clean("IMG_1.jpg", "Extraordinarily Internationalization Documentation.jpg", o) && !strcmp(o, "Extraordinarily Internationalization.jpg"), "over 40 characters: cut before the word that crosses it: %s", o);
+    CHECK(clean("tmp7731.txt", "گزارش هزینه‌های ماهانه خانه در ماه آبان.txt", o) && !strcmp(o, "گزارش هزینه‌های ماهانه خانه.txt"), "a Persian name of eight words keeps four: %s", o);
+    CHECK(clean("tmp7731.txt", "گزارش_هزینه_ماهانه_خانه_آبان_۱۴۰۵.txt", o) && !strcmp(o, "گزارش_هزینه_ماهانه_خانه.txt"), "Persian words split at an underscore: %s", o);
     CHECK(clean("tmp7731.txt", "گزارش فروش ماه آبان.txt", o) && !strcmp(o, "گزارش فروش ماه آبان.txt"), "a Persian name stays as it is: %s", o);
     CHECK(clean("tmp7731.txt", "گزارش\xE2\x80\xAE فروش.txt", o) && !strstr(o, "\xE2\x80\xAE"), "a right-to-left override is dropped: %s", o);
 }
