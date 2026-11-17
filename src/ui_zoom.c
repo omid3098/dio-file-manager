@@ -214,7 +214,10 @@ void app_set_zoom(int stop) {
     app_set_zoomv((float)stop, false);
 }
 
-void app_set_view(int view) { app_set_zoomv(view == VIEW_LIST ? 0.0f : A.last_icon_v, false); }
+void app_set_view(int view) {
+    app_set_tree(false);   /* choosing the grid or the list leaves the disk tree */
+    app_set_zoomv(view == VIEW_LIST ? 0.0f : A.last_icon_v, false);
+}
 
 /* One step: the next stop in that direction (a whole step from a stop, the nearest stop between two). */
 static float next_stop(float v, int dir) {

@@ -504,6 +504,7 @@ static void global_keys(void) {
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_L)) path_key = true;
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_1)) app_set_view(VIEW_GRID);
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_2)) app_set_view(VIEW_LIST);
+    if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_3)) app_set_tree(!app_tree_on());
     if (cui_shortcut(ui, CUI_MOD_CTRL, CUI_KEY_H)) { A.show_hidden = !A.show_hidden; app_rebuild_view(); }
     if (cui_key_pressed(ui, CUI_KEY_F5)) app_reload();
     ui_zoom_keys();
@@ -518,7 +519,8 @@ static void global_keys(void) {
         if (A.search_open) app_set_search_open(false); else app_clear_selection();
     }
     if (cui_shortcut(ui, 0, CUI_KEY_ENTER) && A.cursor >= 0) app_open_vis(A.cursor);
-    if (A.view == VIEW_GRID) ui_grid_keys();
+    if (ui_tree_shown()) ui_tree_keys();
+    else if (A.view == VIEW_GRID) ui_grid_keys();
 }
 
 /* ---- the frame ---- */
@@ -580,7 +582,8 @@ static void list_body(void) {
         if (under) ui_loading_shapes(1 - fade);
         cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_FILL) {
             if (fade < 1) ui_node_opacity(fade);
-            if (A.zoom == Z_LIST) ui_column_view();
+            if (ui_tree_shown()) ui_tree_view();
+            else if (A.zoom == Z_LIST) ui_column_view();
             else if (A.view == VIEW_GRID) ui_grid_view(); else ui_list_view();
         }
     }
@@ -715,6 +718,7 @@ static void frame(void) {
         }
     }
     typed_letters();
+    ui_tree_after_frame();
     dnd_frame_end();
     field_keys = cui_wants_keyboard(ui) || path_key;
     ui_popup_tooltips(ui);
@@ -732,6 +736,7 @@ typedef struct options {
     int loc;                       /* 0 folder, else LOC_* for --loc */
     float zoomv;                   /* --zoom 0..5, the continuous view size; -1 keeps the saved one */
     int view, theme, w, h;
+    bool tree;
     bool inactive;                 /* pictures: draw the window as if another window had the focus */
     int act;                       /* 0 none, 1 item menu, 2 background menu, 3 rename popover, 4 new-folder popover, 5 and 6 the same two menus in the list view */
 } options;
@@ -753,7 +758,7 @@ static void parse_args(options *o) {
         else if (!wcscmp(a, L"--select") && more) arg_u8(argv[++i], o->select, sizeof o->select);
         else if (!wcscmp(a, L"--search") && more) arg_u8(argv[++i], o->search, sizeof o->search);
         else if (!wcscmp(a, L"--act") && more) { ++i; o->act = !wcscmp(argv[i], L"menu") ? 1 : !wcscmp(argv[i], L"bgmenu") ? 2 : !wcscmp(argv[i], L"rename") ? 3 : !wcscmp(argv[i], L"newdir") ? 4 : !wcscmp(argv[i], L"listmenu") ? 5 : !wcscmp(argv[i], L"listbg") ? 6 : 0; }
-        else if (!wcscmp(a, L"--view") && more) { ++i; o->view = !wcscmp(argv[i], L"list") ? VIEW_LIST : !wcscmp(argv[i], L"grid") ? VIEW_GRID : -1; }
+        else if (!wcscmp(a, L"--view") && more) { ++i; o->view = !wcscmp(argv[i], L"list") ? VIEW_LIST : !wcscmp(argv[i], L"grid") ? VIEW_GRID : -1; if (!wcscmp(argv[i], L"tree")) o->tree = true; }
         else if (!wcscmp(a, L"--inactive")) o->inactive = true;
         else if (!wcscmp(a, L"--zoom") && more) o->zoomv = (float)_wtof(argv[++i]);
         else if (!wcscmp(a, L"--theme") && more) { ++i; o->theme = !wcscmp(argv[i], L"dark") ? 2 : !wcscmp(argv[i], L"light") ? 1 : 0; }
@@ -862,6 +867,7 @@ static void test_snapshot(const char *base) {
     ui_popup_snapshot(f);
     ui_default_fm_snapshot(f);
     ui_view_mode_snapshot(f);
+    ui_tree_snapshot(f);
     menu_snapshot(f);
     chrome_snapshot(f);
     fprintf(f, "}"); fclose(f);
@@ -988,6 +994,7 @@ int main(void) {
     if (o.inactive) chrome_set_active(false);
     app_load_view();
     if (o.view >= 0) app_set_view(o.view);
+    if (o.tree) app_set_tree(true);
     A.cursor = A.anchor = -1; A.hover = -1; A.last_click_idx = -1;
     A.sort_key = FS_SORT_NAME;
     A.trash_check_t = -100;

@@ -505,21 +505,23 @@ static void view_options_menu(cui_placement where) {
     cui_row(ui, .width = CUI_FILL, .justify = CUI_JUSTIFY_CENTER) {
         static const char *const modes[2] = { "Grid view", "List view" };
         static const char *const mode_icons[2] = { CUI_ICON_GRID_3X3, CUI_ICON_LIST };
-        bool on[2] = { A.zoom >= Z_SMALL, A.zoom <= Z_LIST };
+        bool on[2] = { A.zoom >= Z_SMALL && !app_tree_on(), A.zoom <= Z_LIST && !app_tree_on() };   /* the disk tree lights neither */
         if (cui_toggle_group(ui, "viewmode", modes, 2, on, .icons = mode_icons, .exclusive = true, .icon_only = true)) {
-            app_set_view(on[0] ? VIEW_GRID : VIEW_LIST);
+            app_set_view(on[0] ? VIEW_GRID : VIEW_LIST);   /* also leaves the disk tree */
             ui_menu_eat_activation();   /* a key that pressed a toggle must not also pick the sort row the arrow keys highlight */
         }
         view_mode_rect = cui_get_rect(ui, cui_make_id(ui, "viewmode"));
     }
     float value = A.zv;   /* continuous: the ticks only mark the six stops */
-    if (cui_slider(ui, "View size", &value, 0, Z_COUNT - 1, .width = CUI_FILL)) app_set_zoomv(value, false);
+    if (cui_slider(ui, "View size", &value, 0, Z_COUNT - 1, .width = CUI_FILL)) { app_set_tree(false); app_set_zoomv(value, false); }
     A.zoom_rect = cui_last_rect(ui);
     cui_canvas(ui, "zoom-ticks", CUI_FILL, CUI_PX(4), paint_zoom_ticks, NULL, 0);
     cui_text(ui, names[A.zoom], .width = CUI_FILL, .align = CUI_TEXT_CENTER, .size = 13, .color = CUI_COLOR_TEXT_SECONDARY);
     cui_menu_separator(ui);
-    cui_menu_label(ui, "Sort by");
     menu_rows_begin("view-scroll");
+    if (ROW("Disk Tree", .icon = CUI_ICON_LAYOUT_DASHBOARD, .shortcut = "Ctrl 3", .checked = app_tree_on(), .disabled = A.loc != LOC_FOLDER || A.searching)) app_set_tree(!app_tree_on());
+    cui_menu_separator(ui);
+    cui_menu_label(ui, "Sort by");
     for (int i = 0; i < 4; i++)
         if (ROW(KEYS[i], .checked = A.sort_key == i)) { A.sort_key = i; app_resort(); }
     cui_menu_separator(ui);

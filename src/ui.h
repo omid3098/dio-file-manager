@@ -341,6 +341,15 @@ bool sizes_settled(void);
 int sizes_open(void);
 void app_resort_keep(void);                                   /* main.c: sort again, keeping the selection and the scroll anchored */
 
+/* ui_tree.c: the disk tree (the open folder as a treemap) */
+bool ui_tree_shown(void);                  /* the tree is what the pane shows now: a folder, no search */
+bool app_tree_on(void);
+void app_set_tree(bool on);
+void ui_tree_view(void);
+void ui_tree_keys(void);
+void ui_tree_after_frame(void);
+void ui_tree_snapshot(FILE *f);
+
 /* ui_grid.c, ui_list.c */
 void ui_grid_view(void);
 #define UI_NAME_BYTES 1028   /* a file name is at most 1023 bytes (fs.c add_entry); a label line adds an ellipsis and the end 0 */

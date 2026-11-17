@@ -16,7 +16,7 @@ static bool sizes_on(void) {
     return elig;
 }
 
-static bool wanted(void) { return sizes_on() && ((A.zoom != Z_LIST && A.view != VIEW_GRID) || A.sort_key == FS_SORT_SIZE); }
+static bool wanted(void) { return sizes_on() && ((A.zoom != Z_LIST && A.view != VIEW_GRID) || A.sort_key == FS_SORT_SIZE || ui_tree_shown()); }
 
 static void join(const char *name, char *out, size_t cap) {
     size_t n = strlen(A.path);
@@ -72,7 +72,12 @@ void sizes_selection(uint64_t *bytes, bool *pending) {
 void sizes_forget(void) { req_list = NULL; }   /* the listing was dropped: a new one at the same address is a new listing */
 
 void sizes_frame(void) {
-    if (!wanted()) return;
+    static bool tree_asked;   /* the disk tree asked for measuring: leaving it (or the folder) ends that work */
+    if (!wanted()) {
+        if (tree_asked && !ui_tree_shown() && A.sort_key != FS_SORT_SIZE && (A.zoom == Z_LIST || A.view == VIEW_GRID || A.loc != LOC_FOLDER || A.searching)) { fsz_view(NULL, false); req_list = NULL; tree_asked = false; }
+        return;
+    }
+    tree_asked = ui_tree_shown();
     if (req_list != A.list) {
         bool entered = !req_list;   /* a quiet reload (a copy running) swaps the listing without forgetting it */
         req_list = A.list; req_done = false;
