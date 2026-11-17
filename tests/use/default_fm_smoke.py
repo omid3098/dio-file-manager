@@ -841,6 +841,101 @@ time.sleep(600)
         import psutil
         return psutil.Process(pid).memory_info().wset
 
+    STAND_WINDOW = r"""import ctypes, ctypes.wintypes as w, sys, threading, time
+u = ctypes.windll.user32
+u.DefWindowProcW.argtypes = [w.HWND, w.UINT, w.WPARAM, w.LPARAM]
+u.DefWindowProcW.restype = ctypes.c_ssize_t
+PROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, w.HWND, w.UINT, w.WPARAM, w.LPARAM)
+def proc(h, m, wp, lp):
+    if m == 0x0010:   # WM_CLOSE: what the app sends the Explorer window it replaces
+        print('closed', flush=True)
+        u.DestroyWindow(h)
+        return 0
+    if m == 0x0002:
+        u.PostQuitMessage(0)
+    return u.DefWindowProcW(h, m, wp, lp)
+cb = PROC(proc)
+class C(ctypes.Structure):
+    _fields_ = [('style', ctypes.c_uint), ('proc', ctypes.c_void_p), ('cls', ctypes.c_int), ('wnd', ctypes.c_int), ('inst', ctypes.c_void_p),
+                ('icon', ctypes.c_void_p), ('cursor', ctypes.c_void_p), ('brush', ctypes.c_void_p), ('menu', ctypes.c_wchar_p), ('name', ctypes.c_wchar_p)]
+c = C(); c.proc = ctypes.cast(cb, ctypes.c_void_p).value; c.name = sys.argv[1]
+u.RegisterClassW(ctypes.byref(c))
+u.CreateWindowExW.restype = ctypes.c_void_p
+h = u.CreateWindowExW(0, sys.argv[1], '', 0x00CF0000, 0, 0, 300, 200, None, None, None, None)
+assert h
+u.ShowWindow(ctypes.c_void_p(h), 4)   # shown without taking the focus: the event the Win+E process watches
+print('ready', flush=True)
+def titles():   # like Explorer: listed with its folder first, the item selected a moment later
+    for t in sys.argv[2:]:
+        time.sleep(.15)
+        u.SetWindowTextW(ctypes.c_void_p(h), t)
+threading.Thread(target=titles, daemon=True).start()
+m = w.MSG()
+while u.GetMessageW(ctypes.byref(m), None, 0, 0) > 0:
+    u.DispatchMessageW(ctypes.byref(m))
+"""
+
+    def explorer_window(*titles, cls='DioTestCabinetWClass'):
+        """A stand-in for a new Explorer window on the check's desktop: titles are what the app reads in turn
+        ("folder", "folder<TAB>selected path", "-" for a place that is not a folder on disk). It prints closed on WM_CLOSE."""
+        p = subprocess.Popen([sys.executable, '-c', STAND_WINDOW, cls, *titles], stdout=subprocess.PIPE, env=env(), creationflags=NO_WINDOW)
+        assert p.stdout.readline().strip() == b'ready', 'The stand-in Explorer window did not start'
+        return p
+
+    def closed(p, seconds):
+        """True when the stand-in window got WM_CLOSE within the time; the process is ended either way."""
+        try:
+            out, _ = p.communicate(timeout=seconds)
+            return b'closed' in out
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.communicate()
+            return False
+
+    def show_in_folder_windows():
+        """A "show in folder" or explorer.exe /select started by another program opens Explorer's own window, never the
+        registered command. While the switch is on, the Win+E process hands each new Explorer window to the app: it opens
+        the same folder with the same item selected and closes Explorer's window. A place that is not a folder stays in
+        Explorer, and after a turn-off every window stays in Explorer."""
+        sandbox = WORK / 'reveal folder'
+        shutil.rmtree(sandbox, ignore_errors=True)
+        sandbox.mkdir(parents=True)
+        (sandbox / 'picked file.txt').write_text('x', encoding='utf-8')
+        folder, picked = str(sandbox), str(sandbox / 'picked file.txt')
+        assert on() == 0
+        resident_up()
+        # the reveal: the window is listed first, its item selected a moment later
+        p = explorer_window(folder, folder + '\t' + picked)
+        got = arrival()
+        assert closed(p, 8), 'The Explorer window of a reveal was not closed: %r' % lines()
+        assert 'arrive-folder\t%s\tpicked file.txt' % folder in got, 'The reveal did not open its folder with the file selected: %r' % got
+        assert has_line('take-window'), 'The Win+E process did not hand the window over: %r' % res_lines()
+        kill_apps()
+        OPENED.unlink(missing_ok=True)
+        # a folder opened with nothing selected (explorer.exe <folder> started directly): the folder opens here
+        p = explorer_window(folder)
+        got = arrival()
+        assert closed(p, 8), 'The Explorer window of a folder was not closed: %r' % lines()
+        assert 'arrive-folder\t%s\t' % folder in got, 'The folder did not open here: %r' % got
+        kill_apps()
+        OPENED.unlink(missing_ok=True)
+        # Control Panel, Home and the like: Explorer keeps the window, nothing opens here
+        p = explorer_window('-')
+        wait_for('The app did not look at the window: %r' % lines(), lambda: any(l.startswith('take-left') for l in lines()))
+        assert not closed(p, 1.5), 'A window that is not a folder was closed'
+        assert not any(l.startswith('arrive-') for l in lines()), 'A window that is not a folder opened here: %r' % lines()
+        kill_apps()
+        OPENED.unlink(missing_ok=True)
+        # another program's window class is never touched
+        p = explorer_window(folder, cls='DioTestOtherWClass')
+        assert not closed(p, 2), 'A window of another class was closed'
+        assert not lines(), 'A window of another class opened here: %r' % lines()
+        assert off() == 0
+        # after a turn-off nothing is replaced
+        p = explorer_window(folder, folder + '\t' + picked)
+        assert not closed(p, 2.5), 'An Explorer window was closed after the turn-off'
+        assert not any(l.startswith('arrive-') for l in lines()), 'A window opened here after the turn-off: %r' % lines()
+
     def resident_keys_and_process():
         """Turning on starts the process, writes the Run entry and the hotkey value; a posted WM_HOTKEY opens a window; off undoes all."""
         seed_rich()
@@ -1177,6 +1272,7 @@ time.sleep(600)
         check('24-turn-on-again-replaces-the-bridge', turn_on_after_turn_off)
         check('25-bridge-watches-an-explorer-that-starts-after-the-turn-off', bridge_watches_late_explorer)
         check('26-app-gone-with-a-failed-restore-keeps-win-e', app_gone_with_failed_restore)
+        check('27-show-in-folder-explorer-windows-open-here', show_in_folder_windows)
     finally:
         exe_run(['--default-fm', 'off', '--test-state', str(BASE)])
         wipe()

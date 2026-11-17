@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <exdisp.h>
+#include <shobjidl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -715,6 +717,127 @@ void defaultfm_arrival(const dfm_request *r) {
     if (r->kind == REQ_FOLDER) log_line(L"arrive-folder", path, select);
     else if (r->kind == REQ_PLACE) log_line(L"arrive-place", loc, NULL);
     else log_line(L"arrive-home", NULL, NULL);
+}
+
+/* ---- an Explorer window that opened anyway ---- */
+
+/* SHOpenFolderAndSelectItems (Electron's "show in folder", VS Code's "Reveal in File Explorer") is answered inside
+ * Explorer, and explorer.exe started directly reads no verb: both open Explorer's own window and never run the
+ * registered command. So the Win+E process watches for new Explorer windows and starts the app on each one; here the
+ * app reads the window's folder and selection through the shell's window list, closes it, and opens the same place. */
+
+/* What the window shows: found is false until the window is listed with a view; folder is empty for a place that is
+ * not a folder on disk; sel is the first selected item's full path, or empty. */
+static void shell_window_read(HWND h, bool *found, wchar_t *folder, wchar_t *sel) {
+    IShellWindows *sw = NULL;
+    long n = 0;
+    *found = false; folder[0] = sel[0] = 0;
+    if (FAILED(CoCreateInstance(&CLSID_ShellWindows, NULL, CLSCTX_ALL, &IID_IShellWindows, (void **)&sw)) || !sw) return;
+    sw->lpVtbl->get_Count(sw, &n);
+    for (long i = 0; i < n && !*found; i++) {
+        VARIANT v;
+        IDispatch *d = NULL;
+        IWebBrowser2 *wb = NULL;
+        IServiceProvider *sp = NULL;
+        IShellBrowser *sb = NULL;
+        IShellView *view = NULL;
+        IFolderView2 *fv = NULL;
+        SHANDLE_PTR wh = 0;
+        VariantInit(&v); v.vt = VT_I4; v.lVal = i;
+        if (FAILED(sw->lpVtbl->Item(sw, v, &d)) || !d) continue;
+        if (SUCCEEDED(d->lpVtbl->QueryInterface(d, &IID_IWebBrowser2, (void **)&wb)) && wb &&
+            SUCCEEDED(wb->lpVtbl->get_HWND(wb, &wh)) && (HWND)wh == h &&
+            SUCCEEDED(wb->lpVtbl->QueryInterface(wb, &IID_IServiceProvider, (void **)&sp)) && sp &&
+            SUCCEEDED(sp->lpVtbl->QueryService(sp, &SID_STopLevelBrowser, &IID_IShellBrowser, (void **)&sb)) && sb &&
+            SUCCEEDED(sb->lpVtbl->QueryActiveShellView(sb, &view)) && view &&
+            SUCCEEDED(view->lpVtbl->QueryInterface(view, &IID_IFolderView2, (void **)&fv)) && fv) {
+            IPersistFolder2 *pf = NULL;
+            IShellItemArray *items = NULL;
+            *found = true;
+            if (SUCCEEDED(fv->lpVtbl->GetFolder(fv, &IID_IPersistFolder2, (void **)&pf)) && pf) {
+                PIDLIST_ABSOLUTE pidl = NULL;
+                if (SUCCEEDED(pf->lpVtbl->GetCurFolder(pf, &pidl)) && pidl) {
+                    if (!SHGetPathFromIDListEx(pidl, folder, DFM_REQ_PATH, GPFIDL_DEFAULT)) folder[0] = 0;
+                    CoTaskMemFree(pidl);
+                }
+                pf->lpVtbl->Release(pf);
+            }
+            if (SUCCEEDED(fv->lpVtbl->GetSelection(fv, FALSE, &items)) && items) {
+                IShellItem *it = NULL;
+                DWORD count = 0;
+                if (SUCCEEDED(items->lpVtbl->GetCount(items, &count)) && count &&
+                    SUCCEEDED(items->lpVtbl->GetItemAt(items, 0, &it)) && it) {
+                    wchar_t *p = NULL;
+                    if (SUCCEEDED(it->lpVtbl->GetDisplayName(it, SIGDN_FILESYSPATH, &p)) && p) {
+                        wcsncpy_s(sel, DFM_REQ_PATH, p, _TRUNCATE);
+                        CoTaskMemFree(p);
+                    }
+                    it->lpVtbl->Release(it);
+                }
+                items->lpVtbl->Release(items);
+            }
+        }
+        if (fv) fv->lpVtbl->Release(fv);
+        if (view) view->lpVtbl->Release(view);
+        if (sb) sb->lpVtbl->Release(sb);
+        if (sp) sp->lpVtbl->Release(sp);
+        if (wb) wb->lpVtbl->Release(wb);
+        d->lpVtbl->Release(d);
+    }
+    sw->lpVtbl->Release(sw);
+}
+
+/* A check's stand-in window (class DioTestCabinetWClass, on the check's own desktop) carries "folder" or
+ * "folder<TAB>selected path" as its title; an empty title is a window that is not listed yet, "-" one that is not a
+ * folder on disk. */
+static void test_window_read(HWND h, bool *found, wchar_t *folder, wchar_t *sel) {
+    wchar_t t[2 * DFM_REQ_PATH + 2] = L"";
+    *found = false; folder[0] = sel[0] = 0;
+    GetWindowTextW(h, t, 2 * DFM_REQ_PATH + 2);
+    if (!t[0]) return;
+    *found = true;
+    if (!wcscmp(t, L"-")) return;
+    wchar_t *tab = wcschr(t, L'\t');
+    if (tab) { *tab = 0; wcsncpy_s(sel, DFM_REQ_PATH, tab + 1, _TRUNCATE); }
+    wcsncpy_s(folder, DFM_REQ_PATH, t, _TRUNCATE);
+}
+
+bool defaultfm_take_window(HWND h, dfm_request *out) {
+    wchar_t folder[DFM_REQ_PATH], sel[DFM_REQ_PATH], full[DFM_REQ_PATH];
+    bool found = false;
+    memset(out, 0, sizeof *out);
+    out->kind = REQ_FALLBACK;
+    if (!defaultfm_enabled() || !IsWindow(h)) return false;
+    HRESULT co = test_on ? E_FAIL : CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);   /* this runs before the window's own COM start */
+    void (*read)(HWND, bool *, wchar_t *, wchar_t *) = test_on ? test_window_read : shell_window_read;
+    /* The window is listed in the shell's window list once its first folder is shown, and a "show in folder" selects
+     * the item a moment later. Wait up to 3 s for the listing and then up to 0.4 s for a selection. */
+    ULONGLONG start = GetTickCount64(), listed = 0;
+    for (;;) {
+        if (!IsWindow(h)) break;
+        read(h, &found, folder, sel);
+        ULONGLONG now = GetTickCount64();
+        if (found && !listed) listed = now;
+        if (found && (!folder[0] || sel[0] || now - listed >= 400)) break;
+        if (!found && now - start >= 3000) break;
+        Sleep(30);
+    }
+    if (SUCCEEDED(co)) CoUninitialize();
+    if (!found || !folder[0] || !IsWindow(h) || !dir_exists(folder)) { log_line(L"take-left", folder, NULL); return false; }
+    /* The selected item is opened selected when it is in that folder; otherwise the folder opens alone. */
+    const wchar_t *name = NULL;
+    if (sel[0] && full_path(sel, full)) {
+        wchar_t *slash = wcsrchr(full, L'\\');
+        size_t fl = wcslen(folder);
+        while (fl > 3 && folder[fl - 1] == L'\\') folder[--fl] = 0;
+        if (slash && slash[1] && (size_t)(slash - full) == (fl == 3 ? 2 : fl) && !_wcsnicmp(full, folder, fl == 3 ? 2 : fl))
+            name = slash + 1;
+    }
+    folder_request(out, folder, name);
+    if (out->kind != REQ_FOLDER) { log_line(L"take-left", folder, NULL); return false; }
+    PostMessageW(h, WM_CLOSE, 0, 0);
+    log_line(L"take-closed", folder, name);
+    return true;
 }
 
 /* ---- the real Explorer ---- */

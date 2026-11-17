@@ -33,6 +33,11 @@ void defaultfm_request(wchar_t **args, int n, dfm_request *out);
 void defaultfm_arrival(const dfm_request *r);
 /* Open the arguments in the real Explorer. False when it was refused (a loop, or no way to start it). */
 bool defaultfm_fallback(wchar_t **args, int n);
+/* An Explorer window that just opened on a folder (a program's "show in folder", or explorer.exe started directly):
+ * read its folder and selected item, close it, and fill the request. False leaves the window alone: not a folder this
+ * app can show (Home, Control Panel), gone, the switch off, or nothing readable in time. The Win+E process starts
+ * the app with --take-window for every new Explorer window while the switch is on. */
+bool defaultfm_take_window(HWND h, dfm_request *out);
 /* True when this exe was started under the launcher's name; runs the launcher and returns its exit code. */
 bool defaultfm_is_launcher(void);
 int defaultfm_launcher_main(void);

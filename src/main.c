@@ -728,6 +728,7 @@ typedef struct options {
     wchar_t *req[8];               /* what Explorer would get: a path, a shell: place, /select,file ... */
     int req_n;
     char default_fm[8];            /* --default-fm on|off|status */
+    unsigned long long take_window; /* --take-window <hex>: an Explorer window to replace (from the Win+E process) */
     int loc;                       /* 0 folder, else LOC_* for --loc */
     float zoomv;                   /* --zoom 0..5, the continuous view size; -1 keeps the saved one */
     int view, theme, w, h;
@@ -758,6 +759,7 @@ static void parse_args(options *o) {
         else if (!wcscmp(a, L"--theme") && more) { ++i; o->theme = !wcscmp(argv[i], L"dark") ? 2 : !wcscmp(argv[i], L"light") ? 1 : 0; }
         else if (!wcscmp(a, L"--size") && more) { ++i; int w, h; if (swscanf_s(argv[i], L"%dx%d", &w, &h) == 2) { o->w = w; o->h = h; } }
         else if (!wcscmp(a, L"--default-fm") && more) arg_u8(argv[++i], o->default_fm, sizeof o->default_fm);
+        else if (!wcscmp(a, L"--take-window") && more) o->take_window = wcstoull(argv[++i], NULL, 16);
         else if (wcsncmp(a, L"--", 2) && o->req_n < 8) o->req[o->req_n++] = _wcsdup(a);
     }
 }
@@ -941,7 +943,11 @@ int main(void) {
         if (!strcmp(o.default_fm, "off")) return defaultfm_disable() ? 0 : 1;
         return defaultfm_enabled() ? 0 : 10;
     }
-    if (!o.path[0] && o.req_n) {   /* started in Explorer's place: open the same place, or hand it to the real Explorer */
+    if (o.take_window) {           /* an Explorer window opened on a folder: open the same place here, or leave it */
+        if (!defaultfm_take_window((HWND)(ULONG_PTR)o.take_window, &rq)) return 0;
+        snprintf(o.path, sizeof o.path, "%s", rq.path);
+        defaultfm_arrival(&rq);
+    } else if (!o.path[0] && o.req_n) {   /* started in Explorer's place: open the same place, or hand it to the real Explorer */
         defaultfm_request(o.req, o.req_n, &rq);
         if (rq.kind == REQ_FALLBACK) return defaultfm_fallback(o.req, o.req_n) ? 0 : 4;
         if (rq.kind == REQ_FOLDER) snprintf(o.path, sizeof o.path, "%s", rq.path);

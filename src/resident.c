@@ -26,6 +26,8 @@ static bool registered;
 static bool bridge;               /* the switch is off, Win+E is still ours: it opens Explorer until Explorer restarts */
 static HANDLE shell_proc;         /* the Explorer that owned the taskbar when the bridge began; NULL when there was none */
 static wchar_t tail[1200];        /* what follows --resident: handed to the app as the launcher hands over its own */
+static HWINEVENTHOOK show_hook;   /* new Explorer windows: see take_window */
+static struct { HWND h; ULONGLONG t; } taken[16];   /* windows already handed to the app, with when */
 
 static void log_line(const wchar_t *what, const wchar_t *a) {
     const wchar_t *file = dfm_test_resident_log();
@@ -255,9 +257,44 @@ static void open_home(void) {
     log_line(L"hotkey-gone", NULL);
 }
 
+/* A program's "show in folder" and explorer.exe started directly open Explorer's own window without the registered
+ * command (docs/design.md, "Show in folder"). Each new Explorer window is handed to the app with --take-window; the
+ * app reads its folder and selection, closes it and opens the same place, or leaves it alone (Home, Control Panel).
+ * Only while the switch is on: a bridge, or a switch turned off elsewhere, leaves every window to Explorer. A check
+ * watches its stand-in class only, so it never touches the owner's Explorer windows. */
+static void take_window(HWND h) {
+    wchar_t app[MAX_PATH], cmd[1500];
+    STARTUPINFOW si = { sizeof si };
+    PROCESS_INFORMATION pi;
+    ULONGLONG now = GetTickCount64();
+    int slot = 0;
+    for (int i = 0; i < 16; i++) {
+        if (taken[i].h == h && now - taken[i].t < 30000) return;   /* shown again (the app left it): once is enough */
+        if (taken[i].t < taken[slot].t) slot = i;
+    }
+    taken[slot].h = h; taken[slot].t = now;
+    if (bridge || !defaultfm_enabled() || !dfm_get_string(HKEY_CURRENT_USER, dfm_state_base(), L"App", app, MAX_PATH) ||
+        GetFileAttributesW(app) == INVALID_FILE_ATTRIBUTES) return;
+    _snwprintf_s(cmd, 1500, _TRUNCATE, L"\"%s\" --take-window %llx%s%s", app, (unsigned long long)(ULONG_PTR)h, tail[0] ? L" " : L"", tail);
+    if (CreateProcessW(app, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
+        log_line(L"take-window", NULL);
+    }
+}
+
+static void CALLBACK on_show(HWINEVENTHOOK hook, DWORD ev, HWND h, LONG obj, LONG child, DWORD thread, DWORD t) {
+    wchar_t c[32];
+    (void)hook; (void)ev; (void)thread; (void)t;
+    if (obj != OBJID_WINDOW || child != CHILDID_SELF || !h || bridge) return;
+    if (!GetClassNameW(h, c, 32) || wcscmp(c, dfm_test_on() ? L"DioTestCabinetWClass" : L"CabinetWClass")) return;
+    if (GetAncestor(h, GA_PARENT) != GetDesktopWindow()) return;   /* top-level windows only */
+    take_window(h);
+}
+
 static void end_bridge(void) {
     log_line(L"bridge-exit", NULL);
     if (registered) { UnregisterHotKey(win, HOTKEY_ID); registered = false; }
+    if (show_hook) { UnhookWinEvent(show_hook); show_hook = NULL; }
     defaultfm_bridge_ended();
     DestroyWindow(win);
 }
@@ -283,6 +320,7 @@ static LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_CLOSE) { DestroyWindow(h); return 0; }
     if (m == WM_DESTROY) {
         if (registered) UnregisterHotKey(h, HOTKEY_ID);
+        if (show_hook) { UnhookWinEvent(show_hook); show_hook = NULL; }
         PostQuitMessage(0);
         return 0;
     }
@@ -323,6 +361,7 @@ bool resident_main(int *rc) {
     _snwprintf_s(pid, 16, _TRUNCATE, L"%lu", GetCurrentProcessId());
     log_line(L"pid", pid);
     try_register();
+    show_hook = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW, NULL, on_show, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
     SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);   /* give back what start-up touched */
     for (;;) {
         DWORD r = MsgWaitForMultipleObjects(shell_proc ? 1 : 0, shell_proc ? &shell_proc : NULL, FALSE, INFINITE, QS_ALLINPUT);
