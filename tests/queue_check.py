@@ -10,6 +10,13 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 HIDDEN = Path(r'C:\Users\Omid\.agents\source\correct')
 USE_CHECKS = ('input_smoke.py', 'search_smoke.py', 'actions_smoke.py')
+# Run by full-safe in addition to --use-checks, so the queue's settings file need not list them. The Persian check
+# is the guard of the CUI fork (docs/architecture.md): it fails on a build without right-to-left text field editing.
+FULL_ONLY_CHECKS = ('persian_input_smoke.py',)
+
+
+def use_check_names(mode, requested):
+    return [*requested, *(FULL_ONLY_CHECKS if mode == 'full-safe' else ())]
 
 
 def run(argv, **kwargs):
@@ -84,7 +91,7 @@ def check_candidate(args, main_root, work):
     if args.mode == 'typecheck':
         return
     os.environ['DFM_EXE'] = str(build / 'MinSizeRel/dio-file-manager.exe')
-    for name in args.use_checks:
+    for name in use_check_names(args.mode, args.use_checks):
         smoke_work = work / args.mode / Path(name).stem
         os.environ['DFM_USE_WORK'] = str(smoke_work)
         try:

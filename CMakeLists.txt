@@ -9,8 +9,19 @@ include(FetchContent)
 set(CUI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CUI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(CUI_TEXT_SHAPING ON CACHE BOOL "" FORCE)
-FetchContent_Declare(cui GIT_REPOSITORY https://github.com/omid3098/cui.git GIT_TAG 57ccb47d4373e4c36788162b0b43480b88296c55)
+# CUI comes from omid3098's fork of yappologistic/CUI, branch dfm-rtl-input: upstream plus pull request #12, which makes
+# text boxes join and edit Persian right to left. While #12 is open, moving CUI to upstream's newest commit means
+# rebasing dfm-rtl-input onto it, pushing it to the fork, and pinning the new commit here. See docs/architecture.md.
+FetchContent_Declare(cui GIT_REPOSITORY https://github.com/omid3098/CUI-yappologistic.git GIT_TAG 57ccb47d4373e4c36788162b0b43480b88296c55)
 FetchContent_MakeAvailable(cui)
+# Stops a CUI without the right-to-left text field editing (a plain upstream pin) before it builds an app that types Persian wrong.
+file(STRINGS ${cui_SOURCE_DIR}/src/cui_textedit.c DFM_CUI_RTL LIMIT_COUNT 1 REGEX "cui__paint_edit_shaped")
+if(NOT DFM_CUI_RTL)
+  message(FATAL_ERROR "The CUI at ${cui_SOURCE_DIR} lacks right-to-left text field editing (function cui__paint_edit_shaped in "
+    "src/cui_textedit.c), so Persian typed into the text boxes would draw unjoined and left to right. Pin the CUI fork "
+    "https://github.com/omid3098/CUI-yappologistic.git at a commit of branch dfm-rtl-input (upstream plus pull request #12): "
+    "rebase that branch onto upstream's newest commit, push it, and put the new commit in FetchContent_Declare. See docs/architecture.md.")
+endif()
 
 file(GLOB DFM_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
 # The .rc embeds the icon (resource id 1: CUI loads it as the window class icon).

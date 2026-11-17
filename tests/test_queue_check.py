@@ -49,6 +49,12 @@ class QueueBuildTest(unittest.TestCase):
                     queue_check.main()
             self.assertEqual(list(owned.iterdir()), [active])
 
+    def test_full_suite_also_runs_the_persian_check(self):
+        self.assertEqual(queue_check.use_check_names('full-safe', queue_check.USE_CHECKS),
+                         [*queue_check.USE_CHECKS, 'persian_input_smoke.py'])
+        self.assertEqual(queue_check.use_check_names('changed-safe', queue_check.USE_CHECKS), list(queue_check.USE_CHECKS))
+        self.assertTrue((queue_check.ROOT / 'tests/use/persian_input_smoke.py').is_file())
+
     def test_build_uses_local_cui_and_release_size_guard(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

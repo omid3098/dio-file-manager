@@ -1,7 +1,14 @@
 # Architecture
 
 One Windows executable in C, built with CMake and MSVC 2022 (Build Tools), CUI fetched with
-FetchContent at the commit `CMakeLists.txt` pins (76a5f1f, master after v1.4.0). All text is UTF-8 inside the app; convert to UTF-16 only at Win32 calls.
+FetchContent at the commit `CMakeLists.txt` pins (57ccb47). All text is UTF-8 inside the app; convert to UTF-16 only at Win32 calls.
+
+CUI comes from `omid3098/CUI-yappologistic`, branch `dfm-rtl-input`: upstream (`yappologistic/CUI`) plus its pull request #12, which makes
+text boxes join and edit Persian right to left. Without it Persian typed into the text boxes draws unjoined and left to right.
+While #12 is open, moving CUI forward means rebasing `dfm-rtl-input` onto upstream's newest commit, pushing it to the fork, and
+pinning the new commit in `CMakeLists.txt`. Two guards fail the build or the merge queue's full suite if this is lost: CMake stops at
+configure time when CUI lacks `cui__paint_edit_shaped`, and `tests/use/persian_input_smoke.py` types Persian into the real app.
+When #12 is merged upstream, pin an upstream commit that contains it and drop the fork.
 
 ## Files and owners
 

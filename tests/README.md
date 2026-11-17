@@ -5,14 +5,14 @@
 `queue_check.py typecheck` builds the candidate in MinSizeRel, including the
 800 KB post-build limit. `changed-safe` builds and runs `input_smoke.py`,
 `search_smoke.py` and `actions_smoke.py`;
-`full-safe` also runs all CTest console checks on the hidden desktop with clipboard
+`full-safe` also runs `persian_input_smoke.py` (Persian typed into the text boxes; the guard of the CUI fork, see `docs/architecture.md`) and all CTest console checks on the hidden desktop with clipboard
 preservation and the shared `Local\DioFileManagerClipboardTest` mutex.
 All use checks pass `--test-state`, so default file opens only write `.opened`
 instead of starting a real app. The action checks use
 explicit stand-ins for file opens, Open With and Terminal; their hidden desktop
 job closes the complete process tree after the run, including on failure.
 The read-only CUI tree for the candidate's `GIT_TAG` is required in the main checkout's
-`.agent-work/cui-src-<first 7 characters of the GIT_TAG>` (now `cui-src-76a5f1f`); a missing
+`.agent-work/cui-src-<first 7 characters of the GIT_TAG>` (now `cui-src-57ccb47`); a missing
 folder stops the check with its path, and the queue never downloads it. Build products and use-check artifacts
 use a unique folder under the main checkout's `.agent-work/merge-queue-checks/`.
 Each helper run removes its own folder on success or failure and copies the
