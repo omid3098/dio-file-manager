@@ -409,6 +409,12 @@ fails if any file in `tests/use/` uses one of them. `input_smoke.py` `live_resiz
 live sizing and moving with `WM_ENTERSIZEMOVE`, `SetWindowPos` steps and `WM_EXITSIZEMOVE`, and fail if `GUI_INMOVESIZE` is ever
 set. Not provable that way: that Windows' modal loop itself runs for this window.
 
+The same test refuses `AttachThreadInput`, `SetKeyboardState` and `BlockInput` in every file under `tests/`, except that
+`input_smoke.py` and `persian_input_smoke.py` may use the first two. The app reads Ctrl, Shift and Alt with `GetKeyState`, which
+reads the key table of its own thread; posted key messages do not change it and `SetKeyboardState` writes only the caller's table.
+So those two checks can hold a modifier for the app only by joining their input queue to the app's thread. Both threads are on the
+private desktop, which no hardware input reaches, so Omid's input is not held. A test hook in the app would remove the join.
+
 ## Disk tree
 
 `tests/test_treemap.c` (CTest target `dfm-treemap-tests`) checks the layout alone: areas by size, the rectangles cover the area,
