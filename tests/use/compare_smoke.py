@@ -3,7 +3,7 @@ Fixture (made here with Pillow): hero_v07/v08 (2048x1536, v08 differs in one 200
 2000x1500 of the same picture), photo.jpg against photo.png, 8k_a/8k_b (7680x4320), alpha_a/alpha_b (1024x1024 with a clear hole),
 two Persian names, note.txt. Run from the repo:  python tests/use/compare_smoke.py [--light]   (DFM_EXE, DFM_USE_WORK as in input_smoke.py)
 Budgets it fails over (docs/design.md, Blink Compare): Space to the other picture drawn within 50 ms; working set with two 8K pictures
-open at most 120 MB steady and 160 MB peak; the window answers a message within 50 ms while two 8K pictures decode.
+open at most 20 MB steady and 35 MB peak over the app's own size before opening them; the window answers a message within 50 ms while two 8K pictures decode.
 """
 import ctypes as C
 import json
@@ -329,7 +329,7 @@ def inside():
         assert sd['sw'] == 7680 and sd['sh'] == 4320
         assert load < 4, f'Open time {load:.2f} s'
         assert worst < .05, f'Window stopped answering {worst * 1000:.0f} ms while decoding'
-        assert ws <= 120 and peak <= 160, f'Memory {ws:.0f} / peak {peak:.0f} MB'
+        assert ws - base_ws <= 20 and peak - base_ws <= 35, f'Memory {ws:.0f} / peak {peak:.0f} MB over a base of {base_ws:.0f}'
         lat = []
         for _ in range(8):
             a.key_up(0x20)

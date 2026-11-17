@@ -398,8 +398,8 @@ Budgets, each a check in `tests/use/compare_smoke.py` that fails over it (releas
 | What | Budget | Measured |
 |---|---|---|
 | Executable size added | at most 30,000 bytes | 11,776 bytes |
-| Working set with both open, steady | at most 120 MB | 118 to 119 MB (105 MB before opening) |
-| Working set, peak | at most 160 MB | 124 to 125 MB |
+| Working set with both open, steady | at most 20 MB over the app before opening them | 13 to 14 MB over (118 to 123 MB; the app itself is 105 to 110 MB in the same window, in a run of the same exe) |
+| Working set, peak | at most 35 MB over | 19 to 20 MB over |
 | Working set after closing | at most 20 MB over before | 18 MB over |
 | Both pictures shown after the menu choice | under 4 s | 0.4 s |
 | Longest message delay of the window while they decode | under 50 ms | 10 to 25 ms |
