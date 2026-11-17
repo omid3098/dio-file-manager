@@ -1,9 +1,19 @@
 # Builds the app on Windows, runs the console tests and attaches the exe and install.ps1 to the version's release.
-# Runs when a version tag (v0.1.1, ...) is pushed; run it by hand to rebuild an existing tag's files.
+# Runs (1) when a push to main changes what ships (the paths below): it takes the next patch version, builds,
+# tests, and creates that tag and release itself; (2) when a version tag is pushed by hand; (3) by hand
+# (workflow_dispatch) to rebuild an existing tag's files.
 name: Release
 
 on:
   push:
+    branches: [main]
+    # Only what ends up in the exe or in install.ps1. Docs, README, the film source, tests and .github/ do not release.
+    # Path filters are not evaluated for tag pushes, so a hand-pushed v* tag still runs.
+    paths:
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'install.ps1'
     tags: ['v*']
   workflow_dispatch:
     inputs:
@@ -14,17 +24,41 @@ on:
 permissions:
   contents: write
 
+# One release run at a time, so two pushes never take the same version number.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   windows:
     runs-on: windows-latest
-    env:
-      TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.TAG }}
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ github.event.inputs.tag || github.sha }}
+
+      # TAG is empty when this run has nothing to release (the pushed commit already carries a version tag).
+      # NEW is 1 when the run creates the tag itself (a push to main).
+      - name: Version
+        shell: pwsh
+        run: |
+          $tag = ''; $new = '0'
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $tag = '${{ github.event.inputs.tag }}' }
+          elseif ($env:GITHUB_REF_TYPE -eq 'tag') { $tag = $env:GITHUB_REF_NAME }
+          elseif ((git tag --points-at HEAD --list 'v*')) { Write-Host 'This commit already has a version tag; nothing to release.' }
+          else {
+            $v = git tag --list 'v*' | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } | ForEach-Object { [version]$_.Substring(1) } | Sort-Object | Select-Object -Last 1
+            if (-not $v) { throw 'No version tag found to count from.' }
+            $tag = "v$($v.Major).$($v.Minor).$($v.Build + 1)"; $new = '1'
+          }
+          Write-Host "TAG=$tag NEW=$new"
+          "TAG=$tag" >> $env:GITHUB_ENV
+          "NEW=$new" >> $env:GITHUB_ENV
 
       - name: Build
+        if: env.TAG != ''
         run: |
           cmake -S . -B build -A x64
           cmake --build build --config MinSizeRel -j 4
@@ -32,13 +66,19 @@ jobs:
       # dfm-ops is left out here: it recycles a file and finds it in the Recycle Bin, and the runner's Recycle Bin
       # does not list it (on C: or D:). It runs in the full check on the author's machine before changes land.
       - name: Test
+        if: env.TAG != ''
         run: ctest --test-dir build -C MinSizeRel --output-on-failure -E dfm-ops
 
       - name: Release
+        if: env.TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $files = 'build/MinSizeRel/dio-file-manager.exe', 'install.ps1'
-          gh release view $env:TAG *> $null
-          if ($LASTEXITCODE -eq 0) { gh release upload $env:TAG @files --clobber }
-          else { gh release create $env:TAG @files --title "Dio File Manager $($env:TAG.TrimStart('v'))" --notes-file .github/release-notes.md }
+          $title = "Dio File Manager $($env:TAG.TrimStart('v'))"
+          if ($env:NEW -eq '1') { gh release create $env:TAG @files --target $env:GITHUB_SHA --title $title --notes-file .github/release-notes.md }
+          else {
+            gh release view $env:TAG *> $null
+            if ($LASTEXITCODE -eq 0) { gh release upload $env:TAG @files --clobber }
+            else { gh release create $env:TAG @files --title $title --notes-file .github/release-notes.md }
+          }

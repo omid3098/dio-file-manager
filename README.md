@@ -131,6 +131,8 @@ The code is in `src/`. The window is built with CUI; the file work (copying, tra
 
 `tests/` holds console tests, which build with the app and run with CTest (`ctest --test-dir build -C MinSizeRel`), and real-input checks that drive the window with Win32 mouse and keyboard messages on a hidden desktop. Those checks use helper tools that are not in this repository, so for now they only run on the author's machine. They keep their files under `.agent-work/`, which git ignores.
 
+Releases are automatic. A push to `main` that changes `src/`, `CMakeLists.txt`, `cmake/` or `install.ps1` builds the app, runs the console tests, and, when they pass, publishes the next patch version (`v0.1.3` after `v0.1.2`) as a GitHub release with `dio-file-manager.exe` and `install.ps1` attached. The install line above always takes the newest release. A push that only touches docs, the README, the film source, tests or `.github/` releases nothing. The workflow is `.github/workflows/release.yml`; it can also rebuild an existing tag by hand.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
