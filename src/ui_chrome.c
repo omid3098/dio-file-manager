@@ -180,6 +180,7 @@ static void main_menu(const header_plan *hp) {
                     A.show_hidden = !A.show_hidden;
                     app_rebuild_view();
                 }
+                if (ROW("Match Across Keyboards", .icon = CUI_ICON_KEYBOARD, .checked = fsearch_cross())) fsearch_set_cross(!fsearch_cross());
                 cui_menu_separator(ui);
                 /* the blank shortcut keeps room for the switch */
                 if (ROW("Use as Default File Manager", .icon = CUI_ICON_FOLDER_OPEN, .checked = dfm_menu.on)) {

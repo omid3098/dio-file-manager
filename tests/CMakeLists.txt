@@ -1,6 +1,6 @@
 add_executable(dfm-ops-tests test_ops.c
   ../src/ops.c ../src/clip.c ../src/trash.c
-  ../src/search.c ../src/recent.c ../src/shell.c ../src/dlgtext.c)
+  ../src/search.c ../src/keymatch.c ../src/recent.c ../src/shell.c ../src/dlgtext.c)
 target_include_directories(dfm-ops-tests PRIVATE ../src)
 target_compile_definitions(dfm-ops-tests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(dfm-ops-tests PRIVATE /W4 /utf-8)
@@ -28,3 +28,10 @@ string(REPLACE "\\" "\\\\" DFM_TEST_NATIVE "${DFM_TEST_NATIVE}")
 foreach(check_target dfm-ops-tests dfm-thumbs-tests dfm-foldersize-tests)
   target_compile_definitions(${check_target} PRIVATE "DFM_TEST_WORK=\"${DFM_TEST_NATIVE}\"")
 endforeach()
+
+add_executable(dfm-keymatch-tests test_keymatch.c ../src/keymatch.c)
+target_include_directories(dfm-keymatch-tests PRIVATE ../src)
+target_compile_definitions(dfm-keymatch-tests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(dfm-keymatch-tests PRIVATE /W4 /WX /utf-8)
+target_link_libraries(dfm-keymatch-tests PRIVATE user32)
+add_test(NAME dfm-keymatch COMMAND dfm-keymatch-tests)

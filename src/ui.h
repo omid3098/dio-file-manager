@@ -242,6 +242,10 @@ void fsearch_end(void);                     /* back to the folder's own list; th
 void fsearch_refresh(void);                 /* drop missing results and refresh the saved folder */
 bool fsearch_running(void);
 void fsearch_empty_view(void);
+bool fsearch_cross(void);                   /* match the other keyboard too (menu: Match Across Keyboards) */
+void fsearch_set_cross(bool on);
+bool fsearch_chip_shown(void);              /* test mode: the pill was drawn in the last frame */
+void fsearch_chip(void);                    /* the "Also read as" pill over the results */
 
 /* ui_thumbs.c */
 typedef struct ui_thumb { cui_texture tex; int w, h; } ui_thumb;

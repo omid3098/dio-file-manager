@@ -38,12 +38,14 @@ def typed(a, text):
 def inside():
     results = []
 
-    def check(name, fn, view='grid'):
+    def check(name, fn, view='grid', extra=()):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
         app = None
         try:
             make_sandbox()
+            for f in extra:
+                (FIND / f).write_text('x', encoding='utf-8')
             app = base.App(name, FIND, view)
             fn(app)
             app.snap(name + '-passed')
@@ -184,6 +186,75 @@ def inside():
         a.until('Esc did not leave search', lambda: not a.snap()['searching'])
         assert a.wait_ready()['count'] == 6, 'Folder listing stale after trash and Undo'
 
+    # Either Keyboard Search. Names in the sandbox: a Persian name, one with a zero-width non-joiner, one with Arabic letters,
+    # one with Latin digits, and sub/readme.md. The Persian-layout letters are the standard Windows Persian layout.
+    def open_search(a):
+        a.key(ord('F'), (17,))
+        a.until('Search field did not take the keyboard', lambda: a.snap()['typing'])
+
+    def found(a, text, names, label):
+        a.key(ord('A'), (17,))
+        typed(a, text)
+        want = names   # only how many results to expect
+
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            s = a.snap()
+            if s['searching'] and s['query'] == text and s['count'] == len(want):
+                time.sleep(.6)   # nothing more may arrive after the result
+                s = a.snap(label)
+                assert s['count'] == len(want), f'{text!r}: {s["count"]} results after a pause, wanted {len(want)}'
+                return s
+            time.sleep(.1)
+        if not want:
+            time.sleep(1.5)
+            s = a.snap(label)
+            assert s['query'] == text and s['count'] == 0, f'{text!r} found {s["count"]} results, wanted none'
+            return s
+        raise AssertionError(f'{text!r} did not show {len(want)} results')
+
+    def english_keys_persian_name(a):
+        open_search(a)
+        s = found(a, 'sghl', ['x'], 'kb-sghl')
+        assert s['chip'], 'No "Also read as" pill for a result found by the other keyboard'
+        a.snap('kb-sghl-shown')
+        found(a, 'sghl', ['x'], 'kb-sghl-again')
+
+    def persian_keys_english_name(a):
+        open_search(a)
+        s = found(a, 'قثشیپث', ['x'], 'kb-readme')   # q-letters of "readme" on the Persian layout
+        assert s['chip'], 'No pill for the Persian-layout readme'
+
+    def zwnj_names(a):
+        open_search(a)
+        found(a, 'میخواهم', ['x'], 'kb-zwnj-without')
+        found(a, 'می‌خواهم', ['x'], 'kb-zwnj-with')
+
+    def arabic_letters(a):
+        open_search(a)
+        found(a, 'کیان', ['x'], 'kb-arabic-from-persian')
+        s = a.snap()
+        assert not s['chip'], 'The pill showed for a result the typed text found'
+        found(a, 'كيان', ['x'], 'kb-persian-from-arabic')
+
+    def digits(a):
+        open_search(a)
+        found(a, '۱۲۳', ['x'], 'kb-persian-digits')
+        found(a, '123', ['x'], 'kb-latin-digits')
+
+    def no_false_hits(a):
+        open_search(a)
+        found(a, 'zzqx', [], 'kb-nothing')
+        found(a, 'ژژژ', [], 'kb-nothing-persian')
+        assert not a.snap()['chip'], 'A pill with no result'
+
+    kb = ('سلام.txt', 'می‌خواهم.txt', 'كيان.pdf', 'report-123.txt')
+    check('9-kb-english-keys-persian-name', english_keys_persian_name, extra=kb)
+    check('10-kb-persian-keys-english-name', persian_keys_english_name, extra=kb)
+    check('11-kb-zwnj', zwnj_names, extra=kb)
+    check('12-kb-arabic-letters', arabic_letters, extra=kb)
+    check('13-kb-digits', digits, extra=kb)
+    check('14-kb-no-false-hits', no_false_hits, extra=kb)
     check('1-ctrl-f-and-esc', ctrl_f)
     check('2-one-letter', one_letter)
     check('3-path-field-keeps-letters', path_field_keeps_letters)

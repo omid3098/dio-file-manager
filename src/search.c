@@ -1,6 +1,7 @@
 #define DFM_INTERNAL
 #include "ops.h"
 #include "search.h"
+#include "keymatch.h"
 #include <process.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,6 +10,7 @@ struct search_job {
     HANDLE thread;
     volatile LONG cancel;
     wchar_t *folder, *query;
+    keymatch km;
     int hidden;
     char **paths; size_t count, capacity;
     search_state state;
@@ -51,8 +53,11 @@ static void walk(search_job *j, const wchar_t *folder) {
         if (!j->hidden && (d.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN)) continue;
         p = dfm_join(folder, d.cFileName);
         if (!p) { error(j, ERROR_NOT_ENOUGH_MEMORY); break; }
-        if (FindNLSStringEx(LOCALE_NAME_INVARIANT, FIND_FROMSTART | NORM_IGNORECASE,
-                           d.cFileName, -1, j->query, -1, NULL, NULL, NULL, 0) >= 0) emit(j, p);
+        int alt;
+        if (km_match(&j->km, d.cFileName, &alt)) {
+            if (alt) { EnterCriticalSection(&j->lock); ++j->state.alt_hits; LeaveCriticalSection(&j->lock); }
+            emit(j, p);
+        }
         if ((d.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && !(d.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) walk(j, p);
         free(p);
     } while (!stopped(j) && FindNextFileW(h, &d));
@@ -63,11 +68,13 @@ static unsigned __stdcall run_search(void *arg) {
     search_job *j = arg; walk(j, j->folder);
     EnterCriticalSection(&j->lock); j->state.cancelled = stopped(j); j->state.finished = 1; LeaveCriticalSection(&j->lock); return 0;
 }
-search_job *search_start(const char *folder, const char *query, int hidden) {
+search_job *search_start(const char *folder, const char *query, int hidden) { return search_start_ex(folder, query, hidden, 1); }
+search_job *search_start_ex(const char *folder, const char *query, int hidden, int cross) {
     search_job *j = calloc(1, sizeof(*j)); DWORD attr;
     if (!j) { SetLastError(ERROR_NOT_ENOUGH_MEMORY); return NULL; }
     InitializeCriticalSection(&j->lock); j->folder = long_wide(folder); j->query = dfm_wide(query); j->hidden = hidden;
     if (!j->folder || !j->query || !*j->query) goto failure;
+    km_init(&j->km, j->query, cross);
     attr = GetFileAttributesW(j->folder);
     if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY)) goto failure;
     j->thread = (HANDLE)_beginthreadex(NULL, 0, run_search, j, 0, NULL);

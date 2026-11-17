@@ -7,6 +7,7 @@
 #include <string.h>
 #include "ui.h"
 #include "search.h"
+#include "keymatch.h"
 
 #define MAX_RESULTS 10000      /* a query such as "a" would otherwise list a whole drive */
 #define PER_FRAME 150          /* results made into entries in one frame (each needs a stat call) */
@@ -16,6 +17,8 @@ static search_state st;
 static bool running;           /* the worker has not finished */
 static fs_list *saved;         /* the folder's list while a search is open */
 static bool saved_seen;
+static bool cross = true;      /* also look for the reading on the other keyboard (Match Across Keyboards) */
+static bool exact_once;        /* the reading was dismissed for this query */
 static double due;             /* when the typed query starts a search; 0 for none */
 static char **pend;
 static size_t pend_n, pend_i, pend_cap;
@@ -83,7 +86,8 @@ static void begin(void) {
     if (A.sel && A.vis_cap) memset(A.sel, 0, (size_t)A.vis_cap * sizeof *A.sel);
     A.sel_n = 0; A.sel_bytes = 0; A.cursor = A.anchor = -1;
     A.reset_scroll = true;
-    job = search_start(A.path, A.search, A.show_hidden);
+    memset(&st, 0, sizeof st);
+    job = search_start_ex(A.path, A.search, A.show_hidden, cross && !exact_once);
     running = job != NULL;
 }
 
@@ -96,7 +100,46 @@ void fsearch_changed(void) {
         if (was) app_rebuild_view();
         return;
     }
+    exact_once = false;
     due = cui_time(A.ui) + 0.25;
+}
+
+bool fsearch_cross(void) { return cross; }
+
+/* The search starts again now (the other reading was switched off or dismissed). */
+static void restart(void) {
+    if (A.loc == LOC_FOLDER && A.search[0]) due = cui_time(A.ui) + 0.001;
+    else if (A.loc != LOC_FOLDER) app_rebuild_view();
+}
+
+void fsearch_set_cross(bool on) {
+    if (cross == on) return;
+    cross = on;
+    exact_once = false;
+    restart();
+}
+
+/* The pill at the top of the results: the same letters read on the other keyboard, found at least one file. x searches the typed text only. */
+static bool chip_shown;
+bool fsearch_chip_shown(void) { return chip_shown; }
+
+void fsearch_chip(void) {
+    cui_ctx *ui = A.ui;
+    chip_shown = false;
+    if (!A.searching || !cross || exact_once || !st.alt_hits || !A.search[0]) return;
+    wchar_t q[KM_CAP], r[KM_CAP];
+    char shown[512];
+    if (!fs_u8_to_w(A.search, q, KM_CAP) || !km_reading(q, r, KM_CAP)) return;
+    if (!WideCharToMultiByte(CP_UTF8, 0, r, -1, shown, (int)sizeof shown, NULL, NULL)) return;
+    chip_shown = true;
+    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_CENTER, .justify = CUI_JUSTIFY_START, .pad = 10) {
+        cui_row(ui, .bg = CUI_COLOR_SURFACE_RAISED, .radius = 14, .border = 1, .border_color = CUI_COLOR_BORDER,
+                .elevation = CUI_ELEVATION_FLOATING, .pad_x = 14, .pad_y = 4, .gap = 8, .align = CUI_ALIGN_CENTER) {
+            cui_text(ui, "Also read as", .color = CUI_COLOR_TEXT_SECONDARY, .nowrap = true);
+            cui_text(ui, shown, .nowrap = true);
+            if (cui_icon_button(ui, CUI_ICON_X, .tooltip = "Search the typed text only")) { exact_once = true; restart(); }
+        }
+    }
 }
 
 static void add_result(char *path) {

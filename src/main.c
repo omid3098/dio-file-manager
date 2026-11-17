@@ -10,6 +10,7 @@
 #include <wchar.h>
 #include <cui/cui_render.h>
 #include "ui.h"
+#include "keymatch.h"
 #include "shell.h"
 #include "starred.h"
 #include "sidebar.h"
@@ -178,23 +179,6 @@ void app_select_all(void) {
 
 /* ---- the filtered view of a listing ---- */
 
-static bool contains_nocase(const char *hay, const char *needle) {
-    size_t nl = strlen(needle);
-    if (!nl) return true;
-    for (; *hay; hay++) {
-        size_t i = 0;
-        while (i < nl && hay[i]) {
-            unsigned char a = (unsigned char)hay[i], b = (unsigned char)needle[i];
-            if (a < 0x80) a = (unsigned char)tolower(a);
-            if (b < 0x80) b = (unsigned char)tolower(b);
-            if (a != b) break;
-            i++;
-        }
-        if (i == nl) return true;
-    }
-    return false;
-}
-
 void app_rebuild_view(void) {
     ui_band_cancel();
     A.vis_n = 0;
@@ -205,10 +189,20 @@ void app_rebuild_view(void) {
             A.sel = realloc(A.sel, (size_t)nc * sizeof *A.sel);
             A.vis_cap = nc;
         }
+        keymatch km;
+        bool filter = A.search[0] && A.loc != LOC_FOLDER;
+        if (filter) {
+            wchar_t q[KM_CAP];
+            if (!fs_u8_to_w(A.search, q, KM_CAP)) q[0] = 0;
+            km_init(&km, q, fsearch_cross());
+        }
         for (int i = 0; i < A.list->count; i++) {
             const fs_entry *e = &A.list->items[i];
             if ((e->flags & FS_HIDDEN) && !A.show_hidden) continue;
-            if (A.search[0] && A.loc != LOC_FOLDER && !contains_nocase(fs_name(A.list, i), A.search)) continue;
+            if (filter) {
+                wchar_t n[FS_WPATH_MAX];
+                if (!fs_u8_to_w(fs_name(A.list, i), n, FS_WPATH_MAX) || !km_match(&km, n, NULL)) continue;
+            }
             A.vis[A.vis_n++] = i;
         }
     }
@@ -696,6 +690,7 @@ static void frame(void) {
             cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_PX(A.content_h), .clip = true) {
                 content_body();
                 app_count_selection();
+                fsearch_chip();
                 ui_status_pill();
                 act_frame();
                 views_frame();
@@ -836,6 +831,7 @@ static void test_snapshot(const char *base) {
     fprintf(f, "],\"fsz_open\":%d,\"sel_pending\":%d,\"pill\":", sizes_open(), A.sel_pending); json_text(f, ui_pill_text());
     fprintf(f, ",\"content_w\":%.2f,\"cell_h\":%.2f,\"probe\":%d,\"band\":%d,\"zv\":%.4f,\"icon_px\":%.2f,\"zoom\":%d,\"icon\":%d,\"column_rows\":%d,\"slider\":[%.2f,%.2f,%.2f,%.2f],\"query\":", A.content_w, A.cell_h, A.probe_idx, ui_band_dragging(), A.zv, app_icon_size(), A.zoom, A.last_icon, A.column_rows, A.zoom_rect.x, A.zoom_rect.y, A.zoom_rect.w, A.zoom_rect.h); json_text(f, A.search);
     ui_toast_snapshot(f);
+    fprintf(f, ",\"chip\":%d", fsearch_chip_shown());
     fprintf(f, ",\"type_w\":%.1f", A.view == VIEW_LIST ? ui_list_column_width(3) : 0.0f);   /* the Type column of the folder list */
     fprintf(f, ",\"documents\":"); json_text(f, A.places[2]);
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));
