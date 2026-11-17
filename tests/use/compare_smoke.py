@@ -377,6 +377,18 @@ def inside():
         s = a.snap('search-closes')
         assert s['cmp']['open'] == 0, f'Compare stayed open over a search: {s["cmp"]}'
 
+    def back_closes_it(a):
+        a.path(FIX.parent)               # a history to go back through
+        a.path(FIX)
+        a.open_compare('hero_v07.png', 'hero_v08.png')
+        p = a.point(300, 300)
+        a.msg(0x20B, 1 << 16, p)         # the mouse's Back button
+        a.msg(0x20C, 1 << 16, p)
+        time.sleep(.3)
+        s = a.snap('back-closes')
+        assert s['cmp']['open'] == 0, f'Compare stayed open after Back: {s["cmp"]}'
+        assert Path(s['path']).resolve() == FIX.parent.resolve(), f'Back went to {s["path"]}'
+
     check('1-same-size-small-difference', same_size)
     check('2-divider-and-arrows', divider)
     check('3-esc-keeps-selection', escape_keeps_selection)
@@ -390,6 +402,7 @@ def inside():
     check('11-8k-memory-and-latency', latency_and_memory)
     check('12-idle-and-frame-time', idle_and_frame_time)
     check('13-search-closes-it', search_closes_it)
+    check('14-back-closes-it', back_closes_it)
     (WORK / 'compare-results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     return int(any(r['result'] != 'passed' for r in results))
 

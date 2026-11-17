@@ -390,12 +390,12 @@ clipboard. In `--test-state` mode the app also writes `<base>.sidebar`: one line
 
 ## Blink Compare checks
 
-`tests/use/compare_smoke.py [--light]` has 13 checks on the private desktop, with a fixture it makes itself (needs Pillow): two 2048x1536 PNGs
+`tests/use/compare_smoke.py [--light]` has 14 checks on the private desktop, with a fixture it makes itself (needs Pillow): two 2048x1536 PNGs
 that differ in one 200x120 box (the screenshot diff must find exactly that box, about 1 % of the stage), 800x600 against 2000x1500 of one
 picture, a JPG against a PNG, transparency, two Persian file names, two 7680x4320 PNGs, and a text file. It opens the compare view
 through the real right-click menu (arrow keys: Open, Open With, Compare Pictures), drags the divider, checks the arrow keys, that Esc keeps
 the selection, that Delete, Ctrl+A and typed letters do nothing behind the view, that one or three pictures or a picture and a text file
-get no menu row, that the Blink button flips, and (13) that opening the search closes it. Check 11 measures the 8K budgets of `docs/design.md` (open time, longest message delay while
+get no menu row, that the Blink button flips, and (13) that opening the search and (14) the mouse's Back button close it. Check 11 measures the 8K budgets of `docs/design.md` (open time, longest message delay while
 decoding, working set steady, peak and after closing, Space to B drawn from the app's own `b_qpc`); check 12 reads `<base>.frames`: no frame
 in 2 s when nothing moves, and Blink draws only its flips with every frame under 8 ms. Pictures of each state are in the work folder
 (`DFM_USE_WORK`, default `use-checks/compare_smoke`); `--light` runs the same checks in the light theme. Set `DFM_EXE`.
