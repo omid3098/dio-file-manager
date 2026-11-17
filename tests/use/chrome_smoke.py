@@ -729,14 +729,14 @@ def inside():
         if os.environ.get('DFM_CHROME_PICTURES'):
             a.snap()
             shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'view-menu-grid-{theme}-1280.png')
-        a.click(*g.mid((x + w / 2, y, w / 2, h)))   # the right toggle: list
+        a.click(*g.mid((x + w / 3, y, w / 3, h)))   # the middle toggle: list
         a.until('The list toggle did not switch to the list', lambda: a.snap()['zoom'] <= 1)
         assert a.snap()['popups'] >= 1, 'the menu closed when the list toggle was clicked'
         time.sleep(.4)
         if os.environ.get('DFM_CHROME_PICTURES'):
             a.snap()
             shutil.copyfile(str(a.base) + '.png', Path(os.environ['DFM_CHROME_PICTURES']) / f'view-menu-list-{theme}-1280.png')
-        a.click(*g.mid((x, y, w / 2, h)))   # the left toggle: grid
+        a.click(*g.mid((x, y, w / 3, h)))   # the left toggle: grid
         a.until('The grid toggle did not switch back to the grid', lambda: a.snap()['zoom'] >= 2)
         assert a.snap()['popups'] >= 1, 'the menu closed when the grid toggle was clicked'
         a.key(0x1B)
