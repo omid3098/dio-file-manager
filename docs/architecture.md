@@ -173,8 +173,16 @@ until restoration finishes (including nested checks and exception paths).
   launcher deleted at once. The launcher refresh thread stops, copies over, sets the keys and starts. In a check,
   `--test-state` redirects `Advanced`, `Run` and `RunOnce` next to `Classes` and `State`, the process logs to
   `BASE.resident` (`pid`, `hotkey-ok`, `hotkey-busy <error>`, `taskbar-created`, `hotkey-open`, `hotkey-gone`,
-  `bridge`, `bridge-open`, `bridge-exit`) and takes
+  `bridge`, `bridge-open`, `bridge-exit`, `take-window`) and takes
   Win+Ctrl+Alt+Shift+F23 instead of Win+E.
+- Show in folder (`take_window` in `src/resident.c`, `defaultfm_take_window` in `src/defaultfm.c`): the resident process
+  holds an out-of-context `EVENT_OBJECT_SHOW` hook and starts the saved App with `--take-window <hwnd hex>` and its own
+  arguments for each top-level `CabinetWClass` window it has not handed over in the last 30 s, unless it is a bridge.
+  `main()` handles `--take-window` before any UI: `defaultfm_take_window` checks the switch, reads the folder and the
+  first selected item through `IShellWindows` -> `IWebBrowser2` -> `SID_STopLevelBrowser` -> `IFolderView2`, posts
+  `WM_CLOSE` to the window and returns a folder request; false (not a folder on disk, gone, too long) exits with
+  nothing shown. In a check the class is `DioTestCabinetWClass`, the folder and selection come from the stand-in's
+  title, and `BASE.opened` gets `take-closed` or `take-left`.
 - Requests: `defaultfm_request` turns the arguments into a folder (with an optional name to select), a place
   (Recent, Trash, This PC), Home or a fallback. The shell sends `C:\` as `"C:\"`, which arrives as `C:"`; trailing quotes are removed.
 - Loop guard: the same Explorer request twice within 2 s is refused (`fallback.txt` in the launcher folder, exit 4).

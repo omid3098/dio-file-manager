@@ -347,9 +347,19 @@ the Halo palette). CUI's own rules (`docs/design.md` in CUI) hold where this pag
     start-time budget did not exist before this change.
   - In a check the process takes Win+Ctrl+Alt+Shift+F23 instead: Win+E belongs to the user's Explorer on every
     desktop of the session, so a private test desktop cannot hold it.
-  Limit: "Show in folder" from other programs (`SHOpenFolderAndSelectItems`) opens the folder here but does not
-  select the file, and `explorer.exe /select,...` started directly by a program cannot be redirected without
-  administrator rights.
+  - **Show in folder.** A program's "Show in folder" or "Reveal in File Explorer" never runs the registered command:
+    Electron apps and VS Code call `SHOpenFolderAndSelectItems`, which Explorer answers itself, and T3 Code starts
+    `explorer.exe /select,<file>` directly. Both open Explorer's own window. While the switch is on, the Win+E
+    process watches for new Explorer windows (`SetWinEventHook`, `EVENT_OBJECT_SHOW`, class `CabinetWClass`, out of
+    context: nothing is loaded into Explorer) and starts the app with `--take-window <hwnd>` for each one. The app
+    reads the window's folder and first selected item through the shell's window list (`IShellWindows`), waiting up
+    to 3 s for the window to be listed and then up to 0.4 s for a selection, closes the window (`WM_CLOSE`) and opens
+    the same folder with that item selected. A window on a place that is not a folder on disk (Home, This PC,
+    Control Panel) stays in Explorer. File Explorer Interceptor (github.com/abdonkov/FileExplorerInterceptor) works the
+    same way. Explorer's window shows for a moment before it closes. A reveal of a
+    folder that already has an Explorer window reuses that window and stays in Explorer. After a turn-off nothing is
+    watched. In a check the process watches the class `DioTestCabinetWClass` only, so it never touches the owner's
+    Explorer windows.
 - Paste onto a name that exists asks: Replace, Skip or Keep Both, with "Apply to all".
 - Drag and drop (`src/ui_dnd.c`):
   - Out: a press on an item's icon or name that moves past the system drag distance drags the selection; a press on an
