@@ -770,6 +770,17 @@ static wchar_t test_base[FS_PATH_MAX];       /* --test-state, wide: the register
 
 bool app_default_fm(void) { return defaultfm_enabled(); }
 
+/* A window that replaces Explorer's: this process was started by the Win+E process, which never had the focus, so
+ * Windows would leave the new window behind the program that asked for "show in folder". Joining the input of the
+ * window in front for a moment is what lets it come forward. */
+static void bring_front(HWND w) {
+    HWND fg = GetForegroundWindow();
+    DWORD me = GetCurrentThreadId(), them = fg && fg != w ? GetWindowThreadProcessId(fg, NULL) : 0;
+    bool joined = them && them != me && AttachThreadInput(me, them, TRUE);
+    SetForegroundWindow(w);
+    if (joined) AttachThreadInput(me, them, FALSE);
+}
+
 void app_toggle_default_fm(void) {
     bool want = !defaultfm_enabled(), ok;
     wchar_t extra[FS_PATH_MAX + 32] = L"";
@@ -1007,7 +1018,7 @@ int main(void) {
     }
     if (o.zoomv >= 0) app_set_zoomv(o.zoomv, false);
     ui_window_callback(g_app, window_frame, o.test_state);
-    if (!shot) { ShowWindow(hwnd, SW_SHOWDEFAULT); UpdateWindow(hwnd); }
+    if (!shot) { ShowWindow(hwnd, SW_SHOWDEFAULT); UpdateWindow(hwnd); if (o.take_window) bring_front(hwnd); }
 
     int frames = 0, rc = 0, ready = 0, ready_search = 0;
     bool searched = false;
