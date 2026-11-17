@@ -19,6 +19,8 @@ static fs_list *saved;         /* the folder's list while a search is open */
 static bool saved_seen;
 static bool cross = true;      /* also look for the reading on the other keyboard (Match Across Keyboards) */
 static bool exact_once;        /* the reading was dismissed for this query */
+static int filter_alt;         /* Recent, Starred and Trash: the entries only the other reading found */
+#define STRIP_H 40.0f          /* the strip above the results that holds the pill */
 static double due;             /* when the typed query starts a search; 0 for none */
 static char **pend;
 static size_t pend_n, pend_i, pend_cap;
@@ -93,6 +95,7 @@ static void begin(void) {
 
 /* The query changed (typing, paste, clear). Folders search after a short pause; the other places filter by name. */
 void fsearch_changed(void) {
+    exact_once = false;
     if (A.loc != LOC_FOLDER) { app_rebuild_view(); return; }
     if (!A.search[0]) {
         bool was = A.searching;
@@ -100,11 +103,12 @@ void fsearch_changed(void) {
         if (was) app_rebuild_view();
         return;
     }
-    exact_once = false;
     due = cui_time(A.ui) + 0.25;
 }
 
 bool fsearch_cross(void) { return cross; }
+bool fsearch_reading_on(void) { return cross && !exact_once; }
+void fsearch_filter_alt(int n) { filter_alt = n; }
 
 /* The search starts again now (the other reading was switched off or dismissed). */
 static void restart(void) {
@@ -119,25 +123,41 @@ void fsearch_set_cross(bool on) {
     restart();
 }
 
-/* The pill at the top of the results: the same letters read on the other keyboard, found at least one file. x searches the typed text only. */
+/* The pill in a strip above the results, as in the mock: the same letters read on the other keyboard found at least one file
+ * (a folder search, or the name filter of Recent, Starred and Trash). The x searches the typed text only. */
 static bool chip_shown;
+static cui_rect chip_x;   /* the x of the pill, for real-input checks */
 bool fsearch_chip_shown(void) { return chip_shown; }
+void fsearch_chip_snapshot(FILE *f) {
+    fprintf(f, ",\"chip\":%d,\"chip_x\":[%.2f,%.2f,%.2f,%.2f]", chip_shown, chip_x.x, chip_x.y, chip_x.w, chip_x.h);
+}
+
+static bool chip_wanted(void) {
+    if (!cross || exact_once || !A.search[0]) return false;
+    return A.loc == LOC_FOLDER ? A.searching && st.alt_hits : filter_alt > 0;
+}
+
+/* The height of that strip this frame; 0 when no pill shows. */
+float fsearch_strip_h(void) { return chip_wanted() ? STRIP_H : 0.0f; }
 
 void fsearch_chip(void) {
     cui_ctx *ui = A.ui;
     chip_shown = false;
-    if (!A.searching || !cross || exact_once || !st.alt_hits || !A.search[0]) return;
+    chip_x = (cui_rect){ 0 };
+    if (!chip_wanted()) return;
     wchar_t q[KM_CAP], r[KM_CAP];
     char shown[512];
     if (!fs_u8_to_w(A.search, q, KM_CAP) || !km_reading(q, r, KM_CAP)) return;
     if (!WideCharToMultiByte(CP_UTF8, 0, r, -1, shown, (int)sizeof shown, NULL, NULL)) return;
     chip_shown = true;
-    cui_column(ui, .width = CUI_FILL, .height = CUI_FILL, .align = CUI_ALIGN_CENTER, .justify = CUI_JUSTIFY_START, .pad = 10) {
+    cui_row(ui, .width = CUI_FILL, .height = CUI_PX(STRIP_H), .pad_x = 16, .align = CUI_ALIGN_CENTER) {
         cui_row(ui, .bg = CUI_COLOR_SURFACE_RAISED, .radius = 14, .border = 1, .border_color = CUI_COLOR_BORDER,
-                .elevation = CUI_ELEVATION_FLOATING, .pad_x = 14, .pad_y = 4, .gap = 8, .align = CUI_ALIGN_CENTER) {
+                .pad_x = 12, .pad_y = 4, .gap = 8, .align = CUI_ALIGN_CENTER) {
             cui_text(ui, "Also read as", .color = CUI_COLOR_TEXT_SECONDARY, .nowrap = true);
             cui_text(ui, shown, .nowrap = true);
-            if (cui_icon_button(ui, CUI_ICON_X, .tooltip = "Search the typed text only")) { exact_once = true; restart(); }
+            bool dismiss = cui_icon_button(ui, CUI_ICON_X, .tooltip = "Search the typed text only");
+            chip_x = cui_last_rect(ui);
+            if (dismiss) { exact_once = true; restart(); }
         }
     }
 }

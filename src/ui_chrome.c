@@ -117,12 +117,13 @@ static void row_menu(void) {
 enum { PATH_PREF = 144, PATH_MIN = 116, PATH_FLOOR = 40, DRAG_MIN = 32, ICON_BTN_W = 36, VIEW_BTN_W = 66 };   /* VIEW_BTN_W: the icon, the chevron and the button padding */
 
 /* The "Use as Default File Manager" item lives in the main menu. Its rectangles are kept for real-input checks. */
-static struct { bool on, was_open; cui_rect button, item; } dfm_menu;
+static struct { bool on, was_open; cui_rect button, item, kb_item; } dfm_menu;
 
 void ui_default_fm_snapshot(FILE *f) {
-    fprintf(f, ",\"default_fm\":%d,\"menu_button\":[%.2f,%.2f,%.2f,%.2f],\"dfm_item\":[%.2f,%.2f,%.2f,%.2f]", app_default_fm(),
+    fprintf(f, ",\"default_fm\":%d,\"menu_button\":[%.2f,%.2f,%.2f,%.2f],\"dfm_item\":[%.2f,%.2f,%.2f,%.2f],\"kb_item\":[%.2f,%.2f,%.2f,%.2f]", app_default_fm(),
             dfm_menu.button.x, dfm_menu.button.y, dfm_menu.button.w, dfm_menu.button.h,
-            dfm_menu.item.x, dfm_menu.item.y, dfm_menu.item.w, dfm_menu.item.h);
+            dfm_menu.item.x, dfm_menu.item.y, dfm_menu.item.w, dfm_menu.item.h,
+            dfm_menu.kb_item.x, dfm_menu.kb_item.y, dfm_menu.kb_item.w, dfm_menu.kb_item.h);
 }
 
 /* tier 0: everything in the header; 1: search in the menu (a wide window only: a narrow one is always tier 0). */
@@ -181,6 +182,7 @@ static void main_menu(const header_plan *hp) {
                     app_rebuild_view();
                 }
                 if (ROW("Match Across Keyboards", .icon = CUI_ICON_KEYBOARD, .checked = fsearch_cross())) fsearch_set_cross(!fsearch_cross());
+                dfm_menu.kb_item = cui_get_rect(ui, cui_make_id(ui, "Match Across Keyboards"));
                 cui_menu_separator(ui);
                 /* the blank shortcut keeps room for the switch */
                 if (ROW("Use as Default File Manager", .icon = CUI_ICON_FOLDER_OPEN, .checked = dfm_menu.on)) {

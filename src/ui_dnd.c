@@ -205,7 +205,7 @@ void dnd_frame_begin(void) {
     cui_vec2 vp = cui_viewport_size(A.ui);
     bool narrow = vp.x < NARROW_BELOW;
     D.row_n = 0;
-    D.content = (cui_rect){ narrow ? 0 : 240.0f, HEADER_H, A.content_w, A.content_h };
+    D.content = (cui_rect){ narrow ? 0 : 240.0f, HEADER_H + fsearch_strip_h(), A.content_w, A.content_h };
     if (A.sidebar_open) D.content.w = 0;   /* the sidebar sheet covers the folder */
 }
 

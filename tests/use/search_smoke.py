@@ -38,7 +38,7 @@ def typed(a, text):
 def inside():
     results = []
 
-    def check(name, fn, view='grid', extra=()):
+    def check(name, fn, view='grid', extra=(), args=()):
         if os.environ.get('USE_ONLY') and not name.startswith(os.environ['USE_ONLY']):
             return
         app = None
@@ -46,7 +46,7 @@ def inside():
             make_sandbox()
             for f in extra:
                 (FIND / f).write_text('x', encoding='utf-8')
-            app = base.App(name, FIND, view)
+            app = base.App(name, FIND, view, extra=args)
             fn(app)
             app.snap(name + '-passed')
             results.append({'check': name, 'result': 'passed'})
@@ -248,6 +248,47 @@ def inside():
         found(a, 'ژژژ', [], 'kb-nothing-persian')
         assert not a.snap()['chip'], 'A pill with no result'
 
+    def centre(r):
+        assert r[2] > 0 and r[3] > 0, f'Not laid out: {r}'
+        return r[0] + r[2] / 2, r[1] + r[3] / 2
+
+    def pill_x_clicked(a):
+        open_search(a)
+        s = found(a, 'sghl', ['x'], 'kb-x-before')
+        assert s['chip'], 'No pill to click'
+        a.click(*centre(s['chip_x']))
+        a.until('The x did not take the pill away', lambda: not a.snap()['chip'])
+        time.sleep(1.5)
+        s = a.snap('kb-x-after')
+        assert s['query'] == 'sghl' and s['count'] == 0, f'After the x: {s["count"]} results, wanted none (the typed text only)'
+
+    def menu_row_clicked(a):
+        open_search(a)
+        found(a, 'sghl', ['x'], 'kb-row-before')
+
+        def row():
+            bx, by, bw, bh = a.snap()['menu_button']
+            a.click(bx + bw / 2, by + bh / 2)
+            time.sleep(.5)
+            a.click(*centre(a.snap('kb-row-menu')['kb_item']))
+            time.sleep(.5)
+        row()
+        a.until('The menu row did not stop the other reading', lambda: a.snap()['count'] == 0 and not a.snap()['chip'], seconds=8)
+        row()
+        a.until('The menu row did not bring the other reading back', lambda: a.snap()['count'] == 1 and a.snap()['chip'], seconds=8)
+
+    def starred_chip(a):
+        s = a.snap('kb-starred-open')
+        assert s['loc'] == 2 and s['count'] == 1, f'Starred did not open: {s["loc"]}, {s["count"]}'
+        a.key(ord('F'), (17,))
+        a.until('Search field did not take the keyboard', lambda: a.snap()['typing'])
+        typed(a, 'sghl')
+        a.until('Starred did not filter', lambda: a.snap()['query'] == 'sghl' and a.snap()['count'] == 1 and a.snap()['chip'], seconds=8)
+        a.snap('kb-starred-shown')
+        s = a.snap()
+        a.click(*centre(s['chip_x']))
+        a.until('The x did not filter Starred by the typed text only', lambda: a.snap()['count'] == 0 and not a.snap()['chip'], seconds=8)
+
     kb = ('سلام.txt', 'می‌خواهم.txt', 'كيان.pdf', 'report-123.txt')
     check('9-kb-english-keys-persian-name', english_keys_persian_name, extra=kb)
     check('10-kb-persian-keys-english-name', persian_keys_english_name, extra=kb)
@@ -255,6 +296,13 @@ def inside():
     check('12-kb-arabic-letters', arabic_letters, extra=kb)
     check('13-kb-digits', digits, extra=kb)
     check('14-kb-no-false-hits', no_false_hits, extra=kb)
+    check('15-kb-pill-x', pill_x_clicked, extra=kb)
+    check('16-kb-menu-row', menu_row_clicked, extra=kb)
+    starred_file = WORK / 'appdata/dio-file-manager/starred.txt'
+    starred_file.parent.mkdir(parents=True, exist_ok=True)
+    starred_file.write_text(str(FIND / 'سلام.txt') + chr(10), encoding='utf-8')
+    check('17-kb-starred-pill', starred_chip, extra=kb, args=('--loc', 'starred'))
+    starred_file.unlink(missing_ok=True)
     check('1-ctrl-f-and-esc', ctrl_f)
     check('2-one-letter', one_letter)
     check('3-path-field-keeps-letters', path_field_keeps_letters)

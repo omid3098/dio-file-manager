@@ -242,9 +242,12 @@ void fsearch_end(void);                     /* back to the folder's own list; th
 void fsearch_refresh(void);                 /* drop missing results and refresh the saved folder */
 bool fsearch_running(void);
 void fsearch_empty_view(void);
+bool fsearch_reading_on(void);               /* the other reading is looked for now: the menu row is on and the pill was not dismissed */
 bool fsearch_cross(void);                   /* match the other keyboard too (menu: Match Across Keyboards) */
 void fsearch_set_cross(bool on);
-bool fsearch_chip_shown(void);              /* test mode: the pill was drawn in the last frame */
+void fsearch_chip_snapshot(FILE *f);        /* test mode: whether the pill was drawn in the last frame, and where its x is */
+float fsearch_strip_h(void);                /* height of the strip that holds the pill this frame, 0 for none */
+void fsearch_filter_alt(int n);             /* Recent, Starred, Trash: how many entries only the other reading found */
 void fsearch_chip(void);                    /* the "Also read as" pill over the results */
 
 /* ui_thumbs.c */

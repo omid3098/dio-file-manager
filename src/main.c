@@ -190,22 +190,26 @@ void app_rebuild_view(void) {
             A.vis_cap = nc;
         }
         keymatch km;
+        int alt_n = 0;
         bool filter = A.search[0] && A.loc != LOC_FOLDER;
         if (filter) {
             wchar_t q[KM_CAP];
             if (!fs_u8_to_w(A.search, q, KM_CAP)) q[0] = 0;
-            km_init(&km, q, fsearch_cross());
+            km_init(&km, q, fsearch_reading_on());
         }
         for (int i = 0; i < A.list->count; i++) {
             const fs_entry *e = &A.list->items[i];
             if ((e->flags & FS_HIDDEN) && !A.show_hidden) continue;
             if (filter) {
                 wchar_t n[FS_WPATH_MAX];
-                if (!fs_u8_to_w(fs_name(A.list, i), n, FS_WPATH_MAX) || !km_match(&km, n, NULL)) continue;
+                int alt = 0;
+                if (!fs_u8_to_w(fs_name(A.list, i), n, FS_WPATH_MAX) || !km_match(&km, n, &alt)) continue;
+                alt_n += alt;
             }
             A.vis[A.vis_n++] = i;
         }
-    }
+        fsearch_filter_alt(alt_n);
+    } else fsearch_filter_alt(0);
     if (A.sel) memset(A.sel, 0, (size_t)(A.vis_cap) * sizeof *A.sel);
     A.sel_n = 0; A.sel_bytes = 0; A.cursor = -1; A.anchor = -1;
     snprintf(A.search_applied, sizeof A.search_applied, "%s", A.search);
@@ -667,7 +671,8 @@ static void frame(void) {
     sidebar_step(vp.x);
     bool narrow = A.sidebar_gone;
     A.content_w = vp.x - A.sidebar_px;
-    A.content_h = vp.y - HEADER_H - (narrow ? BAR_H : 0.0f);
+    float strip = fsearch_strip_h();   /* the pill's strip above the results */
+    A.content_h = vp.y - HEADER_H - (narrow ? BAR_H : 0.0f) - strip;
     cui_row(ui, .width = CUI_FILL, .height = CUI_FILL, .bg = CUI_COLOR_BACKGROUND) {
         if (A.sidebar_docked) ui_sidebar_edge(vp.x, vp.y);   /* first: a press on the line is its, not the file view's band's */
         if (A.sidebar_px > 0.0f) {
@@ -687,13 +692,15 @@ static void frame(void) {
             ui_content_header();
             /* The content takes the height the header and the bottom bar leave, not what it asks for: an empty folder's picture and text
              * would otherwise push the bottom bar below the window. */
-            cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_PX(A.content_h), .clip = true) {
-                content_body();
-                app_count_selection();
+            cui_column(ui, .width = CUI_FILL, .height = CUI_PX(A.content_h + strip), .gap = 0) {
                 fsearch_chip();
-                ui_status_pill();
-                act_frame();
-                views_frame();
+                cui_box(ui, .dir = CUI_STACK, .width = CUI_FILL, .height = CUI_PX(A.content_h), .clip = true) {
+                    content_body();
+                    app_count_selection();
+                    ui_status_pill();
+                    act_frame();
+                    views_frame();
+                }
             }
             if (narrow) ui_bottom_bar();
         }
@@ -831,7 +838,7 @@ static void test_snapshot(const char *base) {
     fprintf(f, "],\"fsz_open\":%d,\"sel_pending\":%d,\"pill\":", sizes_open(), A.sel_pending); json_text(f, ui_pill_text());
     fprintf(f, ",\"content_w\":%.2f,\"cell_h\":%.2f,\"probe\":%d,\"band\":%d,\"zv\":%.4f,\"icon_px\":%.2f,\"zoom\":%d,\"icon\":%d,\"column_rows\":%d,\"slider\":[%.2f,%.2f,%.2f,%.2f],\"query\":", A.content_w, A.cell_h, A.probe_idx, ui_band_dragging(), A.zv, app_icon_size(), A.zoom, A.last_icon, A.column_rows, A.zoom_rect.x, A.zoom_rect.y, A.zoom_rect.w, A.zoom_rect.h); json_text(f, A.search);
     ui_toast_snapshot(f);
-    fprintf(f, ",\"chip\":%d", fsearch_chip_shown());
+    fsearch_chip_snapshot(f);
     fprintf(f, ",\"type_w\":%.1f", A.view == VIEW_LIST ? ui_list_column_width(3) : 0.0f);   /* the Type column of the folder list */
     fprintf(f, ",\"documents\":"); json_text(f, A.places[2]);
     fprintf(f, ",\"place\":%d,\"drive\":", app_at_place(2));

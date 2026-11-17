@@ -55,6 +55,10 @@ int main(void) {
     check(L"sg\x0644", L"\x0633\x0644.txt", 0, 1, "mixed scripts are not converted");
     /* Shifted Persian letters: shift+C is \x0698, shift+B the ZWNJ */
     check(L"\x0698", L"c.txt", 2, 1, "zh reads as c");
+    /* Shift held among small letters is the shifted Persian letter: Hf = \x0622\x0628, Hl,ca = \x0622\x0645\x0648\x0632\x0634 */
+    check(L"Hf", L"\x0622\x0628.txt", 2, 1, "Hf finds the name with alef madda");
+    check(L"Hl,ca", L"\x0622\x0645\x0648\x0632\x0634.txt", 2, 1, "Hl,ca finds amuzesh");
+    check(L"Sghl", L"\x0633\x0644\x0627\x0645.txt", 0, 1, "shift+S is a different letter, as typed");
     /* Case folding beyond ASCII */
     check(L"\x00C9T\x00C9", L"\x00E9t\x00E9.txt", 1, 1, "Latin-1 capitals");
     check(L"\x0416", L"\x0436.txt", 1, 1, "Cyrillic capital");

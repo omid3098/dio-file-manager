@@ -38,37 +38,35 @@ size_t km_fold(const wchar_t *src, wchar_t *dst, size_t cap) {
 static int persian_letter(wchar_t c) { return c >= 0x0621 && c <= 0x06D3 && c != 0x0640 && !(c >= 0x064B && c <= 0x065F); }
 static int ascii_letter(wchar_t c) { return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z'); }
 
+/* The shifted letters of the Persian layout, on the Latin key each one sits on (shift+C is \x0698, shift+B the zero-width non-joiner). */
+static const wchar_t SH_EN[] = L"asfghjmcdzb";
+static const wchar_t SH_FA[] = L"\x0624\x0626\x0625\x0623\x0622\x0629\x0621\x0698\x064A\x0643\x200C";
+
 /* What a Persian-layout letter is on the key it sits on (the shifted ones too). 0 when it is none of them. */
 static wchar_t persian_key(wchar_t c) {
-    switch (c) {
-    case 0x064A: case 0x0649: return L'd';   /* Arabic yeh: shift+D */
-    case 0x0643: return L'z';                /* Arabic kaf: shift+Z */
-    case 0x0698: return L'c';                /* \x0698 */
-    case 0x0624: return L'a';                /* \x0624 */
-    case 0x0626: return L's';                /* \x0626 */
-    case 0x0625: return L'f';                /* \x0625 */
-    case 0x0623: return L'g';                /* \x0623 */
-    case 0x0622: return L'h';                /* \x0622 */
-    case 0x0629: return L'j';                /* \x0629 */
-    case 0x0621: return L'm';                /* \x0621 */
-    case 0x200C: return L'b';                /* the zero-width non-joiner: shift+B */
-    }
+    if (c == 0x0649) return L'd';
+    for (size_t i = 0; SH_FA[i]; i++) if (SH_FA[i] == c) return SH_EN[i];
     for (size_t i = 0; FA[i]; i++) if (FA[i] == c) return EN[i];
     return 0;
 }
 
 int km_reading(const wchar_t *q, wchar_t *out, size_t cap) {
-    int latin = 0, persian = 0;
+    int latin = 0, persian = 0, lower = 0;
     size_t n = 0;
     if (!cap) return 0;
     out[0] = 0;
-    for (const wchar_t *p = q; *p; p++) { if (ascii_letter(*p)) latin = 1; else if (persian_letter(*p)) persian = 1; }
+    for (const wchar_t *p = q; *p; p++) {
+        if (ascii_letter(*p)) { latin = 1; if (*p >= L'a') lower = 1; } else if (persian_letter(*p)) persian = 1;
+    }
     if (latin == persian) return 0;   /* no letters, or both scripts: no reading */
     for (; *q && n + 1 < cap; q++) {
         wchar_t c = *q, m = c;
         if (latin) {
             wchar_t l = ascii_letter(c) ? (wchar_t)(c | 0x20) : c;
-            for (size_t i = 0; EN[i]; i++) if (EN[i] == l) { m = FA[i]; break; }
+            int found = 0;
+            /* A capital among small letters is shift held down: the shifted Persian letter. All capitals (caps lock) read as small letters. */
+            if (lower && c != l) for (size_t i = 0; SH_EN[i]; i++) if (SH_EN[i] == l) { m = SH_FA[i]; found = 1; break; }
+            if (!found) for (size_t i = 0; EN[i]; i++) if (EN[i] == l) { m = FA[i]; break; }
         } else {
             wchar_t k = persian_key(c);
             if (k) m = k;
