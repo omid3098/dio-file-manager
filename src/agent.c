@@ -14,7 +14,7 @@ typedef struct agent_def {
 
 static const agent_def DEFS[] = {
     { "claude", "Claude Code", "claude.com/claude-code", "claude", 4, { { "Default", "" }, { "Haiku", "haiku" }, { "Sonnet", "sonnet" }, { "Opus", "opus" } } },
-    { "codex", "Codex", "github.com/openai/codex", "codex", 3, { { "Default", "" }, { "GPT-5", "gpt-5" }, { "GPT-5 mini", "gpt-5-mini" } } },
+    { "codex", "Codex", "github.com/openai/codex", "codex", 3, { { "Default", "" }, { "GPT-6 Luna", "gpt-6-luna" }, { "GPT-6.1 Sol", "gpt-6.1-sol" } } },   /* Luna: fast and cheap; the names are those a ChatGPT account accepts */
     { "gemini", "Gemini CLI", "github.com/google-gemini/gemini-cli", "gemini", 3, { { "Default", "" }, { "Gemini 2.5 Pro", "gemini-2.5-pro" }, { "Gemini 2.5 Flash", "gemini-2.5-flash" } } },
     { "ollama", "Ollama", "ollama.com", "ollama", 3, { { "Llama 3.2", "llama3.2" }, { "Qwen 2.5", "qwen2.5" }, { "Gemma 3", "gemma3" } } },
 };
@@ -207,7 +207,7 @@ static wchar_t *build_cmd(int a, int m, const wchar_t *dir) {
         if (model[0]) { add(c, 4096, "--model"); add(c, 4096, model); }
         add(c, 4096, "--add-dir"); wcscat_s(c, 4096, L" "); quote(c, 4096, dir);
     } else if (a == 1) {   /* codex: exec in a read-only sandbox, the prompt from stdin */
-        add(c, 4096, "exec --sandbox read-only --skip-git-repo-check --ephemeral --color never --ignore-user-config");
+        add(c, 4096, "exec --sandbox read-only --skip-git-repo-check --ephemeral --color never --ignore-user-config --disable hooks");
         if (model[0]) { add(c, 4096, "-m"); add(c, 4096, model); }
         add(c, 4096, "-C"); wcscat_s(c, 4096, L" "); quote(c, 4096, dir);
         add(c, 4096, "-");
