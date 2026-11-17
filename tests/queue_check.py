@@ -27,19 +27,18 @@ def run(argv, **kwargs):
                           creationflags=subprocess.CREATE_NO_WINDOW, **kwargs)
 
 
-def cui_source(main_root, cmake=ROOT / 'CMakeLists.txt'):
-    """The read-only CUI tree for the GIT_TAG the candidate's CMakeLists.txt pins."""
-    found = re.search(r'FetchContent_Declare\(\s*cui[^)]*?GIT_TAG\s+(\S+?)\s*\)',
-                      cmake.read_text(encoding='utf-8'), re.S)
+def cui_source(main_root, pin=ROOT / 'cmake/cui-pin.cmake'):
+    """The read-only CUI tree for the commit the candidate's cmake/cui-pin.cmake pins."""
+    found = re.search(r'set\(DFM_CUI_COMMIT\s+"([^"]+)"\)', pin.read_text(encoding='utf-8'))
     if not found:
-        raise ValueError(f'No CUI GIT_TAG in {cmake}')
+        raise ValueError(f'No DFM_CUI_COMMIT in {pin}')
     return main_root / '.agent-work' / f'cui-src-{found.group(1)[:7]}'
 
 
 def build_candidate(build, cui, console):
     if not (cui / 'CMakeLists.txt').is_file():
-        raise FileNotFoundError(f'Local CUI source required for the GIT_TAG in CMakeLists.txt, '
-                                f'a read-only copy of that commit at {cui}; the queue never downloads it')
+        raise FileNotFoundError(f'Local CUI source required for the commit in cmake/cui-pin.cmake, '
+                                f'a read-only copy of that commit at {cui} (made by tools/update_cui.py); the queue never downloads it')
     run(['cmake', '-S', ROOT, '-B', build, '-G', 'Visual Studio 17 2022', '-A', 'x64',
          '-DCMAKE_BUILD_TYPE=MinSizeRel', f'-DFETCHCONTENT_SOURCE_DIR_CUI={cui}',
          '-DFETCHCONTENT_FULLY_DISCONNECTED=ON', f'-DDFM_TEST_WORK={console}'])

@@ -9,18 +9,25 @@ include(FetchContent)
 set(CUI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CUI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(CUI_TEXT_SHAPING ON CACHE BOOL "" FORCE)
-# CUI comes from omid3098's fork of yappologistic/CUI, branch dfm-rtl-input: upstream plus pull request #12, which makes
-# text boxes join and edit Persian right to left. While #12 is open, moving CUI to upstream's newest commit means
-# rebasing dfm-rtl-input onto it, pushing it to the fork, and pinning the new commit here. See docs/architecture.md.
-FetchContent_Declare(cui GIT_REPOSITORY https://github.com/omid3098/CUI-yappologistic.git GIT_TAG 57ccb47d4373e4c36788162b0b43480b88296c55)
+# CUI is pinned in cmake/cui-pin.cmake, which tools/update_cui.py writes: omid3098's fork of yappologistic/CUI, branch dfm-rtl-input
+# (upstream plus pull request #12, right-to-left text fields). Move CUI only with `python tools/update_cui.py <upstream-commit>`;
+# a hand edit to upstream drops the Persian text box fix. See docs/architecture.md.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/cui-pin.cmake)
+set(DFM_CUI_FORK "https://github.com/omid3098/CUI-yappologistic.git")
+FetchContent_Declare(cui GIT_REPOSITORY ${DFM_CUI_REPOSITORY} GIT_TAG ${DFM_CUI_COMMIT})
 FetchContent_MakeAvailable(cui)
-# Stops a CUI without the right-to-left text field editing (a plain upstream pin) before it builds an app that types Persian wrong.
+# Stops a CUI without the right-to-left text field editing before it builds an app that types Persian wrong.
 file(STRINGS ${cui_SOURCE_DIR}/src/cui_textedit.c DFM_CUI_RTL LIMIT_COUNT 1 REGEX "cui__paint_edit_shaped")
 if(NOT DFM_CUI_RTL)
+  if(NOT DFM_CUI_REPOSITORY STREQUAL DFM_CUI_FORK)
+    message(FATAL_ERROR "cmake/cui-pin.cmake points CUI at ${DFM_CUI_REPOSITORY}, not at the fork ${DFM_CUI_FORK}, and that CUI "
+      "lacks right-to-left text field editing (function cui__paint_edit_shaped in src/cui_textedit.c), so Persian typed into the "
+      "text boxes would draw unjoined and left to right. Do not edit the pin by hand. Run: python tools/update_cui.py <upstream-commit>")
+  endif()
   message(FATAL_ERROR "The CUI at ${cui_SOURCE_DIR} lacks right-to-left text field editing (function cui__paint_edit_shaped in "
-    "src/cui_textedit.c), so Persian typed into the text boxes would draw unjoined and left to right. Pin the CUI fork "
-    "https://github.com/omid3098/CUI-yappologistic.git at a commit of branch dfm-rtl-input (upstream plus pull request #12): "
-    "rebase that branch onto upstream's newest commit, push it, and put the new commit in FetchContent_Declare. See docs/architecture.md.")
+    "src/cui_textedit.c), so Persian typed into the text boxes would draw unjoined and left to right. Do not edit the pin by hand. "
+    "Run: python tools/update_cui.py <upstream-commit>, which rebases the fork's branch dfm-rtl-input onto that commit, pushes it "
+    "and writes cmake/cui-pin.cmake.")
 endif()
 
 file(GLOB DFM_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
